@@ -1,0 +1,7 @@
+.venv-tts/
+.tts_tmp/
+ssn688
+ssn688.exe
+.DS_Store
+*.test
+/tmp/
