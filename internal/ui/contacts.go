@@ -11,13 +11,13 @@ func contactClassLabel(c *acoustics.Contact) string {
 	if c.ConfirmedClass != "" {
 		return c.ConfirmedClass
 	}
-	if c.BestMatchName != "" {
-		return "~" + c.BestMatchName
-	}
 	return "—"
 }
 
 func contactTypeLabel(c *acoustics.Contact) string {
+	if c.ConfirmedClass == "" {
+		return "—"
+	}
 	switch c.Kind {
 	case world.KindSubmarine:
 		return "SUB"
@@ -28,6 +28,35 @@ func contactTypeLabel(c *acoustics.Contact) string {
 	}
 }
 
+func contactRangeAccuracy(c *acoustics.Contact) float64 {
+	if c == nil || c.EstimatedRangeYd <= 0 {
+		return 0
+	}
+	if acoustics.ContactHasActiveRange(c) {
+		return 1
+	}
+	unc := c.UncRangeYd
+	if unc <= 0 {
+		unc = c.EstimatedRangeYd * 0.45
+	}
+	acc := 1 - unc/c.EstimatedRangeYd
+	if acc < 0 {
+		return 0
+	}
+	return acc
+}
+
+func contactRangeLabel(c *acoustics.Contact) string {
+	if c == nil || c.EstimatedRangeYd <= 0 {
+		return "—"
+	}
+	val := fmt.Sprintf("%.1f", c.EstimatedRangeYd/1000)
+	if contactRangeAccuracy(c) < 0.80 {
+		return "~" + val
+	}
+	return val
+}
+
 func contactShortLabel(c *acoustics.Contact) string {
 	return c.ID
 }
@@ -36,7 +65,27 @@ func contactLongLabel(c *acoustics.Contact) string {
 	if c.ConfirmedClass != "" {
 		return fmt.Sprintf("%s %s", c.ID, c.ConfirmedClass)
 	}
-	return fmt.Sprintf("%s %s", c.ID, contactClassLabel(c))
+	return c.ID
+}
+
+func contactSourceLabel(c *acoustics.Contact, player *world.Entity, sonar *acoustics.SonarState) string {
+	if c == nil || sonar == nil || player == nil {
+		return "—"
+	}
+	rel := acoustics.AngleDiffDeg(c.BearingDeg, player.HeadingDeg)
+	hull := acoustics.PassiveArraySensitivity(acoustics.PassiveArrayHull, rel, 0) >= 0.18
+	towed := sonar.TowedCablePct > 0.15 &&
+		acoustics.PassiveArraySensitivity(acoustics.PassiveArrayTowed, rel, sonar.TowedCablePct) >= 0.18
+	switch {
+	case hull && towed:
+		return "ALL"
+	case hull:
+		return "HLL"
+	case towed:
+		return "TWD"
+	default:
+		return "—"
+	}
 }
 
 func selectedContactLabel(sonar *acoustics.SonarState, selectedID string) string {

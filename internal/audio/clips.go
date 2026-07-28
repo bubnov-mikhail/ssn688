@@ -25,6 +25,7 @@ const (
 	ClipSonarPassiveOff     ClipID = "sonar/passive_off"
 	ClipSonarActiveStandby  ClipID = "sonar/active_standby"
 	ClipSonarActivePing     ClipID = "sonar/active_ping"
+	ClipSonarEnemyPing      ClipID = "sonar/enemy_ping"
 
 	ClipWepsImpactConfirmed ClipID = "weps/impact_confirmed"
 	ClipWepsOuterDoorClosed ClipID = "weps/outer_door_closed"

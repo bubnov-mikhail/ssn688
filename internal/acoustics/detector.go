@@ -50,16 +50,35 @@ func (m Model) Detect(listener, target *world.Entity, mode DetectionMode, active
 		src := SourceSpectrum(target)
 		received = Propagate(m.Env, src, target, listener)
 	case ModeActive:
-		if math.Abs(target.RelativeBearingDeg(listener)) > 70 {
-			return DetectionResult{TrueRangeYd: rangeYd, BearingDeg: bearing}
-		}
 		received = PropagateActive(m.Env, listener, target, PingSourceLevel(activePower))
+		// Beam aspect: strong return abeam, weaker bow/stern — never a hard cutoff.
+		aspect := math.Abs(AngleDiffDeg(target.BearingDegTo(listener), target.HeadingDeg))
+		rcsGain := 0.0
+		switch {
+		case aspect >= 55 && aspect <= 125:
+			rcsGain = 8
+		case aspect >= 35 && aspect <= 145:
+			rcsGain = 4
+		case aspect > 160:
+			rcsGain = -6
+		}
+		for i := range received {
+			received[i] += rcsGain
+		}
 	default:
 		return DetectionResult{}
 	}
 
 	selfNoise := SelfNoiseSpectrum(listener, m.Env, PassiveArrayHull, 0)
 	snr := received.SubNoise(selfNoise)
+	if mode == ModePassive {
+		rel := AngleDiffDeg(bearing, listener.HeadingDeg)
+		if penalty := PassiveSelfNoisePenaltyDB(PassiveArrayHull, rel, listener.SpeedKts, listener.DepthFt, 0); penalty > 0 {
+			for i := range snr {
+				snr[i] -= penalty
+			}
+		}
+	}
 
 	peak := snr.Peak()
 	bands := snr.BandsAbove(DetectThreshold)
@@ -98,4 +117,23 @@ func (m Model) CanDetectPassive(listener, target *world.Entity) bool {
 // CanDetectActive returns true when active return exceeds threshold.
 func (m Model) CanDetectActive(listener, target *world.Entity, power float64) bool {
 	return m.Detect(listener, target, ModeActive, power).Detected
+}
+
+// CanDetectPlayerPassive applies a temporary SNR bonus after the player active-pings.
+func (m Model) CanDetectPlayerPassive(listener, player *world.Entity, gameTime float64) bool {
+	r := m.Detect(listener, player, ModePassive, 0)
+	if heardAge := PlayerPingHeardAge(listener, player, gameTime); heardAge >= 0 {
+		power := player.LastPingPower
+		if power <= 0 {
+			power = 0.7
+		}
+		bonus := PlayerPingPassiveBonusDB(heardAge, power)
+		peak := r.PeakSNR + bonus
+		bands := r.BandsAbove
+		if bonus > 10 {
+			bands += 2
+		}
+		return bands >= MinDetectBands || peak >= PeakDetectSNR
+	}
+	return r.Detected
 }

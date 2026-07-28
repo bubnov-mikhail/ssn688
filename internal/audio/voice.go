@@ -177,6 +177,19 @@ func (m *Manager) PlayPing() {
 	m.playing = append(m.playing, &playerVoice{data: wav, volume: m.fxVol * m.masterVol * 0.6})
 }
 
+func (m *Manager) PlayEnemyPing() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if pcm, ok := m.clips[ClipSonarEnemyPing]; ok {
+		dup := make([]byte, len(pcm))
+		copy(dup, pcm)
+		m.playing = append(m.playing, &playerVoice{data: dup, volume: m.fxVol * m.masterVol * 0.55})
+		return
+	}
+	wav := generateEnemyPingWAV(m.sampleRate)
+	m.playing = append(m.playing, &playerVoice{data: wav, volume: m.fxVol * m.masterVol * 0.55})
+}
+
 func (m *Manager) PlayTorpedoLaunch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -328,6 +341,31 @@ func generateSweepWAV(sampleRate int, startFreq, endFreq, duration float64) []by
 		t := float64(i) / float64(sampleRate)
 		f := startFreq + (endFreq-startFreq)*t/duration
 		val := math.Sin(2*math.Pi*f*t) * 0.4 * (1 - t/duration)
+		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(val*32767)))
+	}
+	return pcm
+}
+
+func generateEnemyPingWAV(sampleRate int) []byte {
+	duration := 0.95
+	n := int(float64(sampleRate) * duration)
+	pcm := make([]byte, n*2)
+	for i := 0; i < n; i++ {
+		t := float64(i) / float64(sampleRate)
+		f0 := 820.0 - 40.0*(t/duration)
+		core := math.Sin(2 * math.Pi * f0 * t)
+		harm := 0.22 * math.Sin(2*math.Pi*(f0*2.02)*t+0.35)
+		ring := 0.18 * math.Sin(2*math.Pi*(f0*0.51)*t+1.1)
+		echo1, echo2 := 0.0, 0.0
+		if et := t - 0.16; et > 0 {
+			echo1 = 0.30 * math.Sin(2*math.Pi*690.0*et) * math.Exp(-et*3.8)
+		}
+		if et := t - 0.33; et > 0 {
+			echo2 = 0.18 * math.Sin(2*math.Pi*560.0*et) * math.Exp(-et*3.2)
+		}
+		attack := math.Min(1, t/0.02)
+		env := attack * math.Exp(-t*2.6)
+		val := (core + harm + ring + echo1 + echo2) * 0.46 * env
 		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(val*32767)))
 	}
 	return pcm

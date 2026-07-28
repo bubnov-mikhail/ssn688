@@ -36,10 +36,24 @@ func (e *Engine) Update(realDT float64) {
 	}
 	e.Accum += realDT * e.Clock.TimeScale
 	step := 1.0 / TickRate
-	for e.Accum >= step {
+	const maxTicksPerFrame = 6
+	ticks := 0
+	for e.Accum >= step && ticks < maxTicksPerFrame {
 		e.tick(step)
 		e.Accum -= step
+		ticks++
 	}
+}
+
+// VisualGameTime returns sub-tick interpolated simulation time for smooth UI motion.
+func (e *Engine) VisualGameTime() float64 {
+	if e == nil {
+		return 0
+	}
+	if e.Clock.Paused {
+		return e.Clock.GameTime
+	}
+	return e.Clock.GameTime + e.Accum
 }
 
 func (e *Engine) tick(dt float64) {
@@ -53,6 +67,7 @@ func (e *Engine) tick(dt float64) {
 			ent.Advance(dt)
 		}
 	}
+	e.clampToSeafloor()
 
 	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics)
 
@@ -60,6 +75,7 @@ func (e *Engine) tick(dt float64) {
 	e.Sonar.UpdateTowed(dt)
 	acoustics.UpdatePassive(e.Acoustics, player, emitters, &e.Sonar, t)
 	acoustics.FireActivePing(e.Acoustics, player, emitters, &e.Sonar, t)
+	acoustics.ProcessActiveEchoes(e.Acoustics, player, emitters, &e.Sonar, t)
 
 	alive := e.FireControl.ActiveTorpedoes[:0]
 	for _, torp := range e.FireControl.ActiveTorpedoes {
@@ -78,6 +94,12 @@ func (e *Engine) tick(dt float64) {
 
 	e.Scenario.CheckObjectives()
 	e.Acoustics.Env.UpdateLayerSurvey(t)
+	// Local seafloor under ownship feeds keel clearance / BT displays.
+	if e.Scenario.Bathy != nil && e.Scenario.Bathy.Valid() {
+		if d := e.Scenario.Bathy.DepthAtFt(player.X, player.Y); d > 0 {
+			e.Acoustics.Env.BottomDepthFt = d
+		}
+	}
 
 	if player.DepthFt > 1200 {
 		player.Status = world.StatusSunk
@@ -88,6 +110,37 @@ func (e *Engine) PopEvents() []string {
 	ev := e.Events
 	e.Events = nil
 	return ev
+}
+
+// clampToSeafloor keeps submarine keels above the local chart bottom.
+func (e *Engine) clampToSeafloor() {
+	bathy := e.Scenario.Bathy
+	if bathy == nil || !bathy.Valid() {
+		return
+	}
+	clamp := func(ent *world.Entity) {
+		if ent == nil || !ent.Alive() || ent.Kind != world.KindSubmarine {
+			return
+		}
+		bot := bathy.DepthAtFt(ent.X, ent.Y)
+		if bot <= 0 {
+			return
+		}
+		maxDepth := bot - 50
+		if maxDepth < 40 {
+			maxDepth = 40
+		}
+		if ent.DepthFt > maxDepth {
+			ent.DepthFt = maxDepth
+		}
+		if ent.OrderedDepth > maxDepth {
+			ent.OrderedDepth = maxDepth
+		}
+	}
+	clamp(e.Scenario.Player)
+	for _, ent := range e.Scenario.Entities {
+		clamp(ent)
+	}
 }
 
 func (e *Engine) EnemyEmitters() []*world.Entity {

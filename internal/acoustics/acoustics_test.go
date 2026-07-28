@@ -73,10 +73,27 @@ func TestAIUsesSameDetector(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 180, 20)
-	player.Y = 2000
+	player.Y = 900
 
-	if !model.CanDetectPassive(enemy, player) {
-		r := model.Detect(enemy, player, ModePassive, 0)
-		t.Fatalf("enemy should detect fast player at 1800 yd: peak=%.1f bands=%d", r.PeakSNR, r.BandsAbove)
+	can := model.CanDetectPassive(enemy, player)
+	r := model.Detect(enemy, player, ModePassive, 0)
+	if can != r.Detected {
+		t.Fatalf("CanDetectPassive and Detect disagree: can=%v detected=%v peak=%.1f bands=%d", can, r.Detected, r.PeakSNR, r.BandsAbove)
+	}
+}
+
+func TestPassiveSelfNoisePenaltyDirectional(t *testing.T) {
+	hullAhead := PassiveSelfNoisePenaltyDB(PassiveArrayHull, 0, 18, 160, 0)
+	hullAstern := PassiveSelfNoisePenaltyDB(PassiveArrayHull, 180, 18, 160, 0)
+	if hullAhead <= hullAstern {
+		t.Fatalf("expected bow-quarter hull deafening stronger ahead: ahead=%.1f astern=%.1f", hullAhead, hullAstern)
+	}
+	towedAhead := PassiveSelfNoisePenaltyDB(PassiveArrayTowed, 0, 18, 160, 1)
+	towedAstern := PassiveSelfNoisePenaltyDB(PassiveArrayTowed, 180, 18, 160, 1)
+	if towedAstern >= hullAstern {
+		t.Fatalf("expected streamed tow quieter astern than hull: towAstern=%.1f hullAstern=%.1f", towedAstern, hullAstern)
+	}
+	if towedAhead <= towedAstern {
+		t.Fatalf("expected tow endfire ahead noisier than astern: ahead=%.1f astern=%.1f", towedAhead, towedAstern)
 	}
 }

@@ -27,11 +27,12 @@ type Environment struct {
 // LayerSurveyDurationSec is compressed SSXBT cast time for gameplay pacing.
 const LayerSurveyDurationSec = 15.0
 
-// DefaultEnvironment returns a typical coastal thermocline profile (depths in feet).
+// DefaultEnvironment returns a coastal thermocline profile (depths in feet).
+// BottomDepthFt is overwritten in-mission from the active bathymetry chart.
 func DefaultEnvironment() Environment {
 	return Environment{
 		SeaState:      2,
-		BottomDepthFt: 2200,
+		BottomDepthFt: 280,
 		Layers: []WaterLayer{
 			{Name: "mixed", TopDepthFt: 0, BottomDepthFt: 240, AmbientNoiseDB: 68, CrossBoundaryAttenDB: 0},
 			{Name: "thermocline", TopDepthFt: 240, BottomDepthFt: 800, AmbientNoiseDB: 60, CrossBoundaryAttenDB: 16},

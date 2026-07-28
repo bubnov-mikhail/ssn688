@@ -76,7 +76,7 @@ func abs(v float64) float64 {
 
 func TestContactSpreadIsGradual(t *testing.T) {
 	bins := make([]float64, BearingWaterfallBins)
-	spreadBearingEnergy(bins, 90, 20, PassiveArrayHull, 0)
+	spreadBearingEnergy(bins, 90, 20, PassiveArrayHull, 0, 1)
 	peak := 0.0
 	aboveHalf := 0
 	for _, v := range bins {
@@ -87,7 +87,67 @@ func TestContactSpreadIsGradual(t *testing.T) {
 			aboveHalf++
 		}
 	}
-	if aboveHalf < 8 {
-		t.Fatalf("expected wide contact smear, bins above half=%d", aboveHalf)
+	// Compact contact blob: a few degrees of smear, not a wide wash.
+	if aboveHalf < 6 {
+		t.Fatalf("expected compact contact smear, bins above half=%d", aboveHalf)
+	}
+	if aboveHalf > 40 {
+		t.Fatalf("contact smear too wide, bins above half=%d", aboveHalf)
+	}
+}
+
+func TestOwnshipActivePingAppearsOnWaterfall(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
+	sonar := NewSonarState()
+	sonar.ActiveEnabled = true
+	sonar.ActivePower = 0.8
+	player.LastPingTime = 10
+
+	quiet := BearingWaterfallSlice(model, player, []*world.Entity{player}, &sonar, PassiveArrayHull, 0)
+	loud := BearingWaterfallSlice(model, player, []*world.Entity{player}, &sonar, PassiveArrayHull, 10.05)
+
+	quietPeak, loudPeak := 0.0, 0.0
+	for i := range quiet.Bearings {
+		if quiet.Bearings[i] > quietPeak {
+			quietPeak = quiet.Bearings[i]
+		}
+		if loud.Bearings[i] > loudPeak {
+			loudPeak = loud.Bearings[i]
+		}
+	}
+	if loudPeak < quietPeak+20 {
+		t.Fatalf("expected ownship ping flash on waterfall, quiet=%.1f loud=%.1f", quietPeak, loudPeak)
+	}
+}
+
+func TestEnemyActivePingAppearsOnWaterfall(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
+	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy.X = 6000
+	enemy.Y = 0
+	enemy.LastPingTime = 10
+	sonar := NewSonarState()
+
+	quiet := BearingWaterfallSlice(model, player, []*world.Entity{player, enemy}, &sonar, PassiveArrayHull, 0)
+	loud := BearingWaterfallSlice(model, player, []*world.Entity{player, enemy}, &sonar, PassiveArrayHull, 10.2)
+
+	quietPeak, loudPeak := 0.0, 0.0
+	for i := range quiet.Bearings {
+		if quiet.Bearings[i] > quietPeak {
+			quietPeak = quiet.Bearings[i]
+		}
+		if loud.Bearings[i] > loudPeak {
+			loudPeak = loud.Bearings[i]
+		}
+	}
+	if loudPeak < quietPeak+6 {
+		t.Fatalf("expected active ping flash on waterfall, quiet=%.1f loud=%.1f", quietPeak, loudPeak)
+	}
+	// Ping should peak near east (90°) for enemy at +X.
+	bin90 := BearingWaterfallBins / 4
+	if loud.Bearings[bin90] < quiet.Bearings[bin90]+5 {
+		t.Fatalf("ping energy should rise on target bearing, quiet90=%.1f loud90=%.1f", quiet.Bearings[bin90], loud.Bearings[bin90])
 	}
 }

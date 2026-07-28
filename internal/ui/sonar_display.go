@@ -8,6 +8,28 @@ import (
 // sonarHeatColor maps 0..1 intensity to a marine sonar heat palette
 // (dark blue → cyan → green → yellow → red), matching commercial PPI/waterfall displays.
 func sonarHeatColor(intensity float64) color.RGBA {
+	return sonarHeatColorFast(intensity)
+}
+
+var heatLUT [256]color.RGBA
+
+func init() {
+	for i := 0; i < 256; i++ {
+		heatLUT[i] = sonarHeatColorRaw(float64(i) / 255)
+	}
+}
+
+func sonarHeatColorFast(intensity float64) color.RGBA {
+	if intensity <= 0 {
+		return heatLUT[0]
+	}
+	if intensity >= 1 {
+		return heatLUT[255]
+	}
+	return heatLUT[int(intensity*255+0.5)]
+}
+
+func sonarHeatColorRaw(intensity float64) color.RGBA {
 	if intensity <= 0.02 {
 		return color.RGBA{0, 2, 18, 255}
 	}
@@ -15,7 +37,7 @@ func sonarHeatColor(intensity float64) color.RGBA {
 		intensity = 1
 	}
 	stops := []struct {
-		t    float64
+		t       float64
 		r, g, b float64
 	}{
 		{0.00, 0, 4, 36},
@@ -44,7 +66,7 @@ func sonarHeatColor(intensity float64) color.RGBA {
 }
 
 func snrToIntensity(snr float64) float64 {
-	const lo, hi = 1.0, 22.0
+	const lo, hi = 2.5, 28.0
 	t := (snr - lo) / (hi - lo)
 	if t < 0 {
 		return 0
@@ -52,5 +74,5 @@ func snrToIntensity(snr float64) float64 {
 	if t > 1 {
 		return 1
 	}
-	return math.Pow(t, 0.72)
+	return math.Pow(t, 1.18)
 }

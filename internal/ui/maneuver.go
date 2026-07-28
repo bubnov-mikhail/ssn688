@@ -110,6 +110,31 @@ func depthToGaugeY(ft float64) int {
 	return depthTop + int(ft/depthMaxFt*float64(depthH))
 }
 
+func (a *App) clampOrderedDepth(player *world.Entity, want float64) float64 {
+	if want < depthMinOrder {
+		want = depthMinOrder
+	}
+	if want > depthMaxFt {
+		want = depthMaxFt
+	}
+	if a.Engine == nil || a.Engine.Scenario == nil || a.Engine.Scenario.Bathy == nil || !a.Engine.Scenario.Bathy.Valid() || player == nil {
+		return want
+	}
+	bot := a.Engine.Scenario.Bathy.DepthAtFt(player.X, player.Y)
+	if bot <= 0 {
+		return want
+	}
+	maxDepth := bot - 50
+	if maxDepth < depthMinOrder {
+		maxDepth = depthMinOrder
+	}
+	if want > maxDepth {
+		a.StatusMessage = fmt.Sprintf("Unable to dive deeper here — bottom %.0f ft, max safe depth %.0f ft.", bot, maxDepth)
+		return maxDepth
+	}
+	return want
+}
+
 func drawDashedHLine(screen *ebiten.Image, x1, x2, y float64, clr color.Color, dash, gap float64) {
 	if x2 < x1 {
 		x1, x2 = x2, x1
@@ -160,7 +185,7 @@ func (a *App) updateManeuverUI(player *world.Entity) {
 		}
 		if !clickedButton {
 			if depthGaugeContains(mx, my) {
-				player.OrderedDepth = depthFromGaugeY(my)
+				player.OrderedDepth = a.clampOrderedDepth(player, depthFromGaugeY(my))
 				a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(player.OrderedDepth)))
 				clickedButton = true
 			} else if hdg, ok := compassHeadingAt(mx, my); ok {
@@ -235,10 +260,10 @@ func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 		}
 		a.Audio.PlayClip(audio.ClipDiveComeRight, fmt.Sprintf("Come right to %d.", int(player.OrderedHead)))
 	case "dep_shallow":
-		player.OrderedDepth = math.Max(depthMinOrder, player.OrderedDepth-20)
+		player.OrderedDepth = a.clampOrderedDepth(player, math.Max(depthMinOrder, player.OrderedDepth-20))
 		a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(player.OrderedDepth)))
 	case "dep_deep":
-		player.OrderedDepth = math.Min(depthMaxFt, player.OrderedDepth+20)
+		player.OrderedDepth = a.clampOrderedDepth(player, math.Min(depthMaxFt, player.OrderedDepth+20))
 		a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(player.OrderedDepth)))
 	case "dep_hold":
 		player.OrderedDepth = player.DepthFt

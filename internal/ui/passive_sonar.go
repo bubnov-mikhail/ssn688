@@ -19,6 +19,10 @@ const (
 	passivePlotCY         = 430.0
 	passivePlotR          = 222.0
 	passivePlotMaxRangeYd = 8000.0
+	passiveListX          = 950
+	passiveListY          = 278
+	passiveListW          = 310
+	passiveListRow        = 22
 )
 
 type contactChip struct {
@@ -115,26 +119,13 @@ func (a *App) updatePassiveInput(sonar *acoustics.SonarState) {
 		return
 	}
 	mx, my := ebiten.CursorPosition()
-	player := a.Engine.Scenario.Player
-	best := -1
-	bestR := 1e9
+	y := passiveListY + passiveListRow
 	for i := range sonar.Contacts {
-		c := &sonar.Contacts[i]
-		if !a.contactAudibleOnArray(c, player, sonar) {
-			continue
+		if mx >= passiveListX && mx < passiveListX+passiveListW && my >= y && my < y+passiveListRow {
+			a.selectContact(sonar, &sonar.Contacts[i])
+			return
 		}
-		if !a.contactPlotHit(mx, my, c) {
-			continue
-		}
-		r := contactBlobRadiusPx(c)
-		if r < bestR {
-			bestR = r
-			best = i
-		}
-	}
-	if best >= 0 {
-		a.selectContact(sonar, &sonar.Contacts[best])
-		return
+		y += passiveListRow
 	}
 	for _, chip := range a.waterfallContactChips(sonar) {
 		if mx >= chip.X && mx < chip.X+chip.W && my >= chip.Y && my < chip.Y+chip.H {
@@ -150,16 +141,12 @@ func (a *App) updatePassiveInput(sonar *acoustics.SonarState) {
 
 func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 	const (
-		panelX = 952
-		labelW = 28
-		panelW = 316
-		chipY0 = 250
-		chipY1 = 268
+		panelX = waterfallPlotX
+		panelW = waterfallPlotW
+		chipY0 = waterfallPanelY + 34
 		chipH  = 16
-		gap    = 4
+		gap    = 6
 	)
-	plotX := panelX + labelW
-	plotW := panelW - labelW
 
 	type pending struct {
 		id   string
@@ -174,10 +161,9 @@ func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 			continue
 		}
 		w := len(c.ID)*7 + 10
-		cx := plotX + acoustics.HeadingToWaterfallX(c.BearingDeg, plotW)
+		cx := panelX + waterfallBearingDisplayX(c.BearingDeg, panelW)
 		items = append(items, pending{id: c.SourceEntityID, cx: cx, w: w, brg: c.BearingDeg})
 	}
-	// Left-to-right so we can pack without overlap.
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].cx == items[j].cx {
 			return items[i].brg < items[j].brg
@@ -185,8 +171,7 @@ func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 		return items[i].cx < items[j].cx
 	})
 
-	rowEnd := [2]int{panelX - gap, panelX - gap}
-	rowY := [2]int{chipY0, chipY1}
+	rowEnd := panelX - gap
 	var chips []contactChip
 	for _, it := range items {
 		chipX := it.cx - it.w/2
@@ -196,29 +181,8 @@ func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 		if chipX+it.w > panelX+panelW {
 			chipX = panelX + panelW - it.w
 		}
-		// Prefer the row that can fit without overlap; else the one with more room.
-		row := 0
-		fits0 := chipX >= rowEnd[0]+gap
-		fits1 := chipX >= rowEnd[1]+gap
-		switch {
-		case fits0 && fits1:
-			if rowEnd[0] <= rowEnd[1] {
-				row = 0
-			} else {
-				row = 1
-			}
-		case fits0:
-			row = 0
-		case fits1:
-			row = 1
-		default:
-			// Both crowded: nudge to the right of the less-extended row.
-			if rowEnd[0] <= rowEnd[1] {
-				row = 0
-			} else {
-				row = 1
-			}
-			chipX = rowEnd[row] + gap
+		if chipX < rowEnd+gap {
+			chipX = rowEnd + gap
 			if chipX+it.w > panelX+panelW {
 				chipX = panelX + panelW - it.w
 			}
@@ -228,51 +192,14 @@ func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 		}
 		chips = append(chips, contactChip{
 			SourceID: it.id,
-			X: chipX, Y: rowY[row], W: it.w, H: chipH,
+			X: chipX, Y: chipY0, W: it.w, H: chipH,
 		})
 		end := chipX + it.w
-		if end > rowEnd[row] {
-			rowEnd[row] = end
+		if end > rowEnd {
+			rowEnd = end
 		}
 	}
 	return chips
-}
-
-// drawSoftDisk draws a softly dissolved disk; pixels outside clipR from (clipCX,clipCY) are skipped.
-func drawSoftDisk(screen *ebiten.Image, cx, cy, r float64, clr color.RGBA, clipCX, clipCY, clipR float64) {
-	if r < 1 {
-		return
-	}
-	ri := int(math.Ceil(r * 1.15))
-	clipR2 := clipR * clipR
-	for dy := -ri; dy <= ri; dy++ {
-		for dx := -ri; dx <= ri; dx++ {
-			px := cx + float64(dx)
-			py := cy + float64(dy)
-			if clipR > 0 {
-				cdx := px - clipCX
-				cdy := py - clipCY
-				if cdx*cdx+cdy*cdy > clipR2 {
-					continue
-				}
-			}
-			dist := math.Sqrt(float64(dx*dx + dy*dy))
-			t := dist / r
-			if t > 1.25 {
-				continue
-			}
-			// Smooth dissolve: soft core, long exponential tail (no hard rim).
-			fall := math.Exp(-2.8 * t * t)
-			if t > 0.85 {
-				fall *= math.Max(0, 1-(t-0.85)/0.4)
-			}
-			alpha := uint8(float64(clr.A) * fall)
-			if alpha < 3 {
-				continue
-			}
-			render.FillRect(screen, int(px), int(py), 1, 1, color.RGBA{clr.R, clr.G, clr.B, alpha})
-		}
-	}
 }
 
 func drawContactMarker(screen *ebiten.Image, c *acoustics.Contact, selected, hover bool) {
@@ -289,20 +216,29 @@ func drawContactMarker(screen *ebiten.Image, c *acoustics.Contact, selected, hov
 	}
 	half := int(r)
 	x, y := int(cx), int(cy)
-	bracket := render.ColorAmber
-	if hover && !selected {
-		bracket = color.RGBA{255, 255, 120, 200}
-	}
 	arm := 5
-	render.DrawLine(screen, float64(x-half), float64(y-half), float64(x-half+arm), float64(y-half), bracket)
-	render.DrawLine(screen, float64(x-half), float64(y-half), float64(x-half), float64(y-half+arm), bracket)
-	render.DrawLine(screen, float64(x+half), float64(y-half), float64(x+half-arm), float64(y-half), bracket)
-	render.DrawLine(screen, float64(x+half), float64(y-half), float64(x+half), float64(y-half+arm), bracket)
-	render.DrawLine(screen, float64(x-half), float64(y+half), float64(x-half+arm), float64(y+half), bracket)
-	render.DrawLine(screen, float64(x-half), float64(y+half), float64(x-half), float64(y+half-arm), bracket)
-	render.DrawLine(screen, float64(x+half), float64(y+half), float64(x+half-arm), float64(y+half), bracket)
-	render.DrawLine(screen, float64(x+half), float64(y+half), float64(x+half), float64(y+half-arm), bracket)
-	render.DrawText(screen, c.ID, x+half+4, y+4, bracket, true)
+	// High-contrast frame on heat map: white corners with black outline.
+	drawCornerBracket(screen, x, y, half, arm, color.RGBA{0, 0, 0, 255}, 1)
+	fg := color.RGBA{255, 255, 255, 255}
+	if hover && !selected {
+		fg = color.RGBA{220, 220, 220, 255}
+	}
+	drawCornerBracket(screen, x, y, half, arm, fg, 0)
+	render.DrawText(screen, c.ID, x+half+4, y+4, color.RGBA{0, 0, 0, 255}, true)
+	render.DrawText(screen, c.ID, x+half+3, y+3, fg, true)
+}
+
+func drawCornerBracket(screen *ebiten.Image, x, y, half, arm int, clr color.RGBA, outset int) {
+	h := half + outset
+	a := arm + outset
+	render.DrawLine(screen, float64(x-h), float64(y-h), float64(x-h+a), float64(y-h), clr)
+	render.DrawLine(screen, float64(x-h), float64(y-h), float64(x-h), float64(y-h+a), clr)
+	render.DrawLine(screen, float64(x+h), float64(y-h), float64(x+h-a), float64(y-h), clr)
+	render.DrawLine(screen, float64(x+h), float64(y-h), float64(x+h), float64(y-h+a), clr)
+	render.DrawLine(screen, float64(x-h), float64(y+h), float64(x-h+a), float64(y+h), clr)
+	render.DrawLine(screen, float64(x-h), float64(y+h), float64(x-h), float64(y+h-a), clr)
+	render.DrawLine(screen, float64(x+h), float64(y+h), float64(x+h-a), float64(y+h), clr)
+	render.DrawLine(screen, float64(x+h), float64(y+h), float64(x+h), float64(y+h-a), clr)
 }
 
 func aContactCenter(c *acoustics.Contact) (float64, float64) {
@@ -312,137 +248,240 @@ func aContactCenter(c *acoustics.Contact) (float64, float64) {
 	return passivePlotCX + math.Sin(rad)*dist, passivePlotCY - math.Cos(rad)*dist
 }
 
-func (a *App) drawPassiveBearingPlot(screen *ebiten.Image, player *world.Entity, sonar *acoustics.SonarState) {
-	cx, cy, radius := passivePlotCX, passivePlotCY, passivePlotR
-	arrayLabel := "HULL"
-	if sonar.PassiveArray == acoustics.PassiveArrayTowed {
-		arrayLabel = "TOWED"
-	}
-	render.DrawText(screen, fmt.Sprintf("BEARING PPI — %s", arrayLabel), int(cx)-70, int(cy-radius)-42, render.ColorPhosphorDim, true)
-
-	// Dark navy face like the marine electronics reference.
-	drawFilledCircle(screen, cx, cy, radius, color.RGBA{0, 2, 18, 255})
-
-	// Polar BTR: same energy history as the waterfall for the selected array.
-	a.drawPolarBearingField(screen, sonar, cx, cy, radius)
-
-	for _, rngYd := range []float64{2000, 4000, 6000, 8000} {
-		r := rngYd / passivePlotMaxRangeYd * (radius - 28)
-		drawCircle(screen, cx, cy, r, color.RGBA{0, 120, 70, 160})
-		lbl := fmt.Sprintf("%.0fk", rngYd/1000)
-		render.DrawText(screen, lbl, int(cx)+6, int(cy-r)-4, render.ColorPhosphorDim, true)
-	}
-
-	for deg := 0; deg < 360; deg += 30 {
-		rad := float64(deg) * math.Pi / 180
-		inner := radius - 8
-		render.DrawLine(screen, cx+math.Sin(rad)*14, cy-math.Cos(rad)*14,
-			cx+math.Sin(rad)*inner, cy-math.Cos(rad)*inner, color.RGBA{0, 100, 60, 140})
-	}
-	drawCircle(screen, cx, cy, radius, color.RGBA{0, 180, 110, 220})
-
-	labels := map[int]string{0: "000", 90: "090", 180: "180", 270: "270"}
-	for deg, lbl := range labels {
-		rad := float64(deg) * math.Pi / 180
-		lx := cx + math.Sin(rad)*(radius+14)
-		ly := cy - math.Cos(rad)*(radius+14)
-		render.DrawText(screen, lbl, int(lx)-12, int(ly)+4, render.ColorPhosphor, false)
-	}
-
-	hrad := player.HeadingDeg * math.Pi / 180
-	render.DrawLine(screen, cx, cy, cx+math.Sin(hrad)*(radius-36), cy-math.Cos(hrad)*(radius-36), render.ColorAmber)
-	render.DrawLine(screen, cx, cy, cx+math.Sin(hrad)*42, cy-math.Cos(hrad)*42, render.ColorHighlight)
+func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
+	render.FillRect(screen, passiveListX, passiveListY, passiveListW, passiveListRow*max(1, len(sonar.Contacts)+1)+14, render.ColorPanelInset)
+	render.DrawText(screen, "CONTACT", passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "BRG", passiveListX+72, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "RNG", passiveListX+112, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "SRC", passiveListX+158, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "CLASS", passiveListX+200, passiveListY+16, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
+	player := a.Engine.Scenario.Player
+	y := passiveListY + passiveListRow
 	for i := range sonar.Contacts {
 		c := &sonar.Contacts[i]
-		if !a.contactAudibleOnArray(c, player, sonar) {
-			continue
-		}
 		selected := c.SourceEntityID == a.selectedContactID
-		hover := a.contactPlotHit(mx, my, c)
-		drawContactMarker(screen, c, selected, hover)
+		hover := mx >= passiveListX && mx < passiveListX+passiveListW && my >= y && my < y+passiveListRow
+		if selected {
+			render.FillRect(screen, passiveListX+2, y, passiveListW-4, passiveListRow, color.RGBA{80, 60, 0, 180})
+		} else if hover {
+			render.FillRect(screen, passiveListX+2, y, passiveListW-4, passiveListRow, render.ColorPanelMid)
+		}
+		clr := render.ColorPhosphor
+		if selected {
+			clr = render.ColorAmber
+		}
+		render.DrawText(screen, c.ID, passiveListX+8, y+16, clr, true)
+		render.DrawText(screen, fmt.Sprintf("%03.0f", c.BearingDeg), passiveListX+72, y+16, clr, true)
+		render.DrawText(screen, contactRangeLabel(c), passiveListX+112, y+16, clr, true)
+		render.DrawText(screen, contactSourceLabel(c, player, sonar), passiveListX+158, y+16, clr, true)
+		render.DrawText(screen, contactClassLabel(c), passiveListX+200, y+16, clr, true)
+		y += passiveListRow
 	}
+}
 
-	a.drawActiveSonarWashCircle(screen, sonar, cx, cy, radius)
+// ppiPixelLUT caches polar mapping for the PPI raster (avoids atan2 per rebuild).
+type ppiPixelLUT struct {
+	bi0    uint16
+	frac8  uint8 // 0..255 blend to next bin
+	rFrac8 uint8 // 0..255 radial fraction
+	inside bool
 }
 
 // drawPolarBearingField paints the selected array's current bearing energy as a
-// grainy heat PPI (blue→red), matching the waterfall for that array.
+// full-disk heat PPI. Low-res cached raster, rebuilt only when waterfall advances.
 func (a *App) drawPolarBearingField(screen *ebiten.Image, sonar *acoustics.SonarState, cx, cy, radius float64) {
-	wf := a.bearingWaterfalls.ForArray(sonar.PassiveArray)
-	latest := wf.Latest()
-	if latest == nil || len(latest.Bearings) == 0 {
+	const scale = 3.0
+	size := int(radius*2/scale) + 1
+	if size < 4 {
 		return
 	}
-
-	innerR := 16.0
-	outerR := radius - 4
-	bins := len(latest.Bearings)
-	step := 2
-	noiseRng := rand.New(rand.NewSource(phosphorNoiseSeed() ^ int64(sonar.PassiveArray)*0x9e37 ^ int64(latest.Heading*10)))
-
-	// Optional short persistence from a few recent rows (phosphor trail).
-	persist := wf.rows
-	if len(persist) > 6 {
-		persist = persist[:6]
+	if a.passivePPI == nil || a.passivePPI.Bounds().Dx() != size {
+		a.passivePPI = ebiten.NewImage(size, size)
+		a.passivePPIPixels = make([]byte, size*size*4)
+		a.buildPPILUT(size)
+		a.passivePPIPending = true
 	}
 
-	r2max := (radius - 1) * (radius - 1)
-	for bi := 0; bi < bins; bi += step {
-		peak := 0.0
-		for _, row := range persist {
-			if bi >= len(row.Bearings) {
+	if a.passivePPIPending || a.passivePPIArray != sonar.PassiveArray {
+		a.rebuildPassivePPI(sonar, size)
+		a.passivePPIPending = false
+		a.passivePPIArray = sonar.PassiveArray
+		a.passivePPIStamp = a.lastWaterfallSample
+	}
+
+	op := &ebiten.DrawImageOptions{}
+	op.Filter = ebiten.FilterLinear
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(cx-radius, cy-radius)
+	screen.DrawImage(a.passivePPI, op)
+}
+
+func (a *App) buildPPILUT(size int) {
+	a.ppiLUTSize = size
+	a.ppiLUT = make([]ppiPixelLUT, size*size)
+	bins := acoustics.BearingWaterfallBins
+	cx := float64(size) / 2
+	cy := float64(size) / 2
+	rMax := cx - 0.5
+	rMax2 := rMax * rMax
+	innerR := 1.5
+	innerR2 := innerR * innerR
+	for py := 0; py < size; py++ {
+		dy := float64(py) + 0.5 - cy
+		for px := 0; px < size; px++ {
+			dx := float64(px) + 0.5 - cx
+			r2 := dx*dx + dy*dy
+			e := &a.ppiLUT[py*size+px]
+			if r2 > rMax2 || r2 < innerR2 {
 				continue
 			}
-			v := row.Bearings[bi]
-			for k := 1; k < step && bi+k < len(row.Bearings); k++ {
-				if row.Bearings[bi+k] > v {
-					v = row.Bearings[bi+k]
+			r := math.Sqrt(r2)
+			bearing := math.Atan2(dx, -dy) * 180 / math.Pi
+			if bearing < 0 {
+				bearing += 360
+			}
+			bf := bearing / 360 * float64(bins)
+			bi0 := int(bf) % bins
+			if bi0 < 0 {
+				bi0 += bins
+			}
+			frac := bf - math.Floor(bf)
+			e.bi0 = uint16(bi0)
+			e.frac8 = uint8(frac * 255)
+			e.rFrac8 = uint8((r - innerR) / (rMax - innerR) * 255)
+			e.inside = true
+		}
+	}
+}
+
+func (a *App) ensurePPIScratch(bins int) {
+	if cap(a.ppiEnergies) < bins {
+		a.ppiEnergies = make([]float64, bins)
+		a.ppiSmoothed = make([]float64, bins)
+		a.ppiFloorN = make([]float64, bins)
+		a.ppiGrainN = make([]float64, bins)
+	} else {
+		a.ppiEnergies = a.ppiEnergies[:bins]
+		a.ppiSmoothed = a.ppiSmoothed[:bins]
+		a.ppiFloorN = a.ppiFloorN[:bins]
+		a.ppiGrainN = a.ppiGrainN[:bins]
+	}
+}
+
+func (a *App) rebuildPassivePPI(sonar *acoustics.SonarState, size int) {
+	if a.ppiLUTSize != size || len(a.ppiLUT) != size*size {
+		a.buildPPILUT(size)
+	}
+	wf := a.bearingWaterfalls.ForArray(sonar.PassiveArray)
+	bins := acoustics.BearingWaterfallBins
+	a.ensurePPIScratch(bins)
+	energies := a.ppiEnergies
+	for i := range energies {
+		energies[i] = 0
+	}
+	heading := 0.0
+	if a.Engine != nil && a.Engine.Scenario.Player != nil {
+		heading = a.Engine.Scenario.Player.HeadingDeg
+	}
+	if latest := wf.Latest(); latest != nil && len(latest.Bearings) > 0 {
+		heading = latest.Heading
+		persistN := wf.Len()
+		if persistN > 5 {
+			persistN = 5
+		}
+		for bi := 0; bi < bins; bi++ {
+			peak := 0.0
+			for age := 0; age < persistN; age++ {
+				row := wf.Row(age)
+				if row == nil || bi >= len(row.Bearings) {
+					continue
+				}
+				if row.Bearings[bi] > peak {
+					peak = row.Bearings[bi]
 				}
 			}
-			if v > peak {
-				peak = v
-			}
+			energies[bi] = peak
 		}
-		floor := 0.25 + noiseRng.Float64()*0.65
+	}
+
+	smoothed := a.ppiSmoothed
+	for bi := 0; bi < bins; bi++ {
+		l := energies[(bi-1+bins)%bins]
+		r := energies[(bi+1)%bins]
+		smoothed[bi] = energies[bi]*0.6 + l*0.2 + r*0.2
+	}
+
+	noiseRng := rand.New(rand.NewSource(int64(a.lastWaterfallSample*1000) ^ int64(sonar.PassiveArray)*0x9e37 ^ int64(heading*10)))
+	floorN := a.ppiFloorN
+	grainN := a.ppiGrainN
+	for bi := 0; bi < bins; bi++ {
+		floorN[bi] = 0.32 + noiseRng.Float64()*0.38
+		grainN[bi] = 0.92 + 0.12*noiseRng.Float64()
+	}
+
+	// Precompute sensitivity per bearing bin for current heading/array.
+	if cap(a.ppiSens) < bins {
+		a.ppiSens = make([]float64, bins)
+	} else {
+		a.ppiSens = a.ppiSens[:bins]
+	}
+	sensBin := a.ppiSens
+	for bi := 0; bi < bins; bi++ {
+		bearing := float64(bi) / float64(bins) * 360
+		rel := acoustics.AngleDiffDeg(bearing, heading)
+		sensBin[bi] = acoustics.PassiveArraySensitivity(sonar.PassiveArray, rel, sonar.TowedCablePct)
+	}
+
+	pix := a.passivePPIPixels
+	for i := range pix {
+		pix[i] = 0
+	}
+	lut := a.ppiLUT
+	for i, e := range lut {
+		if !e.inside {
+			continue
+		}
+		bi0 := int(e.bi0)
+		bi1 := (bi0 + 1) % bins
+		frac := float64(e.frac8) / 255
+		peak := smoothed[bi0]*(1-frac) + smoothed[bi1]*frac
+		sens := sensBin[bi0]*(1-frac) + sensBin[bi1]*frac
+
+		floor := (floorN[bi0]*(1-frac) + floorN[bi1]*frac) * (0.1 + 0.9*sens)
 		if peak < floor {
 			peak = floor
 		}
-		peak *= 0.85 + 0.28*noiseRng.Float64()
-		baseI := snrToIntensity(peak)
-		if baseI < 0.025 {
-			continue
+		peak *= grainN[bi0]*(1-frac) + grainN[bi1]*frac
+		baseI := snrToIntensity(peak) * (0.2 + 0.8*sens)
+		if baseI < 0.015 {
+			baseI = 0.015 * sens
 		}
-
-		bearing := float64(bi) / float64(bins) * 360
-		rad := bearing * math.Pi / 180
-		sinB, cosB := math.Sin(rad), math.Cos(rad)
-
-		// Radial cells: stronger energy extends farther and runs hotter (reference look).
-		reach := innerR + (outerR-innerR)*(0.35+0.65*baseI)
-		for r := innerR; r < reach; r += 3.0 {
-			rngFrac := (r - innerR) / (outerR - innerR)
-			// Near-field clutter bias + peak mid/far for strong contacts.
-			shape := 0.45 + 0.55*rngFrac
-			if baseI > 0.55 {
-				shape = 0.35 + 0.9*math.Exp(-math.Pow((rngFrac-0.55)/0.28, 2))
-			}
-			intensity := baseI * shape * (0.75 + 0.4*noiseRng.Float64())
-			if intensity < 0.03 {
-				continue
-			}
-			px := cx + sinB*r
-			py := cy - cosB*r
-			dx := px - cx
-			dy := py - cy
-			if dx*dx+dy*dy > r2max {
-				continue
-			}
-			arcW := math.Max(2, r*float64(step)*math.Pi/180*1.2)
-			render.FillRect(screen, int(px-arcW*0.5), int(py-1.5), int(arcW+0.5), 3, sonarHeatColor(intensity))
+		rngFrac := float64(e.rFrac8) / 255
+		shape := 0.55 + 0.45*rngFrac
+		if baseI > 0.55 {
+			dr := rngFrac - 0.55
+			shape = 0.4 + 0.85*math.Exp(-(dr*dr)/(0.3*0.3))
 		}
+		intensity := baseI * shape
+		if sens < 0.25 {
+			intensity *= 0.35 + 0.4*sens
+		}
+		if sens < 0.28 {
+			intensity *= 0.45 + 0.55*(sens/0.28)
+		}
+		if intensity < 0.012 {
+			intensity = 0.012
+		}
+		clr := sonarHeatColorFast(intensity)
+		off := i * 4
+		pix[off] = clr.R
+		pix[off+1] = clr.G
+		pix[off+2] = clr.B
+		pix[off+3] = 255
 	}
+	a.passivePPI.WritePixels(pix)
 }
 
 func drawFilledCircle(screen *ebiten.Image, cx, cy, r float64, clr color.RGBA) {
@@ -455,35 +494,6 @@ func drawFilledCircle(screen *ebiten.Image, cx, cy, r float64, clr color.RGBA) {
 		}
 		dx := int(math.Sqrt(xx))
 		render.FillRect(screen, int(cx)-dx, int(cy)+dy, 2*dx+1, 1, clr)
-	}
-}
-
-// activeSonarWashIntensity returns 0..1 bloom from ownship active ping deafening passive arrays.
-func (a *App) activeSonarWashIntensity(sonar *acoustics.SonarState) float64 {
-	if sonar == nil || !sonar.ActiveEnabled || a.Engine == nil {
-		return 0
-	}
-	gt := a.Engine.Clock.GameTime
-	age := gt - sonar.LastPingTime
-	if age < 0 || age > 4.5 {
-		// Idle active mode: faint persistent wash.
-		return 0.12 * sonar.ActivePower
-	}
-	// Strong flash that decays after each ping.
-	flash := math.Exp(-age * 1.15)
-	return math.Min(1, (0.18+0.82*flash)*sonar.ActivePower)
-}
-
-func (a *App) drawActiveSonarWashCircle(screen *ebiten.Image, sonar *acoustics.SonarState, cx, cy, radius float64) {
-	wash := a.activeSonarWashIntensity(sonar)
-	if wash < 0.02 {
-		return
-	}
-	baseA := uint8(40 + wash*90)
-	drawSoftDisk(screen, cx, cy, radius*0.95, color.RGBA{180, 230, 255, baseA}, cx, cy, radius)
-	drawSoftDisk(screen, cx, cy, radius*0.55, color.RGBA{210, 245, 255, uint8(float64(baseA)*0.7)}, cx, cy, radius)
-	if wash > 0.35 {
-		drawSoftDisk(screen, cx, cy, radius*0.22, color.RGBA{240, 250, 255, uint8(wash*70)}, cx, cy, radius)
 	}
 }
 

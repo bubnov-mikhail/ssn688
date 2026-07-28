@@ -6,6 +6,26 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
+// SoundSpeedYdPerSec is nominal sound speed in seawater (~1480 m/s).
+const SoundSpeedYdPerSec = 1619.0
+
+// EchoRangeYd is the maximum one-way range from which a two-way echo
+// could have returned after ageSec since transmit.
+func EchoRangeYd(ageSec float64) float64 {
+	if ageSec <= 0 {
+		return 0
+	}
+	return SoundSpeedYdPerSec * ageSec * 0.5
+}
+
+// TwoWayTravelSec is round-trip travel time for a target at rangeYd.
+func TwoWayTravelSec(rangeYd float64) float64 {
+	if rangeYd <= 0 {
+		return 0
+	}
+	return 2 * rangeYd / SoundSpeedYdPerSec
+}
+
 // Propagate applies spreading, absorption, and layer effects to a source spectrum.
 func Propagate(env Environment, source Spectrum, emitter, listener *world.Entity) Spectrum {
 	rangeYd := emitter.RangeYardsTo(listener)

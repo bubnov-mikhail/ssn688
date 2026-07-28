@@ -6,10 +6,12 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	ebitenaudio "github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/ssn688/sim/assets"
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/ui"
+	"github.com/ssn688/sim/internal/world"
 )
 
 const sampleRate = 44100
@@ -38,6 +40,12 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 func main() {
 	if err := render.InitFonts(); err != nil {
 		log.Printf("font init: %v", err)
+	}
+
+	if bathy, err := world.LoadBathymetry(assets.BathyChart); err != nil {
+		log.Printf("bathymetry: %v", err)
+	} else {
+		world.SetDefaultBathymetry(bathy)
 	}
 
 	settings, err := config.Load()

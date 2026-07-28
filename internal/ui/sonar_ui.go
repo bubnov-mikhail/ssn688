@@ -120,8 +120,12 @@ func (a *App) sonarButtonAction(id string, sonar *acoustics.SonarState) {
 	switch id {
 	case "array_hull":
 		sonar.PassiveArray = acoustics.PassiveArrayHull
+		a.waterfallFullRebuild = true
+		a.passivePPIPending = true
 	case "array_towed":
 		sonar.PassiveArray = acoustics.PassiveArrayTowed
+		a.waterfallFullRebuild = true
+		a.passivePPIPending = true
 	case "towed_deploy":
 		if sonar.TowedDeployed() || (sonar.TowedInMotion() && sonar.TowedCableRate > 0) {
 			return
@@ -150,6 +154,8 @@ func (a *App) handleSonarArrayKeys(sonar *acoustics.SonarState, allowTowedMotion
 		} else {
 			sonar.PassiveArray = acoustics.PassiveArrayHull
 		}
+		a.waterfallFullRebuild = true
+		a.passivePPIPending = true
 	}
 	if !allowTowedMotion {
 		return

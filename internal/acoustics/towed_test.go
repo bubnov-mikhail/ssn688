@@ -1,6 +1,10 @@
 package acoustics
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ssn688/sim/internal/world"
+)
 
 func TestTowedCableMotion(t *testing.T) {
 	s := NewSonarState()
@@ -44,11 +48,46 @@ func TestTowedArraySNRBonus(t *testing.T) {
 	s := NewSonarState()
 	s.PassiveArray = PassiveArrayTowed
 	s.TowedCablePct = 1
-	if s.passiveSNRBonusDB() != 5 {
-		t.Fatalf("expected +5 dB bonus, got %.1f", s.passiveSNRBonusDB())
+	if s.passiveSNRBonusDB() != 8 {
+		t.Fatalf("expected +8 dB bonus, got %.1f", s.passiveSNRBonusDB())
 	}
 	s.PassiveArray = PassiveArrayHull
 	if s.passiveSNRBonusDB() != 0 {
 		t.Fatalf("hull array should have no towed bonus")
+	}
+}
+
+func TestSpectrumAtBearingRespectsStowedTowedArray(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	listener := &world.Entity{
+		ID: "player", SignatureID: "los_angeles", Kind: world.KindSubmarine, Status: world.StatusActive,
+		DepthFt: 240, SpeedKts: 5, HeadingDeg: 0, OrderedHead: 0,
+	}
+	emitter := &world.Entity{
+		ID: "target", SignatureID: "spruance", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		Y: 5000, SpeedKts: 14,
+	}
+	emitters := []*world.Entity{listener, emitter}
+
+	hull := NewSonarState()
+	hull.PassiveArray = PassiveArrayHull
+	hullBins := SpectrumAtBearing(model, listener, emitters, &hull, 0)
+
+	towed := NewSonarState()
+	towed.PassiveArray = PassiveArrayTowed
+	towed.TowedCablePct = 0
+	towedBins := SpectrumAtBearing(model, listener, emitters, &towed, 0)
+
+	hullPeak, towedPeak := 0.0, 0.0
+	for i := range hullBins {
+		if hullBins[i] > hullPeak {
+			hullPeak = hullBins[i]
+		}
+		if towedBins[i] > towedPeak {
+			towedPeak = towedBins[i]
+		}
+	}
+	if towedPeak >= hullPeak-12 {
+		t.Fatalf("expected stowed towed spectrum much weaker than hull: hull=%.1f towed=%.1f", hullPeak, towedPeak)
 	}
 }

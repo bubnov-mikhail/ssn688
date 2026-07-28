@@ -43,6 +43,7 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "passive_enabled=%t\n", engine.Sonar.PassiveEnabled)
 	fmt.Fprintf(w, "active_enabled=%t\n", engine.Sonar.ActiveEnabled)
 	fmt.Fprintf(w, "active_power=%.3f\n", engine.Sonar.ActivePower)
+	fmt.Fprintf(w, "ping_interval=%.3f\n", engine.Sonar.PingInterval)
 	fmt.Fprintf(w, "spectrum_bearing=%.3f\n", engine.Sonar.SpectrumBearing)
 	fmt.Fprintf(w, "passive_array=%d\n", engine.Sonar.PassiveArray)
 	fmt.Fprintf(w, "towed_cable_pct=%.3f\n", engine.Sonar.TowedCablePct)
@@ -94,6 +95,8 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "ordered_depth=%.3f\n", e.OrderedDepth)
 	fmt.Fprintf(w, "ordered_heading=%.3f\n", e.OrderedHead)
 	fmt.Fprintf(w, "active_sonar=%t\n", e.ActiveSonar)
+	fmt.Fprintf(w, "last_ping_time=%.3f\n", e.LastPingTime)
+	fmt.Fprintf(w, "last_ping_power=%.3f\n", e.LastPingPower)
 	fmt.Fprintf(w, "ai_state=%s\n", e.AIState)
 	fmt.Fprintf(w, "\n")
 }
@@ -158,6 +161,8 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.Sonar.ActiveEnabled, _ = strconv.ParseBool(val)
 			case "active_power":
 				engine.Sonar.ActivePower, _ = strconv.ParseFloat(val, 64)
+			case "ping_interval":
+				engine.Sonar.PingInterval, _ = strconv.ParseFloat(val, 64)
 			case "spectrum_bearing":
 				engine.Sonar.SpectrumBearing, _ = strconv.ParseFloat(val, 64)
 			case "passive_array":
@@ -253,6 +258,10 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.OrderedHead, _ = strconv.ParseFloat(val, 64)
 	case "active_sonar":
 		e.ActiveSonar, _ = strconv.ParseBool(val)
+	case "last_ping_time":
+		e.LastPingTime, _ = strconv.ParseFloat(val, 64)
+	case "last_ping_power":
+		e.LastPingPower, _ = strconv.ParseFloat(val, 64)
 	case "ai_state":
 		e.AIState = val
 	}

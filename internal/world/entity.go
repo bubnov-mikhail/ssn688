@@ -24,9 +24,10 @@ type Entity struct {
 	OrderedDepth float64
 	OrderedHead  float64
 	LengthFt     float64
-	ActiveSonar  bool
-	LastPingTime float64
-	AIState      string
+	ActiveSonar   bool
+	LastPingTime  float64
+	LastPingPower float64 // 0..1 transmit power of last active ping
+	AIState       string
 }
 
 func (e *Entity) Alive() bool {
@@ -51,8 +52,8 @@ func (e *Entity) BearingDegTo(other *Entity) float64 {
 	return deg
 }
 
-func (e *Entity) RelativeBearingDeg(target *Entity) float64 {
-	b := target.BearingDegTo(e) - e.HeadingDeg
+func (e *Entity) RelativeBearingDeg(other *Entity) float64 {
+	b := e.BearingDegTo(other) - e.HeadingDeg
 	for b > 180 {
 		b -= 360
 	}

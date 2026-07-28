@@ -23,6 +23,7 @@ func UpdateEnemyAI(entities []*world.Entity, player *world.Entity, gameTime floa
 func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acoustics.Model) {
 	rangeYd := ship.RangeYardsTo(player)
 	bearing := ship.BearingDegTo(player)
+	heardPing := acoustics.HeardPlayerPing(ship, player, gameTime)
 
 	if gameTime-ship.LastPingTime > 8 {
 		ship.ActiveSonar = true
@@ -36,14 +37,20 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 	if ship.ActiveSonar {
 		detected = model.CanDetectActive(ship, player, 0.75)
 	} else {
-		detected = model.CanDetectPassive(ship, player)
+		detected = model.CanDetectPlayerPassive(ship, player, gameTime)
 	}
 
-	if detected || rangeYd < 5000 {
+	if heardPing || detected || rangeYd < 5000 {
 		ship.AIState = "INTERCEPT"
+		if heardPing && !detected {
+			ship.AIState = "PING_ALERT"
+		}
 		ship.OrderedHead = bearing
 		if rangeYd > 4000 {
 			ship.OrderedSpeed = 22
+			if heardPing {
+				ship.OrderedSpeed = 24
+			}
 		} else {
 			ship.OrderedSpeed = 12
 		}
@@ -68,17 +75,32 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Model) {
 	rangeYd := sub.RangeYardsTo(player)
 	bearing := sub.BearingDegTo(player)
+	heardPing := acoustics.HeardPlayerPing(sub, player, gameTime)
 
-	passive := model.Detect(sub, player, acoustics.ModePassive, 0)
+	passiveDetected := model.CanDetectPlayerPassive(sub, player, gameTime)
 	active := model.Detect(sub, player, acoustics.ModeActive, 0.6)
 
-	if passive.Detected || active.Detected {
+	if passiveDetected || active.Detected {
 		sub.AIState = "ATTACK"
 		sub.OrderedHead = bearing
 		sub.OrderedSpeed = 18
-		sub.OrderedDepth = 350
+		sub.OrderedDepth = 200
 		if rangeYd < 3000 && int(gameTime*10)%80 == 0 {
 			sub.AIState = "FIRING"
+		}
+		return
+	}
+
+	if heardPing {
+		sub.AIState = "EVADE"
+		sub.OrderedHead = bearing + 180
+		if sub.OrderedHead >= 360 {
+			sub.OrderedHead -= 360
+		}
+		sub.OrderedSpeed = 10
+		sub.OrderedDepth = 300
+		if rangeYd < 6000 {
+			sub.OrderedDepth = 340
 		}
 		return
 	}
@@ -92,22 +114,25 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 	}
 
 	sub.OrderedSpeed = 6
-	sub.OrderedDepth = 280
+	sub.OrderedDepth = 160
 	leg := int(gameTime/45) % 3
 	sub.OrderedHead = float64(leg * 120)
 	sub.AIState = "PATROL"
 }
 
 // PlayerDetectedByEnemy returns true if any enemy has localized the player.
-func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model acoustics.Model) bool {
+func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model acoustics.Model, gameTime float64) bool {
 	for _, e := range entities {
 		if !e.Alive() || e.Side != world.SideEnemy {
 			continue
 		}
+		if acoustics.HeardPlayerPing(e, player, gameTime) {
+			return true
+		}
 		if e.ActiveSonar && model.CanDetectActive(e, player, 0.7) {
 			return true
 		}
-		if model.CanDetectPassive(e, player) {
+		if model.CanDetectPlayerPassive(e, player, gameTime) {
 			return true
 		}
 	}

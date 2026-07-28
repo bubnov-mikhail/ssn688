@@ -90,7 +90,7 @@ func (a *App) drawDebugMap(screen *ebiten.Image) {
 	a.drawDebugEntityAt(screen, ox, oy, 0, 0, player.HeadingDeg, player.SpeedKts, render.ColorDebugPlayer, player.Alive(), "")
 
 	for _, e := range a.Engine.Scenario.Entities {
-		a.drawDebugEntityAt(screen, ox, oy, e.X-player.X, e.Y-player.Y, e.HeadingDeg, e.SpeedKts, debugEntityColor(e), e.Alive(), debugEntityClass(e))
+		a.drawDebugEntityAt(screen, ox, oy, e.X-player.X, e.Y-player.Y, e.HeadingDeg, e.SpeedKts, debugEntityColor(e), e.Alive(), a.debugEntityLabel(e))
 	}
 
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
@@ -117,6 +117,20 @@ func debugEntityClass(e *world.Entity) string {
 	return e.ID
 }
 
+func (a *App) debugEntityLabel(e *world.Entity) string {
+	label := debugEntityClass(e)
+	if a == nil || a.Engine == nil {
+		return label
+	}
+	for i := range a.Engine.Sonar.Contacts {
+		c := &a.Engine.Sonar.Contacts[i]
+		if c.SourceEntityID == e.ID {
+			return fmt.Sprintf("%s %s", c.ID, label)
+		}
+	}
+	return label
+}
+
 func (a *App) drawDebugEntityAt(screen *ebiten.Image, ox, oy, dx, dy, heading, speedKts float64, clr color.Color, active bool, classLabel string) {
 	scale := debugBaseScale * a.debugMapZoom
 	sx := ox + dx*scale
@@ -137,9 +151,12 @@ func (a *App) drawDebugEntityAt(screen *ebiten.Image, ox, oy, dx, dy, heading, s
 	ln := 14.0
 	render.DrawLine(screen, sx, sy, sx+math.Sin(rad)*ln, sy-math.Cos(rad)*ln, clr)
 
-	line1 := fmt.Sprintf("%.0f", speedKts)
+	line1 := fmt.Sprintf("%.0f kt", speedKts)
 	if classLabel != "" {
-		line1 = fmt.Sprintf("%s  %.0f", classLabel, speedKts)
+		render.DrawText(screen, classLabel, int(sx)+8, int(sy)-4, clr, true)
+		line1 = fmt.Sprintf("%.0f kt", speedKts)
+		render.DrawText(screen, line1, int(sx)+8, int(sy)+8, clr, true)
+		return
 	}
 	render.DrawText(screen, line1, int(sx)+8, int(sy)-4, clr, true)
 }
