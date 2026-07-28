@@ -8,42 +8,52 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/render"
 )
 
 const (
-	activePanelX             = 20
-	activePanelY             = 50
-	activePanelW             = 900
-	activeSideX              = 940
-	activeSideY              = 50
-	activeSideW              = 340
-	activeControlsX          = 960
-	activeControlsY          = 90
-	activeSliderW            = 200
-	activeSliderH            = 10
-	activeSliderLabelW       = 90
-	activeSliderTrackX       = activeControlsX + activeSliderLabelW
-	activeSliderRowGap       = 28
-	activePingSliderY        = activeControlsY + 88
-	activePowerSliderY       = activeControlsY + 88 + activeSliderRowGap
-	activeListY              = 280
-	activePlotCX             = 470.0
-	activePlotCY             = 400.0
-	activePlotR              = 260.0
-	activePlotBlipFullFadeSec = 60.0
-	activePulseMaxOpacity    = 0.15 // 85% transparent at peak
+	activePanelX           = 20
+	activePanelY           = 50
+	activePanelW           = 900
+	activeSideX            = 940
+	activeSideY            = 50
+	activeSideW            = 340
+	activeControlsX        = 960
+	activeControlsY        = 90
+	activeSliderW          = 200
+	activeSliderH          = 10
+	activeSliderLabelW     = 90
+	activeSliderTrackX     = activeControlsX + activeSliderLabelW
+	activeSliderRowGap     = 28
+	activePingSliderY      = activeControlsY + 88
+	activePowerSliderY     = activeControlsY + 88 + activeSliderRowGap
+	activeRangeScaleY      = activePowerSliderY + activeSliderRowGap + 14
+	activeListY            = 318
+	activePlotX            = 40
+	activePlotY            = 152
+	activePlotW            = 860
+	activePlotH            = 528
+	activeEchoMarkerFadeSec  = 30.0 // fixed marker dissolve time; independent of AUTO PING
+	activeFlashCrossMin    = 5.0
+	activeFlashCrossMax    = 11.0
+	activePlotBgR          = 0
+	activePlotBgG          = 2
+	activePlotBgB          = 16
 )
 
-type activePlotBlip struct {
-	ContactID      string
+// activeEchoFlash is a fixed range-bearing snapshot from one active echo return.
+type activeEchoFlash struct {
+	ID             uint64
 	SourceEntityID string
+	ContactID      string
 	BearingDeg     float64
 	RangeYd        float64
-	SeenAt         float64 // game time when the echo ring crossed this range
+	SNR            float64
+	PingTime       float64
+	LastEchoAt     float64
+	Strength       float64 // 1 = bright; stepped down on newer echoes from same contact
 }
 
 func activeSonarButtons(sonar *acoustics.SonarState) []sonarUIButton {
@@ -55,6 +65,55 @@ func activeSonarButtons(sonar *acoustics.SonarState) []sonarUIButton {
 		{"active_toggle", toggleLabel, "Enable or disable active sonar transmit mode"},
 		{"active_ping", "PING NOW", "Fire one immediate active sonar pulse"},
 	})
+}
+
+func (a *App) activeRangeScaleButtons() []sonarUIButton {
+	return layoutButtonRow(activeSliderTrackX, activeRangeScaleY, 28, 4, []buttonSpec{
+		{"active_range_2k", "2k", "Range scale 2 kyd"},
+		{"active_range_6k", "6k", "Range scale 6 kyd"},
+		{"active_range_12k", "12k", "Range scale 12 kyd"},
+	})
+}
+
+func (a *App) activeRangeMaxYd() float64 {
+	if a.activeRangeScaleYd <= 0 {
+		return acoustics.ActiveDisplayMaxRangeYd
+	}
+	return a.activeRangeScaleYd
+}
+
+func (a *App) markActivePlotGridDirty() {
+	a.activePlotGridDirty = true
+}
+
+func (a *App) activePlotNeedsGridRebuild() bool {
+	return a.activePlotGridDirty || a.activePlotImg == nil
+}
+
+func (a *App) setActiveRangeScale(yd float64) {
+	if a.activeRangeScaleYd == yd {
+		return
+	}
+	a.activeRangeScaleYd = yd
+	a.activeEchoFlashes = nil
+	a.activePlotGridScaleYd = 0
+	a.markActivePlotGridDirty()
+}
+
+func (a *App) activeRangeButtonAction(id string) {
+	switch id {
+	case "active_range_2k":
+		a.setActiveRangeScale(2000)
+	case "active_range_6k":
+		a.setActiveRangeScale(6000)
+	case "active_range_12k":
+		a.setActiveRangeScale(12000)
+	}
+}
+
+func (a *App) activeControlButtons(sonar *acoustics.SonarState) []sonarUIButton {
+	out := activeSonarButtons(sonar)
+	return append(out, a.activeRangeScaleButtons()...)
 }
 
 func (a *App) activePingIntervalSliderRect() (x, y, w, h int) {
@@ -79,37 +138,57 @@ func (a *App) sliderValueFromMouse(mx, x, w int, min, max float64) float64 {
 	return min + t*(max-min)
 }
 
-func activePlotBlipOpacity(age, pingIntervalSec float64) float64 {
-	if age >= activePlotBlipFullFadeSec || age < 0 {
-		return 0
+func activeEchoFlashVisible(f activeEchoFlash, gameTime float64) bool {
+	if f.Strength <= 0 {
+		return false
 	}
-	interval := pingIntervalSec
-	if interval <= 0 {
-		interval = 12
+	return gameTime-f.LastEchoAt <= activeEchoMarkerFadeSec
+}
+
+func activeEchoDecayStrength(strength, dtSec float64) float64 {
+	if dtSec <= 0 {
+		return strength
 	}
-	if interval > activePlotBlipFullFadeSec {
-		interval = activePlotBlipFullFadeSec
+	return strength - dtSec/activeEchoMarkerFadeSec
+}
+
+func activeEchoSNRIntensity(snr float64) float64 {
+	return snrToIntensity(snr)
+}
+
+func (a *App) activeFlashPlotPos(f activeEchoFlash, plotW, plotH int, maxR float64) (px, py int) {
+	px = waterfallBearingDisplayX(f.BearingDeg, plotW)
+	frac := f.RangeYd / maxR
+	if frac < 0 {
+		frac = 0
 	}
-	if age <= interval {
-		return 1.0 - 0.8*(age/interval)
+	if frac > 1 {
+		frac = 1
 	}
-	tail := activePlotBlipFullFadeSec - interval
-	if tail <= 0 {
-		return 0
-	}
-	return 0.2 * (1.0 - (age-interval)/tail)
+	py = plotH - 8 - int(frac*float64(plotH-16))
+	return px, py
+}
+
+func activeFlashCrossHalfLen(snr float64) float64 {
+	t := activeEchoSNRIntensity(snr)
+	return activeFlashCrossMin + t*(activeFlashCrossMax-activeFlashCrossMin)
 }
 
 func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 	a.validateSelectedContact(sonar)
-	buttons := activeSonarButtons(sonar)
+	buttons := a.activeControlButtons(sonar)
 	mx, my := ebiten.CursorPosition()
 	a.updateSonarTooltips(buttons, mx, my)
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		for _, b := range buttons {
 			if b.contains(mx, my) {
-				a.activeSonarButtonAction(b.ID, sonar)
+				switch {
+				case b.ID == "active_toggle" || b.ID == "active_ping":
+					a.activeSonarButtonAction(b.ID, sonar)
+				default:
+					a.activeRangeButtonAction(b.ID)
+				}
 				a.uiPressedID = b.ID
 				a.uiPressedAt = time.Now()
 				return
@@ -127,7 +206,7 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 			sonar.ActivePower = a.sliderValueFromMouse(mx, activeSliderTrackX, activeSliderW, 0.3, 1.0)
 			return
 		}
-		if a.activePlotBlipClick(sonar, mx, my) {
+		if a.activePlotClick(sonar, mx, my) {
 			return
 		}
 		y := activeListY + passiveListRow
@@ -159,43 +238,43 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 	if inpututil.IsKeyJustPressed(ebiten.KeyF) {
 		a.activeSonarButtonAction("active_ping", sonar)
 	}
-	a.updateActivePlotBlips(sonar)
+	a.updateActiveEchoFlashes(sonar)
 }
 
-func (a *App) activePlotBlipPos(blip activePlotBlip, cx, cy, radius, maxR float64) (x, y float64) {
-	rad := blip.BearingDeg * math.Pi / 180
-	rng := math.Min(radius-12, blip.RangeYd/maxR*radius)
-	return cx + math.Sin(rad)*rng, cy - math.Cos(rad)*rng
-}
-
-func (a *App) activePlotBlipHit(mx, my int, blip activePlotBlip, cx, cy, radius, maxR float64) bool {
-	x, y := a.activePlotBlipPos(blip, cx, cy, radius, maxR)
-	return inRect(mx, my, int(x)-10, int(y)-12, 88, 26)
-}
-
-func (a *App) activePlotBlipClick(sonar *acoustics.SonarState, mx, my int) bool {
-	cx, cy, radius := activePlotCX, activePlotCY, activePlotR
-	dx := float64(mx) - cx
-	dy := float64(my) - cy
-	if dx*dx+dy*dy > (radius+16)*(radius+16) {
+func (a *App) activePlotClick(sonar *acoustics.SonarState, mx, my int) bool {
+	plotX, plotY := activePlotX, activePlotY
+	if !inRect(mx, my, plotX, plotY, activePlotW, activePlotH) {
 		return false
 	}
+	lx, ly := mx-plotX, my-plotY
 	gameTime := a.activeVisualTime()
-	maxR := acoustics.ActiveDisplayMaxRangeYd
-	a.ensureActivePlotBlips()
-	for _, blip := range a.activePlotBlips {
-		if gameTime < blip.SeenAt {
+	bestID := uint64(0)
+	bestDist := math.MaxFloat64
+	bestEchoAt := -math.MaxFloat64
+	for _, f := range a.activeEchoFlashes {
+		if !activeEchoFlashVisible(f, gameTime) {
 			continue
 		}
-		age := gameTime - blip.SeenAt
-		if activePlotBlipOpacity(age, sonar.PingInterval) < 0.05 {
+		px, py := a.activeFlashPlotPos(f, activePlotW, activePlotH, a.activeRangeMaxYd())
+		dx := float64(lx - px)
+		dy := float64(ly - py)
+		r := activeFlashCrossHalfLen(f.SNR) + 4
+		if dx*dx+dy*dy > r*r {
 			continue
 		}
-		if !a.activePlotBlipHit(mx, my, blip, cx, cy, radius, maxR) {
-			continue
+		dist := dx*dx + dy*dy
+		if f.LastEchoAt > bestEchoAt || (f.LastEchoAt == bestEchoAt && dist < bestDist) {
+			bestEchoAt = f.LastEchoAt
+			bestDist = dist
+			bestID = f.ID
 		}
-		for i := range sonar.Contacts {
-			if sonar.Contacts[i].SourceEntityID == blip.SourceEntityID {
+	}
+	if bestID == 0 {
+		return false
+	}
+	for i := range sonar.Contacts {
+		for _, f := range a.activeEchoFlashes {
+			if f.ID == bestID && sonar.Contacts[i].SourceEntityID == f.SourceEntityID {
 				a.selectContact(sonar, &sonar.Contacts[i])
 				return true
 			}
@@ -204,49 +283,36 @@ func (a *App) activePlotBlipClick(sonar *acoustics.SonarState, mx, my int) bool 
 	return false
 }
 
-func (a *App) ensureActivePlotBlips() {
-	if a.activePlotBlips == nil {
-		a.activePlotBlips = map[string]activePlotBlip{}
-	}
-}
-
-func (a *App) syncActivePulseWall(sonar *acoustics.SonarState) {
-	if sonar == nil || sonar.LastPingTime <= 0 {
-		return
-	}
-	if a.activePlotPingAt != sonar.LastPingTime {
-		a.activePlotPingAt = sonar.LastPingTime
-		a.activePulseWallAt = time.Now()
-	}
-}
-
-func (a *App) activePulseAgeSec(sonar *acoustics.SonarState) float64 {
-	if a.Engine == nil || sonar == nil || sonar.LastPingTime <= 0 {
-		return 0
-	}
-	a.syncActivePulseWall(sonar)
-	if a.Engine.Clock.Paused || a.activePulseWallAt.IsZero() {
-		return a.Engine.Clock.GameTime - sonar.LastPingTime
-	}
-	scale := a.Engine.Clock.TimeScale
-	if scale <= 0 {
-		scale = 1
-	}
-	return time.Since(a.activePulseWallAt).Seconds() * scale
-}
-
-func (a *App) updateActivePlotBlips(sonar *acoustics.SonarState) {
-	if a.Engine == nil || sonar == nil || sonar.LastPingTime <= 0 {
-		return
-	}
-	a.ensureActivePlotBlips()
-	a.syncActivePulseWall(sonar)
-	gameTime := a.activeVisualTime()
-
-	for id, blip := range a.activePlotBlips {
-		if gameTime-blip.SeenAt > activePlotBlipFullFadeSec {
-			delete(a.activePlotBlips, id)
+func (a *App) decayActiveEchoFlashesForContact(sourceID string, echoAt float64) {
+	for i := range a.activeEchoFlashes {
+		if a.activeEchoFlashes[i].SourceEntityID != sourceID {
+			continue
 		}
+		dt := echoAt - a.activeEchoFlashes[i].LastEchoAt
+		a.activeEchoFlashes[i].Strength = activeEchoDecayStrength(a.activeEchoFlashes[i].Strength, dt)
+		a.activeEchoFlashes[i].LastEchoAt = echoAt
+	}
+}
+
+func (a *App) purgeActiveEchoFlashes(gameTime float64) {
+	kept := a.activeEchoFlashes[:0]
+	for _, f := range a.activeEchoFlashes {
+		if activeEchoFlashVisible(f, gameTime) {
+			kept = append(kept, f)
+		}
+	}
+	a.activeEchoFlashes = kept
+}
+
+func (a *App) updateActiveEchoFlashes(sonar *acoustics.SonarState) {
+	if a.Engine == nil || sonar == nil {
+		return
+	}
+	gameTime := a.activeVisualTime()
+	a.purgeActiveEchoFlashes(gameTime)
+
+	if sonar.LastPingTime <= 0 {
+		return
 	}
 
 	for i := range sonar.Contacts {
@@ -261,17 +327,31 @@ func (a *App) updateActivePlotBlips(sonar *acoustics.SonarState) {
 		if gameTime < crossAt {
 			continue
 		}
-		if existing, ok := a.activePlotBlips[c.SourceEntityID]; ok && crossAt <= existing.SeenAt+0.05 {
+		duplicate := false
+		for _, f := range a.activeEchoFlashes {
+			if f.SourceEntityID == c.SourceEntityID && f.PingTime == sonar.LastPingTime {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
 			continue
 		}
-		a.activePlotBlips[c.SourceEntityID] = activePlotBlip{
-			ContactID:      c.ID,
+		a.decayActiveEchoFlashesForContact(c.SourceEntityID, crossAt)
+		a.activeEchoFlashSeq++
+		a.activeEchoFlashes = append(a.activeEchoFlashes, activeEchoFlash{
+			ID:             a.activeEchoFlashSeq,
 			SourceEntityID: c.SourceEntityID,
+			ContactID:      c.ID,
 			BearingDeg:     c.BearingDeg,
 			RangeYd:        c.EstimatedRangeYd,
-			SeenAt:         crossAt,
-		}
+			SNR:            c.SNR,
+			PingTime:       sonar.LastPingTime,
+			LastEchoAt:     crossAt,
+			Strength:       1,
+		})
 	}
+	a.purgeActiveEchoFlashes(gameTime)
 }
 
 func (a *App) activeSonarButtonAction(id string, sonar *acoustics.SonarState) {
@@ -290,7 +370,6 @@ func (a *App) activeSonarButtonAction(id string, sonar *acoustics.SonarState) {
 		player := a.Engine.Scenario.Player
 		emitters := a.Engine.Scenario.AllEntities()
 		if acoustics.FireActivePingNow(a.Engine.Acoustics, player, emitters, sonar, a.Engine.Clock.GameTime) {
-			a.activePlotPingAt = 0 // force wall-clock resync on next pulse draw
 			a.Audio.PlayEnemyPing()
 			if a.lastPingPlayed < sonar.LastPingTime {
 				a.lastPingPlayed = sonar.LastPingTime
@@ -334,11 +413,15 @@ func (a *App) drawActiveSlider(screen *ebiten.Image, label string, y int, min, m
 func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	render.DrawText(screen, "ACTIVE TX", activeControlsX, activeControlsY-8, render.ColorPhosphorDim, true)
 	mx, my := ebiten.CursorPosition()
-	buttons := activeSonarButtons(sonar)
+	buttons := a.activeControlButtons(sonar)
+	scaleYd := a.activeRangeMaxYd()
 	for _, b := range buttons {
 		disabled := b.ID == "active_ping" && !sonar.ActiveEnabled
 		hover := !disabled && b.contains(mx, my)
 		pressed := a.uiPressedID == b.ID && time.Since(a.uiPressedAt) < 120*time.Millisecond
+		selectedRange := (b.ID == "active_range_2k" && scaleYd == 2000) ||
+			(b.ID == "active_range_6k" && scaleYd == 6000) ||
+			(b.ID == "active_range_12k" && scaleYd == 12000)
 		if disabled {
 			render.FillRect(screen, b.X, b.Y, b.W, b.H, render.ColorPanelInset)
 			tw := render.ButtonLabelWidth(b.Label)
@@ -348,11 +431,15 @@ func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarSta
 		if b.ID == "active_toggle" && sonar.ActiveEnabled {
 			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorActive)
 		}
+		if selectedRange {
+			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorActive)
+		}
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
 	}
 
 	a.drawActiveSlider(screen, "AUTO PING", activePingSliderY, acoustics.PingIntervalMinSec, acoustics.PingIntervalMaxSec, sonar.PingInterval, mx, my, "ping_interval")
 	a.drawActiveSlider(screen, "POWER", activePowerSliderY, 0.3, 1.0, sonar.ActivePower, mx, my, "power")
+	render.DrawText(screen, "RANGE", activeControlsX, activeRangeScaleY+2, render.ColorPhosphorDim, true)
 
 	autoLabel := "MANUAL"
 	if sonar.PingInterval > 0 {
@@ -404,100 +491,218 @@ func (a *App) activeVisualTime() float64 {
 }
 
 func (a *App) activeEchoReachYd(sonar *acoustics.SonarState) float64 {
-	return acoustics.EchoRangeYd(a.activePulseAgeSec(sonar))
+	if a.Engine == nil || sonar == nil || sonar.LastPingTime <= 0 {
+		return 0
+	}
+	age := a.activeVisualTime() - sonar.LastPingTime
+	reach := acoustics.EchoRangeYd(age)
+	if reach > acoustics.ActiveDisplayMaxRangeYd {
+		return 0
+	}
+	return reach
 }
 
-func (a *App) ensureActivePlotBase() {
-	pad := 12
-	size := int(activePlotR)*2 + pad*2
-	if a.activePlotBase != nil && a.activePlotBase.Bounds().Dx() == size {
+func (a *App) ensureActivePlotImage() {
+	w, h := activePlotW, activePlotH
+	if a.activePlotImg != nil && a.activePlotImg.Bounds().Dx() == w {
 		return
 	}
-	img := ebiten.NewImage(size, size)
-	cx := float64(size / 2)
-	cy := float64(size / 2)
-	r := activePlotR
-	drawCircle(img, cx, cy, r, color.RGBA{0, 70, 55, 160})
-	drawCircle(img, cx, cy, r*0.5, color.RGBA{0, 70, 55, 120})
-	for _, deg := range []float64{0, 90, 180, 270} {
-		rad := deg * math.Pi / 180
-		render.DrawLine(img, cx, cy, cx+math.Sin(rad)*r, cy-math.Cos(rad)*r, color.RGBA{0, 55, 45, 100})
-	}
-	a.activePlotBase = img
+	a.activePlotImg = ebiten.NewImage(w, h)
+	a.activePlotPix = make([]byte, w*h*4)
+	a.activePlotGridPix = nil
+	a.activePlotGridScaleYd = 0
+	a.markActivePlotGridDirty()
 }
 
-func (a *App) drawActivePulseRing(screen *ebiten.Image, cx, cy, plotR, pulseR float64) {
-	if pulseR < 2 {
+func (a *App) ensureActivePlotGrid(maxR float64) {
+	w, h := activePlotW, activePlotH
+	n := w * h * 4
+	if a.activePlotGridPix != nil && len(a.activePlotGridPix) == n && a.activePlotGridScaleYd == maxR {
 		return
 	}
-	expand := pulseR / plotR
-	opacity := activePulseMaxOpacity * (1 - expand) * (1 - expand)
-	if opacity < 0.01 {
+	if a.activePlotGridPix == nil || len(a.activePlotGridPix) != n {
+		a.activePlotGridPix = make([]byte, n)
+	}
+	a.fillActivePlotBackground(a.activePlotGridPix, w, h)
+	a.paintActivePlotGrid(a.activePlotGridPix, w, h, maxR)
+	ownX := waterfallBearingDisplayX(0, w)
+	for dy := 0; dy < 6; dy++ {
+		for dx := -2; dx <= 2; dx++ {
+			activePlotSetPix(a.activePlotGridPix, w, ownX+dx, h-4-dy, color.RGBA{0, 255, 180, 255}, 0.9-float64(dy)*0.12)
+		}
+	}
+	a.activePlotGridScaleYd = maxR
+}
+
+func (a *App) fillActivePlotBackground(pix []byte, w, h int) {
+	for i := 0; i < w*h; i++ {
+		off := i * 4
+		pix[off] = activePlotBgR
+		pix[off+1] = activePlotBgG
+		pix[off+2] = activePlotBgB
+		pix[off+3] = 255
+	}
+}
+
+func activePlotSetPix(pix []byte, w, px, py int, clr color.RGBA, gain float64) {
+	if px < 0 || py < 0 || px >= w {
 		return
 	}
-	alpha := uint8(opacity * 255)
-	vector.StrokeCircle(screen, float32(cx), float32(cy), float32(pulseR), 1.5,
-		color.RGBA{170, 230, 255, alpha}, true)
+	off := (py*w + px) * 4
+	for c, v := range []uint8{clr.R, clr.G, clr.B} {
+		nv := float64(pix[off+c]) + float64(v)*gain
+		if nv > 255 {
+			nv = 255
+		}
+		pix[off+c] = uint8(nv)
+	}
+}
+
+func activeEchoCrossColor(strength float64, selected bool) (color.RGBA, bool) {
+	if strength <= 0 {
+		return color.RGBA{activePlotBgR, activePlotBgG, activePlotBgB, 255}, false
+	}
+	if strength > 1 {
+		strength = 1
+	}
+	brightR, brightG, brightB := 100, 220, 255
+	if selected {
+		brightR, brightG, brightB = 255, 191, 64
+	}
+	inv := 1 - strength
+	return color.RGBA{
+		R: uint8(float64(activePlotBgR)*inv + float64(brightR)*strength),
+		G: uint8(float64(activePlotBgG)*inv + float64(brightG)*strength),
+		B: uint8(float64(activePlotBgB)*inv + float64(brightB)*strength),
+		A: 255,
+	}, true
+}
+
+func drawActiveEchoCross(screen *ebiten.Image, cx, cy, halfLen float64, strength float64, selected bool) {
+	clr, visible := activeEchoCrossColor(strength, selected)
+	if !visible {
+		return
+	}
+	render.DrawLine(screen, cx-halfLen, cy, cx+halfLen, cy, clr)
+	render.DrawLine(screen, cx, cy-halfLen, cx, cy+halfLen, clr)
+}
+
+func activeRangeGridKyds(maxR float64) []float64 {
+	switch {
+	case maxR <= 2500:
+		return []float64{0.5, 1, 1.5, 2}
+	case maxR <= 7000:
+		return []float64{1, 2, 3, 4, 5, 6}
+	default:
+		return []float64{2, 4, 6, 8, 10, 12}
+	}
+}
+
+func (a *App) paintActivePlotGrid(pix []byte, w, h int, maxR float64) {
+	for _, kyd := range activeRangeGridKyds(maxR) {
+		frac := (kyd * 1000) / maxR
+		if frac > 1 {
+			continue
+		}
+		py := h - 8 - int(frac*float64(h-16))
+		for px := 0; px < w; px++ {
+			activePlotSetPix(pix, w, px, py, color.RGBA{0, 55, 45, 255}, 0.18)
+		}
+	}
+	for deg := 0; deg < 360; deg += 10 {
+		px := waterfallBearingDisplayX(float64(deg), w)
+		gain := 0.07
+		if deg%30 == 0 {
+			gain = 0.13
+		}
+		if deg%90 == 0 {
+			gain = 0.22
+		}
+		for py := 0; py < h; py++ {
+			activePlotSetPix(pix, w, px, py, color.RGBA{0, 55, 45, 255}, gain)
+		}
+	}
+}
+
+func (a *App) drawActiveBearingRuler(screen *ebiten.Image, x, y, w, h int) {
+	// Top bearing scale: ticks every 10°, labels every 30° (000 at center).
+	for deg := 0; deg < 360; deg += 10 {
+		px := x + waterfallBearingDisplayX(float64(deg), w)
+		tickTop := y
+		tickBot := y + 6
+		clr := color.RGBA{0, 100, 75, 180}
+		if deg%30 == 0 {
+			tickBot = y + 10
+			clr = color.RGBA{0, 140, 100, 210}
+		}
+		if deg%90 == 0 {
+			tickBot = y + 14
+			clr = color.RGBA{0, 210, 150, 255}
+		}
+		render.DrawLine(screen, float64(px), float64(tickTop), float64(px), float64(tickBot), clr)
+		if deg%30 == 0 && deg != 180 {
+			labelClr := render.ColorPhosphorDim
+			if deg%90 == 0 {
+				labelClr = render.ColorPhosphor
+			}
+			render.DrawText(screen, fmt.Sprintf("%03d", deg), px-12, y-16, labelClr, true)
+		}
+	}
+	// Faint ticks along bottom edge for quick read without covering ownship marker.
+	for deg := 0; deg < 360; deg += 30 {
+		if deg%90 == 0 {
+			continue
+		}
+		px := x + waterfallBearingDisplayX(float64(deg), w)
+		render.DrawLine(screen, float64(px), float64(y+h-5), float64(px), float64(y+h), color.RGBA{0, 80, 60, 140})
+	}
+	render.DrawText(screen, "180", x-8, y-16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "180", x+w-22, y-16, render.ColorPhosphorDim, true)
+}
+
+func (a *App) rebuildActivePlotRaster() {
+	a.ensureActivePlotImage()
+	maxR := a.activeRangeMaxYd()
+	a.ensureActivePlotGrid(maxR)
+	copy(a.activePlotPix, a.activePlotGridPix)
+	a.activePlotImg.WritePixels(a.activePlotPix)
+	a.activePlotGridDirty = false
+}
+
+func (a *App) drawActiveEchoFlashes(screen *ebiten.Image, maxR float64) {
+	plotX, plotY := activePlotX, activePlotY
+	w, h := activePlotW, activePlotH
+	for i := len(a.activeEchoFlashes) - 1; i >= 0; i-- {
+		f := a.activeEchoFlashes[i]
+		if f.Strength <= 0 {
+			continue
+		}
+		px, py := a.activeFlashPlotPos(f, w, h, maxR)
+		half := activeFlashCrossHalfLen(f.SNR)
+		selected := f.SourceEntityID == a.selectedContactID
+		drawActiveEchoCross(screen, float64(plotX+px), float64(plotY+py), half, f.Strength, selected)
+	}
 }
 
 func (a *App) drawActiveRangeDisplay(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	player := a.Engine.Scenario.Player
-	cx, cy, radius := activePlotCX, activePlotCY, activePlotR
-	maxR := acoustics.ActiveDisplayMaxRangeYd
-	gameTime := a.activeVisualTime()
-
-	a.ensureActivePlotBase()
-	if a.activePlotBase != nil {
-		b := a.activePlotBase.Bounds()
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(cx-float64(b.Dx())/2, cy-float64(b.Dy())/2)
-		screen.DrawImage(a.activePlotBase, op)
+	maxR := a.activeRangeMaxYd()
+	maxKyd := int(maxR / 1000)
+	if a.activePlotNeedsGridRebuild() {
+		a.rebuildActivePlotRaster()
 	}
-	render.DrawText(screen, "0", int(cx)-4, int(cy-radius)-14, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "12 KYD", int(cx)+int(radius)-42, int(cy)+4, render.ColorPhosphorDim, true)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(activePlotX, activePlotY)
+	screen.DrawImage(a.activePlotImg, op)
 
-	echoYd := a.activeEchoReachYd(sonar)
-	if sonar.LastPingTime > 0 && echoYd > 0 {
-		age := a.activePulseAgeSec(sonar)
-		maxPulseAge := acoustics.TwoWayTravelSec(maxR) + 0.05
-		if age <= maxPulseAge {
-			frac := echoYd / maxR
-			if frac > 1 {
-				frac = 1
-			}
-			a.drawActivePulseRing(screen, cx, cy, radius, radius*frac)
-		}
+	x, y, w, h := activePlotX, activePlotY, activePlotW, activePlotH
+	a.drawActiveEchoFlashes(screen, maxR)
+	a.drawActiveBearingRuler(screen, x, y, w, h)
+	render.DrawText(screen, "OWN", x+w/2-14, y+h+14, render.ColorPhosphorDim, true)
+	topLabel := fmt.Sprintf("%dk", maxKyd)
+	render.DrawText(screen, topLabel, x-6, y+18, render.ColorPhosphorDim, true)
+	midKyd := maxKyd / 2
+	if midKyd > 0 {
+		midY := y + h - 8 - int(float64(midKyd*1000)/maxR*float64(h-16))
+		render.DrawText(screen, fmt.Sprintf("%dk", midKyd), x-2, midY, render.ColorPhosphorDim, true)
 	}
-
-	a.ensureActivePlotBlips()
-	for _, blip := range a.activePlotBlips {
-		if gameTime < blip.SeenAt {
-			continue
-		}
-		age := gameTime - blip.SeenAt
-		opacity := activePlotBlipOpacity(age, sonar.PingInterval)
-		if opacity < 0.05 {
-			continue
-		}
-		alpha := uint8(opacity*15) * 17
-		if alpha < 4 {
-			continue
-		}
-
-		selected := blip.SourceEntityID == a.selectedContactID
-		x, y := a.activePlotBlipPos(blip, cx, cy, radius, maxR)
-		lineClr := color.RGBA{80, 200, 255, alpha}
-		markClr := color.RGBA{120, 220, 255, alpha}
-		textClr := color.RGBA{210, 235, 245, alpha}
-		if selected {
-			lineClr = color.RGBA{255, 210, 80, alpha}
-			markClr = color.RGBA{255, 220, 100, alpha}
-			textClr = color.RGBA{255, 235, 200, alpha}
-			render.FillRect(screen, int(x)-7, int(y)-7, 15, 15, color.RGBA{255, 180, 40, alpha / 2})
-		}
-		render.DrawLine(screen, cx, cy, x, y, lineClr)
-		render.FillRect(screen, int(x)-4, int(y)-4, 9, 9, markClr)
-		render.DrawText(screen, fmt.Sprintf("%s %.1fk", blip.ContactID, blip.RangeYd/1000), int(x)+8, int(y), textClr, true)
-	}
-	drawOwnshipSymbol(screen, cx, cy, player.HeadingDeg, render.ColorHighlight)
 }

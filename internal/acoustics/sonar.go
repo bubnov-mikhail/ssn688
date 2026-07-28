@@ -188,9 +188,33 @@ func transmitActivePing(listener *world.Entity, sonar *SonarState, gameTime floa
 	}
 }
 
+// ExpireActivePingIfBeyondDisplay clears in-flight active ping state once the
+// expanding echo front passes the display range cap (12 kyd).
+func ExpireActivePingIfBeyondDisplay(sonar *SonarState, listener *world.Entity, gameTime float64) bool {
+	if sonar == nil || sonar.LastPingTime <= 0 {
+		return false
+	}
+	age := gameTime - sonar.LastPingTime
+	if age < 0 || EchoRangeYd(age) <= ActiveDisplayMaxRangeYd {
+		return false
+	}
+	sonar.LastPingTime = 0
+	sonar.activeEchoAt = 0
+	sonar.activeEchoDone = nil
+	if listener != nil {
+		listener.ActiveSonar = false
+		listener.LastPingTime = 0
+		listener.LastPingPower = 0
+	}
+	return true
+}
+
 // ProcessActiveEchoes applies active detections once the two-way echo can have returned.
 func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, gameTime float64) {
 	if sonar == nil || listener == nil || sonar.LastPingTime <= 0 {
+		return
+	}
+	if ExpireActivePingIfBeyondDisplay(sonar, listener, gameTime) {
 		return
 	}
 	if sonar.activeEchoAt != sonar.LastPingTime || sonar.activeEchoDone == nil {

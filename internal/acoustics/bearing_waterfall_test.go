@@ -96,31 +96,6 @@ func TestContactSpreadIsGradual(t *testing.T) {
 	}
 }
 
-func TestOwnshipActivePingAppearsOnWaterfall(t *testing.T) {
-	model := NewModel(DefaultEnvironment())
-	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
-	sonar := NewSonarState()
-	sonar.ActiveEnabled = true
-	sonar.ActivePower = 0.8
-	player.LastPingTime = 10
-
-	quiet := BearingWaterfallSlice(model, player, []*world.Entity{player}, &sonar, PassiveArrayHull, 0)
-	loud := BearingWaterfallSlice(model, player, []*world.Entity{player}, &sonar, PassiveArrayHull, 10.05)
-
-	quietPeak, loudPeak := 0.0, 0.0
-	for i := range quiet.Bearings {
-		if quiet.Bearings[i] > quietPeak {
-			quietPeak = quiet.Bearings[i]
-		}
-		if loud.Bearings[i] > loudPeak {
-			loudPeak = loud.Bearings[i]
-		}
-	}
-	if loudPeak < quietPeak+20 {
-		t.Fatalf("expected ownship ping flash on waterfall, quiet=%.1f loud=%.1f", quietPeak, loudPeak)
-	}
-}
-
 func TestEnemyActivePingAppearsOnWaterfall(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)

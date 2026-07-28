@@ -18,6 +18,38 @@ func TestEchoRangeUsesTwoWayTravel(t *testing.T) {
 	}
 }
 
+func TestExpireActivePingBeyondDisplay(t *testing.T) {
+	sonar := NewSonarState()
+	listener := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
+	sonar.LastPingTime = 10
+	sonar.activeEchoAt = 10
+	sonar.activeEchoDone = map[string]bool{"target": true}
+	listener.LastPingTime = 10
+	listener.LastPingPower = 0.9
+	listener.ActiveSonar = true
+
+	// Front still inside 12 kyd — keep state.
+	inside := 10 + TwoWayTravelSec(ActiveDisplayMaxRangeYd)*0.5
+	if ExpireActivePingIfBeyondDisplay(&sonar, listener, inside) {
+		t.Fatal("should not expire ping while front is inside display range")
+	}
+	if sonar.LastPingTime != 10 || sonar.activeEchoDone == nil {
+		t.Fatal("ping state should remain while front is inside display range")
+	}
+
+	// Front beyond 12 kyd — purge.
+	beyond := 10 + TwoWayTravelSec(ActiveDisplayMaxRangeYd) + 1
+	if !ExpireActivePingIfBeyondDisplay(&sonar, listener, beyond) {
+		t.Fatal("expected ping state to expire beyond display range")
+	}
+	if sonar.LastPingTime != 0 || sonar.activeEchoAt != 0 || sonar.activeEchoDone != nil {
+		t.Fatal("sonar ping state should be cleared")
+	}
+	if listener.LastPingTime != 0 || listener.LastPingPower != 0 || listener.ActiveSonar {
+		t.Fatal("listener ping state should be cleared")
+	}
+}
+
 func TestProcessActiveEchoesCloseRange(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	listener := testEntity("player", "los_angeles", world.KindSubmarine, 180, 8)

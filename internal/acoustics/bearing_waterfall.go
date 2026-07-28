@@ -63,36 +63,6 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 	}
 	addAmbientNoise(bins, gameTime, array, sonar.TowedCablePct, listener.HeadingDeg)
 	AddOwnshipFlowNoise(bins, listener.SpeedKts, listener.DepthFt, listener.HeadingDeg, array, sonar.TowedCablePct)
-	addOwnshipActivePingWash(bins, listener, sonar, gameTime)
-}
-
-// addOwnshipActivePingWash records a bright horizontal flash on the bearing waterfall
-// at transmit time; it scrolls down naturally as older rows age out.
-func addOwnshipActivePingWash(bins []float64, listener *world.Entity, sonar *SonarState, gameTime float64) {
-	if listener == nil || sonar == nil {
-		return
-	}
-	age := EnemyActivePingAgeSec(listener, gameTime)
-	wash := ownshipActivePingPeak(age, sonar.ActivePower)
-	if wash <= 0 {
-		return
-	}
-	for i := range bins {
-		if wash > bins[i] {
-			bins[i] = wash
-		}
-	}
-}
-
-func ownshipActivePingPeak(ageSec, power float64) float64 {
-	if ageSec < 0 || ageSec > 0.35 {
-		return 0
-	}
-	if power < 0.1 {
-		power = 0.1
-	}
-	flash := math.Exp(-ageSec * 6)
-	return (70 + 110*flash) * power
 }
 
 // enemyActivePingPeak returns display SNR for a recent active transmission (one-way path).

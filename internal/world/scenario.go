@@ -45,7 +45,7 @@ func NewTrainingScenario() *Scenario {
 		DepthFt: 0, SpeedKts: 14, OrderedSpeed: 14, OrderedDepth: 0,
 		LengthFt: 563, AIState: "SEARCH",
 	}
-	placeOnWater(rng, enemySurface, 1200, 2800, []*Entity{player}, &bathy)
+	placeOnWater(rng, enemySurface, 4500, 9000, []*Entity{player}, &bathy)
 
 	enemySub := &Entity{
 		ID: "enemy_sub", Name: "Hostile SS", Kind: KindSubmarine, Side: SideEnemy,
@@ -54,7 +54,7 @@ func NewTrainingScenario() *Scenario {
 		LengthFt: 240, AIState: "PATROL",
 	}
 	enemySub.OrderedDepth = enemySub.DepthFt
-	placeOnWater(rng, enemySub, 1000, 2500, []*Entity{player, enemySurface}, &bathy)
+	placeOnWater(rng, enemySub, 4000, 8000, []*Entity{player, enemySurface}, &bathy)
 	clampSubToBottom(enemySub, &bathy)
 
 	civilians := []*Entity{

@@ -94,10 +94,14 @@ type App struct {
 	navTooltip          string
 	lastUpdateWall      time.Time
 	activeSliderDrag      string
-	activePlotPingAt      float64
-	activePlotBlips       map[string]activePlotBlip
-	activePulseWallAt     time.Time
-	activePlotBase        *ebiten.Image
+	activeEchoFlashes     []activeEchoFlash
+	activeEchoFlashSeq    uint64
+	activeRangeScaleYd    float64
+	activePlotImg         *ebiten.Image
+	activePlotPix         []byte
+	activePlotGridPix     []byte
+	activePlotGridScaleYd float64
+	activePlotGridDirty   bool
 	compassDrag         bool
 	selectedContactID   string
 	referenceProfileIdx int
@@ -114,7 +118,7 @@ func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
 		MenuIndex:     0,
 		debugMapZoom:  1.0,
 		enemyPingHeardAt: map[string]float64{},
-		activePlotBlips:  map[string]activePlotBlip{},
+		activeRangeScaleYd: 12000,
 	}
 }
 
@@ -136,10 +140,14 @@ func (a *App) StartNewGame() {
 	a.referenceProfileIdx = 0
 	a.layerSurveyWasActive = false
 	a.lastUpdateWall = time.Time{}
-	a.activePlotBlips = map[string]activePlotBlip{}
-	a.activePlotPingAt = 0
-	a.activePulseWallAt = time.Time{}
-	a.activePlotBase = nil
+	a.activeEchoFlashes = nil
+	a.activeEchoFlashSeq = 0
+	a.activeRangeScaleYd = 12000
+	a.activePlotImg = nil
+	a.activePlotPix = nil
+	a.activePlotGridPix = nil
+	a.activePlotGridScaleYd = 0
+	a.activePlotGridDirty = true
 	a.tactical = tacticalState{zoom: 0.035, trails: map[string][]trailPoint{}, fitPending: true}
 	a.Audio.PlayClip(audio.ClipCaptMissionBrief, "")
 }
@@ -711,7 +719,7 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	}
 	echoYd := a.activeEchoReachYd(sonar)
 	echoLabel := "—"
-	if sonar.LastPingTime > 0 {
+	if echoYd > 0 {
 		echoLabel = fmt.Sprintf("%.1f kyd", echoYd/1000)
 	}
 	render.DrawText(screen, fmt.Sprintf("%s  |  SPD %.1f kts  |  ECHO REACH %s", status, player.SpeedKts, echoLabel), 40, 120, statusClr, false)
@@ -724,7 +732,7 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	render.DrawText(screen, "[A] toggle  [F] ping  click PPI/table → select contact", 40, 720, render.ColorDim, true)
+	render.DrawText(screen, "[A] toggle  [F] ping  click plot / table → select contact", 40, 720, render.ColorDim, true)
 }
 
 func (a *App) drawLibrary(screen *ebiten.Image) {
