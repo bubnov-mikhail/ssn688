@@ -277,8 +277,6 @@ func humanSubtitle(id ClipID) string {
 		return "Active sonar standby."
 	case ClipSonarActiveOnline:
 		return "Active sonar online."
-	case ClipSonarActivePing:
-		return "Transmitting active pulse."
 	case ClipSonarDeployTowed:
 		return "Deploying towed array."
 	case ClipSonarTowedHeld:
@@ -291,14 +289,10 @@ func humanSubtitle(id ClipID) string {
 		return "Layer survey complete."
 	case ClipSonarContactClassified:
 		return "Contact classified."
-	case ClipSonarEnableActiveFirst:
-		return "Enable active sonar before transmitting."
 	case ClipWepsImpactConfirmed:
 		return "Weapon impact confirmed."
 	case ClipWepsOuterDoorClosed:
 		return "Outer door closed."
-	case ClipWepsGyroSet:
-		return "Gyro angle set."
 	case ClipWepsRunDepthSet:
 		return "Run depth set."
 	case ClipWepsSpeedHigh:
