@@ -22,6 +22,7 @@ const (
 	StatusActive Status = iota
 	StatusDestroyed
 	StatusSunk
+	StatusSinking // mortally hit; still radiates noise while settling
 )
 
 // NoiseBand describes broadband acoustic emission over a frequency range.

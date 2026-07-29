@@ -3,6 +3,7 @@ package acoustics
 import (
 	"math"
 
+	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -35,20 +36,28 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 	synth.PassiveArray = array
 
 	for _, em := range emitters {
-		if !em.Alive() || em.ID == listener.ID {
+		if em == nil || em.ID == listener.ID {
+			continue
+		}
+		if !em.Alive() && em.Status != world.StatusSinking {
 			continue
 		}
 		result := model.Detect(listener, em, ModePassive, 0)
+		ApplyListenBand(&result, synth.ListenBand)
 		applyPassiveArrayModifiers(&result, &synth)
 		rel := angleDiffDeg(result.BearingDeg, listener.HeadingDeg)
 		sens := arraySensitivity(array, rel, sonar.TowedCablePct)
+		sensDB := 20 * math.Log10(math.Max(sens, 0.001))
 
-		peak := result.PeakSNR * sens
+		peak := result.PeakSNR + sensDB - 4.0
+		if peak < 0 {
+			peak = 0
+		}
 		sigmaScale := 1.0
 
 		if age := EnemyActivePingAgeSec(em, gameTime); age >= 0 {
 			if ping := enemyActivePingPeak(result.TrueRangeYd, age); ping > 0 {
-				pingPeak := ping * sens
+				pingPeak := ping + sensDB
 				if pingPeak > peak {
 					peak = pingPeak
 				}
@@ -61,8 +70,58 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 		}
 		spreadBearingEnergy(bins, result.BearingDeg, peak, array, sonar.TowedCablePct, sigmaScale)
 	}
-	addAmbientNoise(bins, gameTime, array, sonar.TowedCablePct, listener.HeadingDeg)
+	for _, bio := range sonar.BioTransients {
+		peak := BioWaterfallContribution(bio, sonar.ListenBand, gameTime)
+		if peak <= 0.2 {
+			continue
+		}
+		spreadBearingEnergy(bins, bio.BearingDeg, peak, array, sonar.TowedCablePct, 2.2)
+	}
+	addAmbientNoise(bins, gameTime, array, sonar.TowedCablePct, listener.HeadingDeg, listener.SpeedKts)
 	AddOwnshipFlowNoise(bins, listener.SpeedKts, listener.DepthFt, listener.HeadingDeg, array, sonar.TowedCablePct)
+	applyBlastWashout(bins, sonar, listener, gameTime)
+}
+
+func applyBlastWashout(bins []float64, sonar *SonarState, listener *world.Entity, gameTime float64) {
+	if sonar == nil || listener == nil || sonar.LastBlastAt <= 0 {
+		return
+	}
+	age := gameTime - sonar.LastBlastAt
+	flashSec := sonar.LastBlastFlashSec
+	if flashSec <= 0 {
+		flashSec = 8
+	}
+	if age < 0 || age > flashSec {
+		return
+	}
+	maxR := sonar.LastBlastRangeYd
+	if maxR <= 0 {
+		maxR = weapons.BlastDeafRadiusYd * 1.2
+	}
+	dist := math.Hypot(listener.X-sonar.LastBlastX, listener.Y-sonar.LastBlastY)
+	if dist > maxR {
+		return
+	}
+	flash := math.Exp(-age*(0.55*8/flashSec)) * (1 - dist/maxR)
+	wash := 35 + 55*flash
+	// Absolute bearing from listener toward detonation (same convention as entity bearings).
+	blastBrg := math.Atan2(sonar.LastBlastX-listener.X, sonar.LastBlastY-listener.Y) * 180 / math.Pi
+	if blastBrg < 0 {
+		blastBrg += 360
+	}
+	n := len(bins)
+	for i := range bins {
+		binBrg := float64(i) / float64(n) * 360
+		ang := math.Abs(AngleDiffDeg(binBrg, blastBrg))
+		// Peak toward blast (~±40–60°), weak opposite side.
+		dir := math.Exp(-(ang * ang) / (2 * 50 * 50))
+		w := wash * (0.10 + 0.90*dir)
+		if w > bins[i] {
+			bins[i] = w
+		} else {
+			bins[i] = bins[i]*0.3 + w*0.7
+		}
+	}
 }
 
 // enemyActivePingPeak returns display SNR for a recent active transmission (one-way path).
@@ -106,7 +165,8 @@ func spreadBearingEnergy(bins []float64, bearingDeg, peak float64, array Passive
 	sigma *= sigmaScale
 	inv2Sigma2 := 1.0 / (2 * sigma * sigma)
 	// Only touch bins under the beam (was a full 360° scan).
-	halfW := int(sigma*3.2*(float64(n)/360.0)) + 2
+	// Tighter beam — contacts read as narrow lines, not fat bands.
+	halfW := int(sigma*2.4*(float64(n)/360.0)) + 1
 	center := int(bearingDeg / 360 * float64(n))
 	for d := -halfW; d <= halfW; d++ {
 		bi := center + d
@@ -119,7 +179,7 @@ func spreadBearingEnergy(bins []float64, bearingDeg, peak float64, array Passive
 		binBearing := float64(bi) / float64(n) * 360
 		delta := angleDiffDeg(bearingDeg, binBearing)
 		gain := math.Exp(-delta * delta * inv2Sigma2)
-		gain *= 1.0 - math.Min(1, math.Abs(delta)/(sigma*3.2))*0.35
+		gain *= 1.0 - math.Min(1, math.Abs(delta)/(sigma*2.4))*0.55
 		v := peak * gain
 		if v > bins[bi] {
 			bins[bi] = v
@@ -127,7 +187,7 @@ func spreadBearingEnergy(bins []float64, bearingDeg, peak float64, array Passive
 	}
 }
 
-const hullBeamSigmaDeg = 3.6
+const hullBeamSigmaDeg = 2.4
 
 func towedBeamSigmaDeg(cablePct float64) float64 {
 	if cablePct < 0 {
@@ -136,7 +196,7 @@ func towedBeamSigmaDeg(cablePct float64) float64 {
 	if cablePct > 1 {
 		cablePct = 1
 	}
-	return 5.4 - cablePct*2.6
+	return 3.8 - cablePct*1.8
 }
 
 // PassiveArraySensitivity returns listen sensitivity for a contact at relative bearing.
@@ -179,7 +239,7 @@ func arraySensitivity(array PassiveArrayKind, relativeBearingDeg, towedPct float
 	}
 }
 
-func addAmbientNoise(bins []float64, gameTime float64, array PassiveArrayKind, towedPct, headingDeg float64) {
+func addAmbientNoise(bins []float64, gameTime float64, array PassiveArrayKind, towedPct, headingDeg, speedKts float64) {
 	base := 2.6
 	switch array {
 	case PassiveArrayTowed:
@@ -187,12 +247,14 @@ func addAmbientNoise(bins []float64, gameTime float64, array PassiveArrayKind, t
 	default:
 		base = 3.0
 	}
+	if speedKts > 8 {
+		base += math.Pow(speedKts-8, 1.15) * 0.28
+	}
 	n := len(bins)
 	for bi := range bins {
 		bearing := float64(bi) / float64(n) * 360
 		rel := angleDiffDeg(bearing, headingDeg)
 		sens := arraySensitivity(array, rel, towedPct)
-		// Baffle sectors stay near-black; listen arcs get living noise floor.
 		phase := gameTime*5.3 + float64(bi)*0.173
 		flutter := math.Sin(phase)*0.55 +
 			math.Sin(phase*2.17+0.8)*0.32 +
@@ -201,8 +263,10 @@ func addAmbientNoise(bins []float64, gameTime float64, array PassiveArrayKind, t
 		noise := (base + flutter) * (0.08 + 0.92*sens)
 		if noise > bins[bi] {
 			bins[bi] = noise
+		} else if speedKts > 12 {
+			bins[bi] = bins[bi]*0.7 + noise*0.3
 		} else {
-			bins[bi] = bins[bi]*0.92 + noise*0.08
+			bins[bi] += noise * 0.04
 		}
 	}
 }
@@ -222,11 +286,13 @@ func AddOwnshipFlowNoise(bins []float64, speedKts, depthFt, headingDeg float64, 
 		if penalty <= 0 {
 			continue
 		}
-		noise := penalty * 0.9
+		noise := penalty * 1.45
 		if noise > bins[bi] {
 			bins[bi] = noise
+		} else if speedKts > 14 {
+			bins[bi] = math.Max(bins[bi], noise*0.82)
 		} else {
-			bins[bi] = bins[bi]*0.8 + noise*0.2
+			bins[bi] += noise * 0.12
 		}
 	}
 }

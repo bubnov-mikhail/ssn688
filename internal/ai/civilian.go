@@ -4,12 +4,13 @@ import (
 	"math"
 
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
 // UpdateAllAI drives enemy combatants and neutral shipping.
-func UpdateAllAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model) {
-	UpdateEnemyAI(entities, player, gameTime, model)
+func UpdateAllAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo) {
+	UpdateEnemyAI(entities, player, gameTime, model, torps)
 	UpdateCivilianAI(entities, player, gameTime)
 }
 

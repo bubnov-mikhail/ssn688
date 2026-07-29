@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"image"
 	"image/color"
-	_ "image/jpeg"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -12,11 +11,11 @@ import (
 )
 
 var (
-	menuBGOnce    sync.Once
-	menuBGImage   *ebiten.Image
-	menuBGErr     error
+	menuBGOnce      sync.Once
+	menuBGImage     *ebiten.Image
+	menuBGErr       error
 	menuOverlayOnce sync.Once
-	menuOverlay   *ebiten.Image
+	menuOverlay     *ebiten.Image
 )
 
 // MenuBackground returns the cached title-screen background image.

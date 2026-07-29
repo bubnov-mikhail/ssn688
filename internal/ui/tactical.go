@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -26,10 +27,17 @@ const (
 	tacticalTrailSec = 2.5
 	tacticalOuterYd  = 12000.0 // bearing-only contacts sit on this ring
 	tacticalCourseDragPx = 10
+	tacticalSmoothStaleSec = 8.0 // reset average if contact absent this long
 )
 
 type trailPoint struct {
 	X, Y float64
+}
+
+// smoothedContactPos is an EMA of tactical plot position relative to ownship.
+type smoothedContactPos struct {
+	RelX, RelY float64
+	LastAt     float64
 }
 
 type coastSegment struct {
@@ -37,28 +45,42 @@ type coastSegment struct {
 	X1, Y1 float64
 }
 
+type bathyViewKey struct {
+	zoom           float64
+	panX, panY     float64
+	mapX, mapY     int
+	mapW, mapH     int
+}
+
 type tacticalState struct {
-	zoom            float64
-	panX, panY      float64
-	courseDragging  bool
-	courseArmed     bool // LMB pressed, waiting to distinguish click vs course drag
-	courseDeg       float64
-	coursePressMX   int
-	coursePressMY   int
-	panDragging     bool
-	panLastMX       int
-	panLastMY       int
-	trails          map[string][]trailPoint
-	lastTrailSample float64
-	fitPending      bool
-	coastBathy      *world.Bathymetry
-	coastSegments   []coastSegment
+	zoom              float64
+	panX, panY        float64
+	courseDragging    bool
+	courseArmed       bool // LMB pressed, waiting to distinguish click vs course drag
+	courseDeg         float64
+	coursePressMX     int
+	coursePressMY     int
+	panDragging       bool
+	panLastMX         int
+	panLastMY         int
+	trails            map[string][]trailPoint
+	trailAliveScratch map[string]bool
+	smoothedPos       map[string]smoothedContactPos
+	smoothAliveScratch map[string]bool
+	lastTrailSample   float64
+	fitPending        bool
+	coastBathy        *world.Bathymetry
+	coastSegments     []coastSegment
+	bathyImg          *ebiten.Image
+	bathyPix          []byte
+	bathyKey          bathyViewKey
 }
 
 func (a *App) ensureTactical() {
 	if a.tactical.zoom == 0 {
 		a.tactical.zoom = 0.035
 		a.tactical.trails = map[string][]trailPoint{}
+		a.tactical.smoothedPos = map[string]smoothedContactPos{}
 		a.tactical.fitPending = true
 	}
 }
@@ -68,7 +90,6 @@ func (a *App) updateTacticalUI() {
 	if a.Engine == nil {
 		return
 	}
-	a.updateContactTrails()
 
 	mx, my := ebiten.CursorPosition()
 	buttons := a.tacticalButtons()
@@ -101,6 +122,7 @@ func (a *App) updateTacticalUI() {
 			a.tactical.panX -= float64(dx) / a.tactical.zoom
 			a.tactical.panY += float64(dy) / a.tactical.zoom
 			a.tactical.panLastMX, a.tactical.panLastMY = mx, my
+			a.invalidateTacticalBathy()
 		}
 	} else {
 		a.tactical.panDragging = false
@@ -161,6 +183,7 @@ func (a *App) updateTacticalUI() {
 		}
 		a.tactical.panX = wx - player.X - (float64(mx)-float64(tacticalPanelX+tacticalPanelW/2))/a.tactical.zoom
 		a.tactical.panY = wy - player.Y + (float64(my)-float64(tacticalPanelY+tacticalPanelH/2))/a.tactical.zoom
+		a.invalidateTacticalBathy()
 	}
 
 	if a.tactical.fitPending {
@@ -172,12 +195,16 @@ func (a *App) updateTacticalUI() {
 func (a *App) tacticalContactAt(mx, my int) *acoustics.Contact {
 	player := a.Engine.Scenario.Player
 	sonar := &a.Engine.Sonar
+	gt := a.Engine.Clock.GameTime
 	const hitR2 = 14 * 14
 	var best *acoustics.Contact
 	bestD := 1e18
 	for i := range sonar.Contacts {
 		c := &sonar.Contacts[i]
-		wx, wy := contactPlotWorld(player, c)
+		if a.isOwnTorpedoContact(c) {
+			continue
+		}
+		wx, wy := a.contactPlotWorld(player, c, gt)
 		sx, sy := a.tacticalWorldToScreen(wx, wy)
 		dx := float64(mx) - sx
 		dy := float64(my) - sy
@@ -190,6 +217,24 @@ func (a *App) tacticalContactAt(mx, my int) *acoustics.Contact {
 	return best
 }
 
+// isOwnTorpedoContact is true when the track is one of our wire/in-water Mk48s
+// (shown as a blue telemetry square, not a hostile/unknown contact glyph).
+func (a *App) isOwnTorpedoContact(c *acoustics.Contact) bool {
+	if a == nil || c == nil || a.Engine == nil {
+		return false
+	}
+	id := c.SourceEntityID
+	if id == "" {
+		return false
+	}
+	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
+		if t != nil && t.Alive && t.Side == world.SidePlayer && t.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func bearingDeg(x0, y0, x1, y1 float64) float64 {
 	deg := math.Atan2(x1-x0, y1-y0) * 180 / math.Pi
 	if deg < 0 {
@@ -199,6 +244,16 @@ func bearingDeg(x0, y0, x1, y1 float64) float64 {
 }
 
 func (a *App) tacticalButtons() []uiButton {
+	cachedTacticalButtonsOnce.Do(initTacticalButtons)
+	return cachedTacticalButtons
+}
+
+var (
+	cachedTacticalButtonsOnce sync.Once
+	cachedTacticalButtons     []uiButton
+)
+
+func initTacticalButtons() {
 	y := tacticalPanelY + 8
 	btns := []uiButton{
 		{ID: "tac_zoom_in", Label: "+", Tooltip: "Zoom in", X: tacticalPanelX + tacticalPanelW - 150, Y: y, H: 28},
@@ -208,15 +263,17 @@ func (a *App) tacticalButtons() []uiButton {
 	for i := range btns {
 		btns[i].W = render.ButtonWidth(btns[i].Label, 10)
 	}
-	return btns
+	cachedTacticalButtons = btns
 }
 
 func (a *App) handleTacticalButton(id string) {
 	switch id {
 	case "tac_zoom_in":
 		a.tactical.zoom = math.Min(tacticalZoomMax, a.tactical.zoom*tacticalZoomStep)
+		a.invalidateTacticalBathy()
 	case "tac_zoom_out":
 		a.tactical.zoom = math.Max(tacticalZoomMin, a.tactical.zoom/tacticalZoomStep)
+		a.invalidateTacticalBathy()
 	case "tac_fit":
 		a.tacticalFitAll()
 	}
@@ -243,10 +300,11 @@ func (a *App) tacticalScreenToWorld(sx, sy int) (wx, wy float64) {
 
 func (a *App) tacticalFitAll() {
 	player := a.Engine.Scenario.Player
+	gt := a.Engine.Clock.GameTime
 	a.tactical.panX, a.tactical.panY = 0, 0
 	maxR := 2500.0
 	for _, c := range a.Engine.Sonar.Contacts {
-		wx, wy := contactPlotWorld(player, &c)
+		wx, wy := a.contactPlotWorld(player, &c, gt)
 		r := math.Hypot(wx-player.X, wy-player.Y)
 		if r > maxR {
 			maxR = r
@@ -261,18 +319,111 @@ func (a *App) tacticalFitAll() {
 		zoom = tacticalZoomMax
 	}
 	a.tactical.zoom = zoom
+	a.invalidateTacticalBathy()
 }
 
-func contactPlotWorld(player *world.Entity, c *acoustics.Contact) (x, y float64) {
-	rad := c.BearingDeg * math.Pi / 180
+// contactPlotRaw returns the instantaneous polar estimate (no display averaging).
+func contactPlotRaw(player *world.Entity, c *acoustics.Contact, gameTime float64) (x, y float64) {
+	bearing := c.BearingDeg
 	r := c.EstimatedRangeYd
-	if !contactRangeAccurate(c) {
-		// Bearing-only fix: park on the outer range ring to avoid range jitter.
+	switch {
+	case acoustics.ContactActiveFixValid(c, gameTime):
+		// Freeze last active range-bearing while the ACTIVE marker would still be fading.
+		bearing = c.LastActiveBearingDeg
+		r = c.LastActiveRangeYd
+	case contactRangeAccurate(c):
+		// High-probability passive (or fresh) range fix — use live track.
+		if r < 100 {
+			r = 100
+		}
+	default:
+		// Bearing-only: park on the outer range ring to avoid range jitter.
 		r = tacticalOuterYd
-	} else if r < 100 {
-		r = 100
 	}
+	rad := bearing * math.Pi / 180
 	return player.X + math.Sin(rad)*r, player.Y + math.Cos(rad)*r
+}
+
+// contactPlotWorld returns the display position (EMA-smoothed to damp marker jump).
+func (a *App) contactPlotWorld(player *world.Entity, c *acoustics.Contact, gameTime float64) (x, y float64) {
+	if c == nil || player == nil {
+		return 0, 0
+	}
+	id := c.SourceEntityID
+	if id == "" {
+		id = c.ID
+	}
+	if pos, ok := a.tactical.smoothedPos[id]; ok {
+		return player.X + pos.RelX, player.Y + pos.RelY
+	}
+	return contactPlotRaw(player, c, gameTime)
+}
+
+// contactSmoothAlpha is the EMA blend weight toward the raw fix (lower = steadier marker).
+func contactSmoothAlpha(c *acoustics.Contact, gameTime float64) float64 {
+	switch {
+	case acoustics.ContactActiveFixValid(c, gameTime):
+		// Active snapshot is already stable; blend lightly when a new ping updates it.
+		return 0.45
+	case contactRangeAccurate(c):
+		relUnc := c.UncRangeYd / math.Max(c.EstimatedRangeYd, 1)
+		bearQ := math.Min(1, c.UncBearingDeg/20)
+		q := math.Max(relUnc, bearQ*0.35)
+		// ~5% unc → α≈0.22; ~10% → α≈0.12; noisier → α≈0.05
+		return 0.05 + 0.20*(1-math.Min(1, q/0.14))
+	default:
+		// Bearing-only on the outer ring — heavy average against LOB jitter.
+		bearQ := math.Min(1, c.UncBearingDeg/28)
+		return 0.04 + 0.10*(1-bearQ)
+	}
+}
+
+func (a *App) updateSmoothedContactPositions() {
+	if a.Engine == nil || a.Engine.Scenario == nil || a.Engine.Scenario.Player == nil {
+		return
+	}
+	player := a.Engine.Scenario.Player
+	gt := a.Engine.Clock.GameTime
+	if a.tactical.smoothedPos == nil {
+		a.tactical.smoothedPos = map[string]smoothedContactPos{}
+	}
+	if a.tactical.smoothAliveScratch == nil {
+		a.tactical.smoothAliveScratch = map[string]bool{}
+	} else {
+		clear(a.tactical.smoothAliveScratch)
+	}
+	alive := a.tactical.smoothAliveScratch
+
+	for i := range a.Engine.Sonar.Contacts {
+		c := &a.Engine.Sonar.Contacts[i]
+		if a.isOwnTorpedoContact(c) {
+			continue
+		}
+		id := c.SourceEntityID
+		if id == "" {
+			id = c.ID
+		}
+		alive[id] = true
+		rawX, rawY := contactPlotRaw(player, c, gt)
+		rawRelX := rawX - player.X
+		rawRelY := rawY - player.Y
+		prev, ok := a.tactical.smoothedPos[id]
+		if !ok || gt-prev.LastAt > tacticalSmoothStaleSec {
+			a.tactical.smoothedPos[id] = smoothedContactPos{RelX: rawRelX, RelY: rawRelY, LastAt: gt}
+			continue
+		}
+		alpha := contactSmoothAlpha(c, gt)
+		a.tactical.smoothedPos[id] = smoothedContactPos{
+			RelX:   prev.RelX*(1-alpha) + rawRelX*alpha,
+			RelY:   prev.RelY*(1-alpha) + rawRelY*alpha,
+			LastAt: gt,
+		}
+	}
+	for id := range a.tactical.smoothedPos {
+		if !alive[id] {
+			delete(a.tactical.smoothedPos, id)
+		}
+	}
 }
 
 // contactRangeAccurate is true when range uncertainty is within ~10% (90% accuracy).
@@ -317,15 +468,26 @@ func (a *App) updateContactTrails() {
 	if a.tactical.trails == nil {
 		a.tactical.trails = map[string][]trailPoint{}
 	}
+	if a.tactical.trailAliveScratch == nil {
+		a.tactical.trailAliveScratch = map[string]bool{}
+	} else {
+		clear(a.tactical.trailAliveScratch)
+	}
+	alive := a.tactical.trailAliveScratch
 	player := a.Engine.Scenario.Player
-	alive := map[string]bool{}
 	for i := range a.Engine.Sonar.Contacts {
 		c := &a.Engine.Sonar.Contacts[i]
-		alive[c.SourceEntityID] = true
-		if !contactTrackAccurate(c) || !contactRangeAccurate(c) {
+		if a.isOwnTorpedoContact(c) {
 			continue
 		}
-		wx, wy := contactPlotWorld(player, c)
+		alive[c.SourceEntityID] = true
+		if !contactTrackAccurate(c) {
+			continue
+		}
+		if !acoustics.ContactActiveFixValid(c, gt) && !contactRangeAccurate(c) {
+			continue
+		}
+		wx, wy := a.contactPlotWorld(player, c, gt)
 		tr := a.tactical.trails[c.SourceEntityID]
 		if len(tr) > 0 {
 			last := tr[len(tr)-1]
@@ -348,8 +510,8 @@ func (a *App) updateContactTrails() {
 
 func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
-	render.FillRect(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH, render.ColorPanel)
-	render.DrawTextLarge(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28, render.ColorText)
+	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
+	render.DrawText(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28, render.ColorPlateLabel, true)
 	render.DrawText(screen, "LMB click: select   LMB drag: course   MMB/RMB drag: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPhosphorDim, true)
 
 	for _, b := range a.tacticalButtons() {
@@ -360,6 +522,7 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 	mapY := tacticalPanelY + 40
 	mapW := tacticalPanelW - 16
 	mapH := tacticalPanelH - 52
+	render.DrawMonitor(screen, mapX, mapY, mapW, mapH)
 	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH)
 
 	if a.uiTooltip != "" {
@@ -392,7 +555,10 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 
 	for i := range sonar.Contacts {
 		c := &sonar.Contacts[i]
-		wx, wy := contactPlotWorld(player, c)
+		if a.isOwnTorpedoContact(c) {
+			continue // own fish: blue telemetry marker only, not a plotted contact
+		}
+		wx, wy := a.contactPlotWorld(player, c, a.Engine.Clock.GameTime)
 		sx, sy := a.tacticalWorldToScreen(wx, wy)
 		lineClr := color.RGBA{0, 180, 120, 200}
 		if c.SourceEntityID == a.selectedContactID {
@@ -405,7 +571,7 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 	drawOwnshipSymbol(screen, px, py, player.HeadingDeg, render.ColorHighlight)
 
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
-		if !t.Alive {
+		if t == nil || !t.Alive || t.Side != world.SidePlayer {
 			continue
 		}
 		sx, sy := a.tacticalWorldToScreen(t.X, t.Y)
@@ -431,13 +597,70 @@ func (a *App) drawTacticalBathymetry(screen *ebiten.Image, mapX, mapY, mapW, map
 	if bathy == nil || !bathy.Valid() {
 		return
 	}
-	step := 4
-	for sy := mapY; sy < mapY+mapH; sy += step {
-		for sx := mapX; sx < mapX+mapW; sx += step {
+	img := a.ensureTacticalBathyImage(mapX, mapY, mapW, mapH, bathy)
+	if img == nil {
+		return
+	}
+	const step = 4
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(step, step)
+	op.GeoM.Translate(float64(mapX), float64(mapY))
+	screen.DrawImage(img, op)
+}
+
+func (a *App) invalidateTacticalBathy() {
+	a.tactical.bathyKey = bathyViewKey{}
+}
+
+func (a *App) ensureTacticalBathyImage(mapX, mapY, mapW, mapH int, bathy *world.Bathymetry) *ebiten.Image {
+	key := bathyViewKey{
+		zoom:   a.tactical.zoom,
+		panX:   a.tactical.panX,
+		panY:   a.tactical.panY,
+		mapX:   mapX,
+		mapY:   mapY,
+		mapW:   mapW,
+		mapH:   mapH,
+	}
+	if a.tactical.bathyImg != nil && a.tactical.bathyKey == key {
+		return a.tactical.bathyImg
+	}
+
+	const step = 4
+	w := (mapW + step - 1) / step
+	h := (mapH + step - 1) / step
+	if w < 1 || h < 1 {
+		return nil
+	}
+	need := w * h * 4
+	if a.tactical.bathyPix == nil || len(a.tactical.bathyPix) != need {
+		a.tactical.bathyPix = make([]byte, need)
+		if a.tactical.bathyImg == nil {
+			a.tactical.bathyImg = ebiten.NewImage(w, h)
+		} else if a.tactical.bathyImg.Bounds().Dx() != w || a.tactical.bathyImg.Bounds().Dy() != h {
+			a.tactical.bathyImg = ebiten.NewImage(w, h)
+		}
+	} else if a.tactical.bathyImg == nil || a.tactical.bathyImg.Bounds().Dx() != w || a.tactical.bathyImg.Bounds().Dy() != h {
+		a.tactical.bathyImg = ebiten.NewImage(w, h)
+	}
+
+	pix := a.tactical.bathyPix
+	for py := 0; py < h; py++ {
+		sy := mapY + py*step
+		for px := 0; px < w; px++ {
+			sx := mapX + px*step
 			wx, wy := a.tacticalScreenToWorld(sx, sy)
-			render.FillRect(screen, sx, sy, step, step, bathyColor(bathy.DepthAtFt(wx, wy)))
+			clr := bathyColor(bathy.DepthAtFt(wx, wy))
+			off := (py*w + px) * 4
+			pix[off] = clr.R
+			pix[off+1] = clr.G
+			pix[off+2] = clr.B
+			pix[off+3] = clr.A
 		}
 	}
+	a.tactical.bathyImg.WritePixels(pix)
+	a.tactical.bathyKey = key
+	return a.tactical.bathyImg
 }
 
 func (a *App) drawTacticalCoastline(screen *ebiten.Image, bathy *world.Bathymetry) {

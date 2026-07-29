@@ -16,7 +16,7 @@ const (
 )
 
 // PlayerPingHeardAge returns seconds since the ping arrived at listener, or -1.
-func PlayerPingHeardAge(listener, player *world.Entity, gameTime float64) float64 {
+func PlayerPingHeardAge(env Environment, listener, player *world.Entity, gameTime float64) float64 {
 	if listener == nil || player == nil || player.LastPingTime <= 0 {
 		return -1
 	}
@@ -37,26 +37,28 @@ func PlayerPingHeardAge(listener, player *world.Entity, gameTime float64) float6
 	if power <= 0 {
 		power = 0.7
 	}
-	if ReceivedPlayerPingLevelDB(rangeYd, power) < PlayerPingHearThresholdDB {
+	if ReceivedPlayerPingLevelDB(env, rangeYd, power, player.DepthFt, listener.DepthFt) < PlayerPingHearThresholdDB {
 		return -1
 	}
 	return heardAge
 }
 
 // HeardPlayerPing reports whether listener has received the player's latest ping.
-func HeardPlayerPing(listener, player *world.Entity, gameTime float64) bool {
-	return PlayerPingHeardAge(listener, player, gameTime) >= 0
+func HeardPlayerPing(env Environment, listener, player *world.Entity, gameTime float64) bool {
+	return PlayerPingHeardAge(env, listener, player, gameTime) >= 0
 }
 
 // ReceivedPlayerPingLevelDB estimates one-way received ping level at range (dB re 1 µPa).
-func ReceivedPlayerPingLevelDB(rangeYd, pingPower float64) float64 {
+func ReceivedPlayerPingLevelDB(env Environment, rangeYd, pingPower, srcDepthFt, dstDepthFt float64) float64 {
 	if rangeYd < 100 {
 		rangeYd = 100
 	}
 	rangeKy := rangeYd / 1000
 	spread := spreadingLossDB(rangeYd)
 	abs := absorptionDBPerKy(3000, rangeKy)
-	return PingSourceLevel(pingPower) - spread - abs
+	layer := env.LayerCrossingLoss(srcDepthFt, dstDepthFt)
+	column := env.ColumnAttenuationDB(srcDepthFt, dstDepthFt, 3000)
+	return PingSourceLevel(pingPower) - spread - abs - layer - column
 }
 
 // PlayerPingPassiveBonusDB is extra passive SNR against the pinging submarine.

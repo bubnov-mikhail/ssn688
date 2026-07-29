@@ -31,6 +31,12 @@ func Classify(signal Spectrum, peakSNR, rangeYd float64) Classification {
 		if rangeYd < 6000 {
 			conf += 0.03
 		}
+		// Weak waterfall-class SNR: tonals are unreliable — suppress auto-ID.
+		clarity := SpectrumClarity01(peakSNR)
+		conf *= 0.35 + 0.65*clarity
+		if peakSNR < 9 {
+			conf = math.Min(conf, 0.42)
+		}
 		if conf > 0.96 {
 			conf = 0.96
 		}

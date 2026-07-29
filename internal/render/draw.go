@@ -122,21 +122,23 @@ func DrawLine(screen *ebiten.Image, x1, y1, x2, y2 float64, clr color.Color) {
 }
 
 var (
-	ColorBG        = color.RGBA{8, 16, 24, 255}
-	ColorPanel     = color.RGBA{12, 28, 40, 255}
-	ColorBorder    = color.RGBA{0, 180, 140, 255}
-	ColorText      = color.RGBA{0, 255, 180, 255}
-	ColorDim       = color.RGBA{0, 140, 100, 255}
+	ColorBG            = color.RGBA{12, 12, 14, 255}
+	ColorPanel         = color.RGBA{24, 24, 26, 255}
+	ColorPanelStroke   = color.RGBA{40, 40, 44, 255}
+	ColorMonitorFace   = color.RGBA{10, 10, 12, 255}
+	ColorBorder        = color.RGBA{70, 72, 78, 255}
+	ColorText          = color.RGBA{178, 180, 186, 255}
+	ColorDim           = color.RGBA{0, 140, 100, 255}
 	ColorWarn      = color.RGBA{255, 200, 0, 255}
 	ColorDanger    = color.RGBA{255, 60, 40, 255}
 	ColorSonar     = color.RGBA{0, 255, 120, 255}
 	ColorActive    = color.RGBA{100, 200, 255, 255}
-	ColorGrid      = color.RGBA{0, 80, 60, 255}
+	ColorGrid          = color.RGBA{0, 70, 55, 255}
 	ColorHighlight = color.RGBA{255, 255, 100, 255}
 	ColorDebugCalm    = color.RGBA{60, 200, 80, 255}
 	ColorDebugSearch  = color.RGBA{255, 210, 50, 255}
 	ColorDebugAttack  = color.RGBA{255, 60, 40, 255}
 	ColorDebugInactive = color.RGBA{100, 110, 120, 255}
 	ColorDebugPlayer  = color.RGBA{80, 220, 255, 255}
-	ColorDebugPanel   = color.RGBA{8, 20, 30, 220}
+	ColorDebugPanel    = color.RGBA{18, 18, 20, 220}
 )

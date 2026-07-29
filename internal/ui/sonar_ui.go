@@ -2,12 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 )
 
@@ -26,19 +28,27 @@ type buttonSpec struct {
 	id, label, tooltip string
 }
 
-func layoutButtonRow(x, y, h, gap int, specs []buttonSpec) []sonarUIButton {
-	out := make([]sonarUIButton, len(specs))
+func layoutButtonRowInto(dst []sonarUIButton, x, y, h, gap int, specs []buttonSpec) []sonarUIButton {
+	if cap(dst) < len(specs) {
+		dst = make([]sonarUIButton, 0, len(specs))
+	} else {
+		dst = dst[:0]
+	}
 	xPos := x
-	for i, s := range specs {
+	for _, s := range specs {
 		w := render.ButtonWidth(s.label, 14)
-		out[i] = sonarUIButton{ID: s.id, Label: s.label, Tooltip: s.tooltip, X: xPos, Y: y, W: w, H: h}
+		dst = append(dst, sonarUIButton{ID: s.id, Label: s.label, Tooltip: s.tooltip, X: xPos, Y: y, W: w, H: h})
 		xPos += w + gap
 	}
-	return out
+	return dst
+}
+
+func layoutButtonRow(x, y, h, gap int, specs []buttonSpec) []sonarUIButton {
+	return layoutButtonRowInto(nil, x, y, h, gap, specs)
 }
 
 func passiveArrayButtons(x, y int) []sonarUIButton {
-	return layoutButtonRow(x, y+10, 34, 6, []buttonSpec{
+	return layoutButtonRow(x, y, 34, 6, []buttonSpec{
 		{"array_hull", "HULL", "Hull-mounted spherical array"},
 		{"array_towed", "TOWED", "Towed array (TB-16) — deploy cable first"},
 	})
@@ -50,6 +60,44 @@ func towedControlButtons(x, y int) []sonarUIButton {
 		{"towed_stop", "STOP", "Stop cable motion at present length"},
 		{"towed_retract", "RETRACT", "Recover towed array"},
 	})
+}
+
+var cachedSonarUIButtons struct {
+	once     sync.Once
+	passive  []sonarUIButton
+	towed    []sonarUIButton
+	spectrum []sonarUIButton
+	band     []sonarUIButton
+}
+
+func initCachedSonarUIButtons() {
+	cachedSonarUIButtons.passive = passiveArrayButtons(layout.PassiveArrayPlateX, layout.PassiveArrayButtonsY)
+	cachedSonarUIButtons.towed = towedControlButtons(layout.PassiveTowedPlateX, layout.PassiveTowedButtonsY)
+	cachedSonarUIButtons.spectrum = passiveArrayButtons(spectrumArrayLabelX, spectrumArrayLabelY+22)
+	cachedSonarUIButtons.band = layoutButtonRow(layout.PassiveArrayPlateX, layout.PassiveBandButtonsY, 34, 6, []buttonSpec{
+		{"band_bb", "SHIP", "Broadband listen — ships and subs; torpedo HF attenuated"},
+		{"band_hf", "TORP", "High-frequency listen — torpedo motors; ship LF/MF cut"},
+	})
+}
+
+func cachedPassiveArrayButtons() []sonarUIButton {
+	cachedSonarUIButtons.once.Do(initCachedSonarUIButtons)
+	return cachedSonarUIButtons.passive
+}
+
+func cachedPassiveTowedButtons() []sonarUIButton {
+	cachedSonarUIButtons.once.Do(initCachedSonarUIButtons)
+	return cachedSonarUIButtons.towed
+}
+
+func cachedSpectrumArrayButtons() []sonarUIButton {
+	cachedSonarUIButtons.once.Do(initCachedSonarUIButtons)
+	return cachedSonarUIButtons.spectrum
+}
+
+func cachedPassiveBandButtons() []sonarUIButton {
+	cachedSonarUIButtons.once.Do(initCachedSonarUIButtons)
+	return cachedSonarUIButtons.band
 }
 
 func (a *App) sonarArrayLabel(sonar *acoustics.SonarState) string {
@@ -126,24 +174,30 @@ func (a *App) sonarButtonAction(id string, sonar *acoustics.SonarState) {
 		sonar.PassiveArray = acoustics.PassiveArrayTowed
 		a.waterfallFullRebuild = true
 		a.passivePPIPending = true
+	case "band_bb":
+		sonar.ListenBand = acoustics.ListenBroadband
+		a.waterfallFullRebuild = true
+	case "band_hf":
+		sonar.ListenBand = acoustics.ListenHF
+		a.waterfallFullRebuild = true
 	case "towed_deploy":
 		if sonar.TowedDeployed() || (sonar.TowedInMotion() && sonar.TowedCableRate > 0) {
 			return
 		}
 		sonar.StartDeploy()
-		a.Audio.PlayClip(audio.ClipSonarPassiveOn, "Deploy towed array.")
+		a.Audio.PlayClip(audio.ClipSonarDeployTowed, "Deploy towed array.")
 	case "towed_stop":
 		if !sonar.TowedInMotion() {
 			return
 		}
 		sonar.StopTowed()
-		a.Audio.PlayClip(audio.ClipSonarActiveStandby, fmt.Sprintf("Towed array held at %d percent.", int(sonar.TowedCablePct*100)))
+		a.Audio.PlayClip(audio.ClipSonarTowedHeld, fmt.Sprintf("Towed array held at %d percent.", int(sonar.TowedCablePct*100)))
 	case "towed_retract":
 		if sonar.TowedStowed() || (sonar.TowedInMotion() && sonar.TowedCableRate < 0) {
 			return
 		}
 		sonar.StartRetract()
-		a.Audio.PlayClip(audio.ClipSonarPassiveOff, "Retract towed array.")
+		a.Audio.PlayClip(audio.ClipSonarRetractTowed, "Retract towed array.")
 	}
 }
 
@@ -156,6 +210,14 @@ func (a *App) handleSonarArrayKeys(sonar *acoustics.SonarState, allowTowedMotion
 		}
 		a.waterfallFullRebuild = true
 		a.passivePPIPending = true
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyN) {
+		if sonar.ListenBand == acoustics.ListenBroadband {
+			sonar.ListenBand = acoustics.ListenHF
+		} else {
+			sonar.ListenBand = acoustics.ListenBroadband
+		}
+		a.waterfallFullRebuild = true
 	}
 	if !allowTowedMotion {
 		return
@@ -171,9 +233,8 @@ func (a *App) handleSonarArrayKeys(sonar *acoustics.SonarState, allowTowedMotion
 	}
 }
 
-func (a *App) drawArraySelector(screen *ebiten.Image, sonar *acoustics.SonarState, x, y int) {
-	render.DrawText(screen, "PASSIVE ARRAY", x, y, render.ColorPhosphorDim, true)
-	buttons := passiveArrayButtons(x, y)
+func (a *App) drawArraySelector(screen *ebiten.Image, sonar *acoustics.SonarState, labelX, labelY int, buttons []sonarUIButton) {
+	render.DrawText(screen, "PASSIVE ARRAY", labelX, labelY+12, render.ColorPlateLabel, true)
 	mx, my := ebiten.CursorPosition()
 	for _, b := range buttons {
 		active := (b.ID == "array_hull" && sonar.PassiveArray == acoustics.PassiveArrayHull) ||
@@ -187,31 +248,33 @@ func (a *App) drawArraySelector(screen *ebiten.Image, sonar *acoustics.SonarStat
 	}
 }
 
-func (a *App) drawTowedControls(screen *ebiten.Image, sonar *acoustics.SonarState, x, y int) {
-	render.DrawText(screen, "TOWED ARRAY", x, y, render.ColorPhosphorDim, true)
+func (a *App) drawListenBandSelector(screen *ebiten.Image, sonar *acoustics.SonarState) {
+	render.DrawText(screen, "LISTEN BAND", layout.PassiveBandLabelX, layout.PassiveBandLabelY+12, render.ColorPlateLabel, true)
+	buttons := cachedPassiveBandButtons()
+	mx, my := ebiten.CursorPosition()
+	for _, b := range buttons {
+		active := (b.ID == "band_bb" && sonar.ListenBand == acoustics.ListenBroadband) ||
+			(b.ID == "band_hf" && sonar.ListenBand == acoustics.ListenHF)
+		hover := b.contains(mx, my)
+		pressed := a.uiPressedID == b.ID
+		if active {
+			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorAmber)
+		}
+		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
+	}
+}
+
+func (a *App) drawTowedControls(screen *ebiten.Image, sonar *acoustics.SonarState) {
+	render.DrawText(screen, "TOWED ARRAY", layout.PassiveTowedLabelX, layout.PassiveTowedLabelY+12, render.ColorPlateLabel, true)
+
 	status := a.towedCableStatus(sonar)
 	clr := render.ColorPhosphor
 	if sonar.PassiveArray == acoustics.PassiveArrayTowed && sonar.TowedStowed() {
 		clr = render.ColorWarn
 	}
-	render.DrawText(screen, status, x, y+18, clr, true)
+	render.DrawText(screen, status, layout.PassiveTowedStatusX+8, layout.PassiveTowedStatusY+18, clr, true)
 
-	const barH = 12
-	barY := y + 34
-	barW := 0
-	buttons := towedControlButtons(x, barY+22)
-	for _, b := range buttons {
-		barW += b.W + 4
-	}
-	if barW > 4 {
-		barW -= 4
-	}
-	render.FillRect(screen, x, barY, barW, barH, render.ColorPanelInset)
-	fillW := int(sonar.TowedCablePct * float64(barW))
-	if fillW > 0 {
-		render.FillRect(screen, x, barY, fillW, barH, render.ColorSonar)
-	}
-
+	buttons := cachedPassiveTowedButtons()
 	mx, my := ebiten.CursorPosition()
 	for _, b := range buttons {
 		disabled := false

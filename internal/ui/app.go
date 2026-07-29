@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,10 +14,10 @@ import (
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/config"
+	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/save"
 	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -43,21 +44,22 @@ const (
 )
 
 type App struct {
-	Mode           AppMode
-	Settings       config.Settings
-	Engine         *sim.Engine
-	Audio          *audio.Manager
-	CurrentScreen  Screen
-	MenuIndex      int
-	LoadFiles      []string
-	LoadIndex      int
-	StatusMessage         string
+	Mode                   AppMode
+	Settings               config.Settings
+	Engine                 *sim.Engine
+	Audio                  *audio.Manager
+	CurrentScreen          Screen
+	MenuIndex              int
+	LoadFiles              []string
+	LoadIndex              int
+	StatusMessage          string
 	bearingWaterfalls      BearingWaterfallBank
 	lastWaterfallSample    float64
 	waterfallScratch       []float64
 	waterfallAltCounter    int
 	waterfallImg           *ebiten.Image
 	waterfallPix           []byte
+	waterfallRng           *rand.Rand
 	waterfallStamp         float64
 	waterfallArray         acoustics.PassiveArrayKind
 	waterfallPendingScroll bool
@@ -81,44 +83,51 @@ type App struct {
 	spectrumCacheBins      []float64
 	spectrumCacheAt        float64
 	spectrumCacheBearing   float64
+	spectrumFuzzyLevels    []float64
+	waterfallChipCache     []contactChip
+	waterfallChipCacheKey  uint64
+	sonarBtnScratch        []sonarUIButton
 	enemyPingHeardAt       map[string]float64
 	lastPingPlayed         float64
-	debugMapZoom   float64
-	uiHoverID      string
-	uiHoverSince   time.Time
-	uiTooltip      string
-	uiPressedID    string
-	uiPressedAt    time.Time
-	navHoverIdx    int
-	navHoverSince  time.Time
-	navTooltip          string
-	lastUpdateWall      time.Time
-	activeSliderDrag      string
-	activeEchoFlashes     []activeEchoFlash
-	activeEchoFlashSeq    uint64
-	activeRangeScaleYd    float64
-	activePlotImg         *ebiten.Image
-	activePlotPix         []byte
-	activePlotGridPix     []byte
-	activePlotGridScaleYd float64
-	activePlotGridDirty   bool
-	compassDrag         bool
-	selectedContactID   string
-	referenceProfileIdx int
-	layerSurveyWasActive bool
-	tactical             tacticalState
+	debugMapZoom           float64
+	uiHoverID              string
+	uiHoverSince           time.Time
+	uiTooltip              string
+	uiPressedID            string
+	uiPressedAt            time.Time
+	navHoverIdx            int
+	navHoverSince          time.Time
+	navTooltip             string
+	lastUpdateWall         time.Time
+	activeSliderDrag       string
+	activeEchoFlashes      []activeEchoFlash
+	activeEchoFlashSeq     uint64
+	activeRangeScaleYd     float64
+	activePlotImg          *ebiten.Image
+	activePlotPix          []byte
+	activePlotGridPix      []byte
+	activePlotGridScaleYd  float64
+	activePlotGridDirty    bool
+	compassDrag            bool
+	selectedContactID      string
+	referenceProfileIdx    int
+	layerSurveyWasActive   bool
+	tactical               tacticalState
+	wepsMapZoom            float64
+	wepsMapImg             *ebiten.Image
 }
 
 func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
 	return &App{
-		Mode:          ModeMenu,
-		Settings:      settings,
-		Audio:         audioMgr,
-		CurrentScreen: ScreenPassive,
-		MenuIndex:     0,
-		debugMapZoom:  1.0,
-		enemyPingHeardAt: map[string]float64{},
+		Mode:               ModeMenu,
+		Settings:           settings,
+		Audio:              audioMgr,
+		CurrentScreen:      ScreenPassive,
+		MenuIndex:          0,
+		debugMapZoom:       1.0,
+		enemyPingHeardAt:   map[string]float64{},
 		activeRangeScaleYd: 12000,
+		wepsMapZoom:        0.05,
 	}
 }
 
@@ -126,11 +135,11 @@ func (a *App) StartNewGame() {
 	a.Engine = sim.NewEngine(world.NewTrainingScenario())
 	a.Mode = ModeGame
 	a.CurrentScreen = ScreenPassive
-	a.StatusMessage = "Mission: destroy hostile surface unit and submarine."
 	a.bearingWaterfalls.Reset()
 	a.lastWaterfallSample = 0
 	a.waterfallPendingScroll = false
 	a.waterfallFullRebuild = true
+	a.disposeWaterfallImages()
 	a.passivePPIStamp = -1
 	a.passivePPIPending = true
 	a.spectrumFuzzyStamp = -1
@@ -148,7 +157,11 @@ func (a *App) StartNewGame() {
 	a.activePlotGridPix = nil
 	a.activePlotGridScaleYd = 0
 	a.activePlotGridDirty = true
-	a.tactical = tacticalState{zoom: 0.035, trails: map[string][]trailPoint{}, fitPending: true}
+	a.waterfallChipCache = nil
+	a.waterfallChipCacheKey = 0
+	a.tactical = tacticalState{zoom: 0.035, trails: map[string][]trailPoint{}, smoothedPos: map[string]smoothedContactPos{}, fitPending: true}
+	a.wepsMapZoom = 0.05
+	a.wepsMapImg = nil
 	a.Audio.PlayClip(audio.ClipCaptMissionBrief, "")
 }
 
@@ -287,10 +300,7 @@ func (a *App) updateGame() {
 
 	if a.Mode != ModePaused {
 		a.Engine.Update(realDT)
-		if a.CurrentScreen != ScreenTactical {
-			a.ensureTactical()
-			a.updateContactTrails()
-		}
+		a.updateSimulationUI()
 	}
 
 	if a.Engine != nil {
@@ -298,7 +308,7 @@ func (a *App) updateGame() {
 		active := env.LayerSurveyActive(a.Engine.Clock.GameTime)
 		if a.layerSurveyWasActive && !active && env.LayerSurveyKnown {
 			a.StatusMessage = "BT cast complete — thermocline boundaries plotted."
-			a.Audio.PlayClip(audio.ClipSonarPassiveOn, "Layer survey complete.")
+			a.Audio.PlayClip(audio.ClipSonarLayerSurveyComplete, "Layer survey complete.")
 		}
 		a.layerSurveyWasActive = active
 	}
@@ -334,12 +344,18 @@ func (a *App) updateGame() {
 	}
 	a.updateEnemyPingAudio()
 
-	// Bearing waterfall sampling (bearing vs time, newest at top).
-	a.updateBearingWaterfall()
-
 	if inpututil.IsKeyJustPressed(ebiten.KeyS) && ebiten.IsKeyPressed(ebiten.KeyControl) {
 		a.quickSave()
 	}
+}
+
+// updateSimulationUI runs lightweight background UI state that must stay warm
+// while the player is on another screen (trails, waterfall history, etc.).
+func (a *App) updateSimulationUI() {
+	a.ensureTactical()
+	a.updateSmoothedContactPositions()
+	a.updateContactTrails()
+	a.updateBearingWaterfall()
 }
 
 func (a *App) cycleSpeedUp() {
@@ -415,10 +431,9 @@ func (a *App) handleScreenInput() {
 
 	switch a.CurrentScreen {
 	case ScreenPassive:
-		arrayBtns := passiveArrayButtons(960, 90)
-		towedBtns := towedControlButtons(960, 216)
-		allBtns := append(arrayBtns, towedBtns...)
-		a.updateSonarUIButtons(allBtns, sonar)
+		a.updateSonarUIButtons(cachedPassiveArrayButtons(), sonar)
+		a.updateSonarUIButtons(cachedPassiveBandButtons(), sonar)
+		a.updateSonarUIButtons(cachedPassiveTowedButtons(), sonar)
 		a.handleSonarArrayKeys(sonar, true)
 		a.updatePassiveScreen(sonar)
 		if inpututil.IsKeyJustPressed(ebiten.KeyP) {
@@ -432,7 +447,7 @@ func (a *App) handleScreenInput() {
 	case ScreenActive:
 		a.updateActiveScreen(sonar)
 	case ScreenSpectrum:
-		a.updateSonarUIButtons(passiveArrayButtons(40, 128), sonar)
+		a.updateSonarUIButtons(cachedSpectrumArrayButtons(), sonar)
 		a.handleSonarArrayKeys(sonar, false)
 		a.updateSpectrumScreen(sonar)
 		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
@@ -449,70 +464,6 @@ func (a *App) handleScreenInput() {
 		a.updateManeuverUI(player)
 	case ScreenTactical:
 		a.updateTacticalUI()
-	}
-}
-
-func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
-	if inpututil.IsKeyJustPressed(ebiten.KeyDigit1) {
-		fc.SelectTube(1)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyDigit2) {
-		fc.SelectTube(2)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyDigit3) {
-		fc.SelectTube(3)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
-		fc.SelectTube(4)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyO) {
-		if fc.OpenOuterDoor() {
-			a.Audio.PlayClip(audio.TubeClip("outer_door_open", fc.SelectedTube),
-				fmt.Sprintf("Outer door open, tube %d.", fc.SelectedTube))
-		}
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
-		fc.CloseOuterDoor()
-		a.Audio.PlayClip(audio.ClipWepsOuterDoorClosed, "")
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyG) {
-		fc.GyroAngleDeg += 5
-		if fc.GyroAngleDeg > 180 {
-			fc.GyroAngleDeg -= 360
-		}
-		a.Audio.PlayClip(audio.ClipWepsGyroSet, fmt.Sprintf("Gyro angle %d degrees.", int(fc.GyroAngleDeg)))
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyD) {
-		fc.RunDepthFt += 50
-		a.Audio.PlayClip(audio.ClipWepsRunDepthSet, fmt.Sprintf("Torpedo run depth %d feet.", int(fc.RunDepthFt)))
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyS) && !ebiten.IsKeyPressed(ebiten.KeyControl) {
-		if fc.SpeedSetting == "HIGH" {
-			fc.SpeedSetting = "LOW"
-			a.Audio.PlayClip(audio.ClipWepsSpeedLow, "Torpedo speed LOW.")
-		} else {
-			fc.SpeedSetting = "HIGH"
-			a.Audio.PlayClip(audio.ClipWepsSpeedHigh, "Torpedo speed HIGH.")
-		}
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyH) {
-		fc.SeekerEnabled = !fc.SeekerEnabled
-		if fc.SeekerEnabled {
-			a.Audio.PlayClip(audio.ClipWepsSeekerOn, "")
-		} else {
-			a.Audio.PlayClip(audio.ClipWepsSeekerOff, "")
-		}
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-		if torp := fc.Shoot(player); torp != nil {
-			a.Audio.PlayTorpedoLaunch()
-			a.Audio.PlayClip(audio.TubeClip("torpedo_away", fc.SelectedTube),
-				fmt.Sprintf("Torpedo away, tube %d.", fc.SelectedTube))
-		}
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyW) && len(fc.ActiveTorpedoes) > 0 {
-		fc.CutWire(fc.ActiveTorpedoes[len(fc.ActiveTorpedoes)-1])
-		a.Audio.PlayClip(audio.ClipWepsWireCut, "")
 	}
 }
 
@@ -571,9 +522,7 @@ func (a *App) drawLoad(screen *ebiten.Image) {
 }
 
 func (a *App) drawGame(screen *ebiten.Image) {
-	render.FillRect(screen, 0, 0, render.ScreenW, 40, render.ColorPanel)
-	render.DrawText(screen, fmt.Sprintf("SSN-688  |  TIME %s  |  SPEED %s  |  SCREEN %s",
-		formatTime(a.Engine.Clock.GameTime), a.Engine.Clock.SpeedLabel(), screenName(a.CurrentScreen)), 20, 28, render.ColorText, false)
+	render.DrawConsoleBackdrop(screen)
 
 	switch a.CurrentScreen {
 	case ScreenPassive:
@@ -590,10 +539,13 @@ func (a *App) drawGame(screen *ebiten.Image) {
 		a.drawManeuver(screen)
 	case ScreenTactical:
 		a.drawTactical(screen)
+	default:
+		render.DrawConsoleBackdrop(screen)
 	}
 
-	// Objectives sidebar
-	render.FillRect(screen, render.ScreenW-300, 50, 290, 200, render.ColorPanel)
+	a.drawGameHeader(screen)
+
+	render.DrawConsolePanel(screen, render.ScreenW-300, 50, 290, 200)
 	render.DrawText(screen, "OBJECTIVES", render.ScreenW-280, 75, render.ColorWarn, false)
 	for i, o := range a.Engine.Scenario.Objectives {
 		mark := "[ ]"
@@ -609,16 +561,28 @@ func (a *App) drawGame(screen *ebiten.Image) {
 		render.DrawText(screen, a.StatusMessage, 20, render.ScreenH-navBarH-18, render.ColorWarn, false)
 	}
 	if sub, ok := a.Audio.Subtitle(); ok {
-		render.FillRect(screen, 200, render.ScreenH-navBarH-50, render.ScreenW-400, 36, render.ColorPanel)
+		render.FillRect(screen, 200, render.ScreenH-navBarH-50, render.ScreenW-400, 36, render.ColorPanelDark)
 		render.DrawText(screen, sub, 220, render.ScreenH-navBarH-28, render.ColorHighlight, false)
 	}
 
 	if a.Mode == ModePaused {
 		render.DrawTextLarge(screen, "PAUSED", 720, 420, render.ColorDanger)
 	}
+	if a.Engine.Scenario.Player.Status == world.StatusSinking {
+		render.DrawTextLarge(screen, "OWN SHIP HIT - SINKING", 520, 460, render.ColorDanger)
+	} else if a.Engine.Scenario.Player.Status == world.StatusSunk {
+		render.DrawTextLarge(screen, "OWN SHIP LOST", 650, 460, render.ColorDanger)
+	}
 
 	a.drawDebugMap(screen)
 	a.drawNavBar(screen)
+}
+
+func (a *App) drawGameHeader(screen *ebiten.Image) {
+	render.FillRect(screen, 0, 0, render.ScreenW, 40, render.ColorPanelBezel)
+	render.FillRect(screen, 0, 2, render.ScreenW, 38, render.ColorPanelDark)
+	render.DrawText(screen, fmt.Sprintf("SSN-688  |  TIME %s  |  SPEED %s  |  SCREEN %s",
+		formatTime(a.Engine.Clock.GameTime), a.Engine.Clock.SpeedLabel(), screenName(a.CurrentScreen)), 20, 28, render.ColorText, false)
 }
 
 func screenName(s Screen) string {
@@ -657,31 +621,34 @@ func IsQuit(err error) bool {
 func (a *App) drawPassive(screen *ebiten.Image) {
 	sonar := &a.Engine.Sonar
 	player := a.Engine.Scenario.Player
-	render.FillRect(screen, 20, 50, 900, 700, render.ColorPanel)
-	render.FillRect(screen, 940, 50, 340, 700, render.ColorPanel)
-	render.DrawTextLarge(screen, "PASSIVE SONAR", 40, 90, render.ColorSonar)
+	render.DrawPassiveConsole(screen)
+
+	a.drawArraySelector(screen, sonar, layout.PassiveArrayLabelX, layout.PassiveArrayLabelY, cachedPassiveArrayButtons())
+	a.drawListenBandSelector(screen, sonar)
+	a.drawTowedControls(screen, sonar)
+	a.drawPassiveContactTable(screen, sonar)
+
+	a.drawBearingWaterfall(screen, sonar)
+	a.drawWaterfallContactChips(screen, sonar)
+
+	// Section legends — light gray engraved labels, no nameplates.
+	titleX := layout.PassiveTitleLabelX
+	titleY := layout.PassiveTitleLabelY + 12
+	render.DrawText(screen, "BEARING WATERFALL", titleX, titleY, render.ColorPlateLabel, true)
+
 	sel := selectedContactLabel(sonar, a.selectedContactID)
-	render.DrawText(screen, fmt.Sprintf("PASSIVE: %v  |  SPD %.1f kts  |  ARRAY: %s  |  Contacts: %d  |  Selected: %s  |  Layer: %s",
-		sonar.PassiveEnabled, player.SpeedKts, a.sonarArrayLabel(sonar), len(sonar.Contacts), sel,
-		a.Engine.Acoustics.Env.LayerNameKnown(player.DepthFt)), 40, 120, render.ColorDim, false)
-	cav := acoustics.CavitationSeverity(player.DepthFt, player.SpeedKts)
-	if cav > 0.2 {
-		render.DrawText(screen, fmt.Sprintf("CAVITATION WARNING: %.0f%%", cav*100), 40, 145, render.ColorDanger, true)
+	passiveExtra := ""
+	if a.Engine.Clock.GameTime < sonar.SonarDeafUntil {
+		passiveExtra = fmt.Sprintf("  |  SONAR BLIND %.0fs", sonar.SonarDeafUntil-a.Engine.Clock.GameTime)
 	}
+	render.DrawText(screen, fmt.Sprintf("CONTACTS: %d  |  ARRAY: %s  |  SELECTED: %s  |  LAYER: %s%s",
+		len(sonar.Contacts), a.sonarArrayLabel(sonar), sel,
+		a.Engine.Acoustics.Env.LayerNameKnown(player.DepthFt), passiveExtra),
+		layout.PassiveStatusTextX, layout.PassiveStatusTextY, render.ColorDim, false)
+
 	selfNoise := acoustics.PassiveSelfNoiseSeverity(sonar.PassiveArray, player.SpeedKts, player.DepthFt, sonar.TowedCablePct)
-	noiseY := 168
-	render.DrawText(screen, "SELF-NOISE", 40, noiseY, render.ColorPhosphorDim, true)
-	render.FillRect(screen, 130, noiseY-12, 180, 14, render.ColorPanelInset)
-	if fill := int(176 * selfNoise); fill > 0 {
-		clr := render.ColorPhosphor
-		if selfNoise > 0.45 {
-			clr = render.ColorWarn
-		}
-		if selfNoise > 0.75 {
-			clr = render.ColorDanger
-		}
-		render.FillRect(screen, 132, noiseY-10, fill, 10, clr)
-	}
+	noiseY := layout.PassiveSelfNoiseMonitorY + 22
+	render.DrawText(screen, "SELF-NOISE", layout.PassiveSelfNoiseLabelX, noiseY, render.ColorPlateLabel, true)
 	label := "QUIET"
 	if selfNoise > 0.75 {
 		label = "DEAFENING"
@@ -690,27 +657,38 @@ func (a *App) drawPassive(screen *ebiten.Image) {
 	} else if selfNoise > 0.15 {
 		label = "RISING"
 	}
-	render.DrawText(screen, label, 320, noiseY, render.ColorAmber, true)
+	render.DrawText(screen, label, layout.PassiveSelfNoiseStatusX, noiseY, render.ColorAmber, true)
+	barX := layout.PassiveSelfNoiseBarX
+	barW := layout.PassiveSelfNoiseBarW
+	if barW < 80 {
+		barW = 80
+	}
+	render.FillRect(screen, barX, noiseY-12, barW, 14, render.ColorPanelInset)
+	if fill := int(float64(barW-4) * selfNoise); fill > 0 {
+		clr := render.ColorPhosphor
+		if selfNoise > 0.45 {
+			clr = render.ColorWarn
+		}
+		if selfNoise > 0.75 {
+			clr = render.ColorDanger
+		}
+		render.FillRect(screen, barX+2, noiseY-10, fill, 10, clr)
+	}
 
-	a.drawArraySelector(screen, sonar, 960, 80)
-	a.drawTowedControls(screen, sonar, 960, 160)
-	a.drawPassiveContactTable(screen, sonar)
-
-	a.drawBearingWaterfall(screen, player, sonar)
-	a.drawWaterfallContactChips(screen, sonar)
 	mx, my := ebiten.CursorPosition()
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	render.DrawText(screen, "[P] passive  [B] array  [U/Y/H] towed  click contact → spectrum", 40, 720, render.ColorDim, true)
+	render.DrawText(screen, "[P] passive  [B] array  [N] listen band  [U/Y/H] towed  click contact -> spectrum", layout.PassiveHintLabelX, layout.PassiveHintLabelY+12, render.ColorPlateLabel, true)
 }
 
 func (a *App) drawActive(screen *ebiten.Image) {
 	sonar := &a.Engine.Sonar
 	player := a.Engine.Scenario.Player
-	render.FillRect(screen, activePanelX, activePanelY, activePanelW, 700, render.ColorPanel)
-	render.FillRect(screen, activeSideX, activeSideY, activeSideW, 700, render.ColorPanel)
-	render.DrawTextLarge(screen, "ACTIVE SONAR", 40, 90, render.ColorActive)
+	render.DrawConsolePanel(screen, activePanelX, activePanelY, activePanelW, 700)
+	render.DrawConsolePanel(screen, activeSideX, activeSideY, activeSideW, 700)
+	render.DrawMonitor(screen, activePlotX, activePlotY, activePlotW, activePlotH)
+	render.DrawText(screen, "ACTIVE SONAR", 40, 90, render.ColorPlateLabel, true)
 	status := "STANDBY"
 	statusClr := render.ColorDim
 	if sonar.ActiveEnabled {
@@ -736,8 +714,8 @@ func (a *App) drawActive(screen *ebiten.Image) {
 }
 
 func (a *App) drawLibrary(screen *ebiten.Image) {
-	render.FillRect(screen, 20, 50, 1100, 700, render.ColorPanel)
-	render.DrawTextLarge(screen, "SIGNATURE LIBRARY", 40, 90, render.ColorText)
+	render.DrawConsolePanel(screen, 20, 50, 1100, 700)
+	render.DrawText(screen, "SIGNATURE LIBRARY", 40, 90, render.ColorPlateLabel, true)
 	y := 130
 	for _, p := range world.SignatureLibrary {
 		render.DrawText(screen, fmt.Sprintf("%s - %s (%s)", p.Class, p.Name, kindName(p.Kind)), 40, y, render.ColorText, false)
@@ -767,49 +745,9 @@ func kindName(k world.EntityKind) string {
 		return "SUB"
 	case world.KindSurfaceShip:
 		return "SURFACE"
+	case world.KindTorpedo:
+		return "TORPEDO"
 	default:
 		return "UNK"
-	}
-}
-
-func (a *App) drawFireControl(screen *ebiten.Image) {
-	fc := &a.Engine.FireControl
-	render.FillRect(screen, 20, 50, 1100, 700, render.ColorPanel)
-	render.DrawTextLarge(screen, "FIRE CONTROL - MK48 ADCAP", 40, 90, render.ColorWarn)
-
-	for i, t := range fc.Tubes {
-		state := tubeStateName(t.State)
-		clr := render.ColorDim
-		if i+1 == fc.SelectedTube {
-			clr = render.ColorHighlight
-		}
-		render.DrawText(screen, fmt.Sprintf("TUBE %d: %s %s", t.Number, t.TorpedoType, state), 40, 140+i*35, clr, false)
-	}
-
-	render.DrawText(screen, fmt.Sprintf("GYRO ANGLE: %d deg", int(fc.GyroAngleDeg)), 500, 140, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("RUN DEPTH: %d ft", int(fc.RunDepthFt)), 500, 180, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("SPEED: %s", fc.SpeedSetting), 500, 220, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("SEEKER: %v", fc.SeekerEnabled), 500, 260, render.ColorText, false)
-
-	render.DrawText(screen, "Active torpedoes:", 40, 320, render.ColorWarn, false)
-	for i, t := range fc.ActiveTorpedoes {
-		render.DrawText(screen, fmt.Sprintf("%s hdg %.0f spd %.0f seeker %v wire %v", t.ID, t.HeadingDeg, t.SpeedKts, t.SeekerOn, !t.WireCut), 40, 350+i*25, render.ColorSonar, true)
-	}
-
-	render.DrawText(screen, "[1-4] tube [O] open [C] close [G] gyro [D] depth [S] speed [H] seeker [ENTER] shoot [W] wire cut", 40, 680, render.ColorDim, true)
-}
-
-func tubeStateName(s weapons.TubeState) string {
-	switch s {
-	case weapons.TubeEmpty:
-		return "EMPTY"
-	case weapons.TubeLoaded:
-		return "LOADED"
-	case weapons.TubeDoorOpen:
-		return "DOOR OPEN"
-	case weapons.TubeFired:
-		return "FIRED"
-	default:
-		return "?"
 	}
 }

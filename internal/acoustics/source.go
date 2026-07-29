@@ -8,6 +8,18 @@ import (
 
 // SourceSpectrum computes the radiated noise spectrum of a platform.
 func SourceSpectrum(e *world.Entity) Spectrum {
+	if e.Status == world.StatusSinking {
+		// Breaking bulkheads / secondary explosions — loud broadband wreck noise.
+		s := NewSpectrumFlat(118)
+		for i := range s {
+			freq := BandCenterHz(i)
+			s[i] += 8*math.Sin(freq*0.02) + (freq/MaxFreqHz)*12
+			if e.WreckNoiseUntil > 0 {
+				s[i] += 10
+			}
+		}
+		return s
+	}
 	profile, ok := world.ProfileByID(e.SignatureID)
 	if !ok {
 		return NewSpectrumFlat(80)
@@ -24,6 +36,23 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 		}
 		if level < -100 {
 			level = 70
+		}
+
+		if e.Kind == world.KindTorpedo {
+			// Torpedo propulsion is HF-heavy; do not apply ship machinery curve.
+			level += math.Min(6, (e.SpeedKts-20)*0.08)
+			level += TonalBoostDB(profile, freq)
+			if profile.BladeRateHz > 0 {
+				rem := math.Mod(freq, profile.BladeRateHz)
+				if rem < profile.BladeRateHz*0.15 || profile.BladeRateHz-rem < profile.BladeRateHz*0.15 {
+					level += 6 + e.SpeedKts*0.04
+				}
+			}
+			// Running torpedoes always cavitate somewhat at the propeller.
+			cav := 0.35 + math.Min(0.5, e.SpeedKts/120)
+			level += cav * (4 + (freq/MaxFreqHz)*10)
+			s[i] = level
+			continue
 		}
 
 		// Machinery grows with speed.
@@ -51,6 +80,22 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 		// Flow noise at high speed.
 		if e.SpeedKts > 15 {
 			level += (e.SpeedKts - 15) * 0.35 * (freq / MaxFreqHz)
+		}
+
+		if e.TransientUntil > 0 && e.TransientLevelDB > 0 {
+			// Mechanical transients: strong LF/MF snap with a broadband tail.
+			bias := e.TransientFreqHz
+			if bias <= 0 {
+				bias = 180
+			}
+			delta := math.Abs(freq - bias)
+			width := bias*0.55 + 120
+			if width < 120 {
+				width = 120
+			}
+			shape := math.Max(0, 1-delta/width)
+			level += e.TransientLevelDB * shape
+			level += e.TransientLevelDB * 0.18 * (1 - math.Min(1, freq/MaxFreqHz))
 		}
 
 		s[i] = level

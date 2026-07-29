@@ -62,14 +62,17 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "run_depth=%.3f\n", engine.FireControl.RunDepthFt)
 	fmt.Fprintf(w, "speed_setting=%s\n", engine.FireControl.SpeedSetting)
 	fmt.Fprintf(w, "seeker_enabled=%t\n", engine.FireControl.SeekerEnabled)
+	fmt.Fprintf(w, "magazine_left=%d\n", engine.FireControl.MagazineLeft)
 	for _, t := range engine.FireControl.Tubes {
-		fmt.Fprintf(w, "tube=%d|%d|%s|%t\n", t.Number, t.State, t.TorpedoType, t.WireIntact)
+		fmt.Fprintf(w, "tube=%d|%d|%s|%t|%s|%.3f\n", t.Number, t.State, t.TorpedoType, t.WireIntact, t.TorpedoID, t.ReloadEnds)
 	}
 	for _, torp := range engine.FireControl.ActiveTorpedoes {
-		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f\n",
+		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t\n",
 			torp.ID, torp.ParentSubID, torp.TargetID, torp.Side,
 			torp.X, torp.Y, torp.DepthFt, torp.HeadingDeg, torp.SpeedKts, torp.RunDepthFt,
-			torp.SeekerOn, torp.WireCut, torp.Armed, torp.Alive, torp.Mode, torp.Age)
+			torp.SeekerOn, torp.WireCut, torp.Armed, torp.Alive, torp.Mode, torp.Age,
+			torp.TubeNumber, torp.OrderedHead, torp.CruiseKts,
+			torp.LaunchHeadDeg, torp.GyroCourseDeg, torp.ClearDistYd, torp.EnableSearchAfterClear)
 	}
 
 	fmt.Fprintf(w, "\n[objectives]\n")
@@ -187,6 +190,8 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.FireControl.SpeedSetting = val
 			case "seeker_enabled":
 				engine.FireControl.SeekerEnabled, _ = strconv.ParseBool(val)
+			case "magazine_left":
+				engine.FireControl.MagazineLeft, _ = strconv.Atoi(val)
 			case "tube":
 				parseTube(&engine.FireControl, val)
 			case "torpedo":
@@ -303,10 +308,17 @@ func parseTube(fc *weapons.FireControl, val string) {
 	state, _ := strconv.Atoi(parts[1])
 	wire, _ := strconv.ParseBool(parts[3])
 	if num >= 1 && num <= 4 {
-		fc.Tubes[num-1] = weapons.Tube{
+		t := weapons.Tube{
 			Number: num, State: weapons.TubeState(state),
 			TorpedoType: parts[2], WireIntact: wire,
 		}
+		if len(parts) > 4 {
+			t.TorpedoID = parts[4]
+		}
+		if len(parts) > 5 {
+			t.ReloadEnds, _ = strconv.ParseFloat(parts[5], 64)
+		}
+		fc.Tubes[num-1] = t
 	}
 }
 
@@ -333,6 +345,36 @@ func parseTorpedo(fc *weapons.FireControl, val string) {
 	torp.Alive, _ = strconv.ParseBool(parts[13])
 	torp.Mode = weapons.TorpedoMode(mode)
 	torp.Age, _ = strconv.ParseFloat(parts[15], 64)
+	torp.OrderedHead = torp.HeadingDeg
+	if len(parts) > 16 {
+		torp.TubeNumber, _ = strconv.Atoi(parts[16])
+	}
+	if len(parts) > 17 {
+		torp.OrderedHead, _ = strconv.ParseFloat(parts[17], 64)
+	}
+	if len(parts) > 18 {
+		torp.CruiseKts, _ = strconv.ParseFloat(parts[18], 64)
+	}
+	if torp.CruiseKts <= 0 {
+		torp.CruiseKts = torp.SpeedKts
+	}
+	if len(parts) > 19 {
+		torp.LaunchHeadDeg, _ = strconv.ParseFloat(parts[19], 64)
+	}
+	if len(parts) > 20 {
+		torp.GyroCourseDeg, _ = strconv.ParseFloat(parts[20], 64)
+	} else {
+		torp.GyroCourseDeg = torp.OrderedHead
+	}
+	if len(parts) > 21 {
+		torp.ClearDistYd, _ = strconv.ParseFloat(parts[21], 64)
+	}
+	if len(parts) > 22 {
+		torp.EnableSearchAfterClear, _ = strconv.ParseBool(parts[22])
+	}
+	if torp.LaunchHeadDeg == 0 && torp.ClearDistYd == 0 {
+		torp.LaunchHeadDeg = torp.HeadingDeg
+	}
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
 }
 

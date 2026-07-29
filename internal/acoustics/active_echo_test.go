@@ -50,6 +50,23 @@ func TestExpireActivePingBeyondDisplay(t *testing.T) {
 	}
 }
 
+func TestFireActivePingNowWorksInStandby(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	listener := testEntity("player", "los_angeles", world.KindSubmarine, 200, 5)
+	sonar := NewSonarState()
+	sonar.ActiveEnabled = false
+	sonar.ActivePower = 0.8
+	if !FireActivePingNow(model, listener, []*world.Entity{listener}, &sonar, 42) {
+		t.Fatal("PING NOW should transmit while active mode is standby")
+	}
+	if sonar.LastPingTime != 42 || listener.LastPingTime != 42 {
+		t.Fatalf("ping timestamps not set: sonar=%.0f listener=%.0f", sonar.LastPingTime, listener.LastPingTime)
+	}
+	if !listener.ActiveSonar {
+		t.Fatal("listener should flag active transmit for this pulse")
+	}
+}
+
 func TestProcessActiveEchoesCloseRange(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	listener := testEntity("player", "los_angeles", world.KindSubmarine, 180, 8)

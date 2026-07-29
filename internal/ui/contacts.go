@@ -23,6 +23,8 @@ func contactTypeLabel(c *acoustics.Contact) string {
 		return "SUB"
 	case world.KindSurfaceShip:
 		return "SURF"
+	case world.KindTorpedo:
+		return "TORP"
 	default:
 		return "UNK"
 	}

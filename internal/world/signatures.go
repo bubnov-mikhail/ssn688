@@ -156,6 +156,42 @@ var SignatureLibrary = []SignatureProfile{
 		},
 		BladeRateHz: 2.4, CavitationDB: 98,
 	},
+	{
+		ID: "mk48", Name: "Mk48 ADCAP", Class: "Torpedo", Kind: KindTorpedo,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 200, LevelDB: 72},
+			{LowHz: 200, HighHz: 600, LevelDB: 88},
+			{LowHz: 600, HighHz: 1100, LevelDB: 118},
+			{LowHz: 1100, HighHz: 2000, LevelDB: 128},
+		},
+		Tonals: []TonalLine{
+			{FreqHz: 880, RelLevel: 0.70},
+			{FreqHz: 1100, RelLevel: 0.95},
+			{FreqHz: 1320, RelLevel: 1.00},
+			{FreqHz: 1540, RelLevel: 0.85},
+			{FreqHz: 1760, RelLevel: 0.70},
+			{FreqHz: 1980, RelLevel: 0.55},
+		},
+		BladeRateHz: 22, CavitationDB: 95,
+	},
+	{
+		ID: "type53", Name: "Type 53 Torpedo", Class: "Torpedo", Kind: KindTorpedo,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 200, LevelDB: 78},
+			{LowHz: 200, HighHz: 550, LevelDB: 92},
+			{LowHz: 550, HighHz: 1000, LevelDB: 120},
+			{LowHz: 1000, HighHz: 2000, LevelDB: 130},
+		},
+		Tonals: []TonalLine{
+			{FreqHz: 760, RelLevel: 0.65},
+			{FreqHz: 980, RelLevel: 0.90},
+			{FreqHz: 1220, RelLevel: 1.00},
+			{FreqHz: 1460, RelLevel: 0.80},
+			{FreqHz: 1700, RelLevel: 0.65},
+			{FreqHz: 1940, RelLevel: 0.50},
+		},
+		BladeRateHz: 18, CavitationDB: 100,
+	},
 }
 
 func ProfileByID(id string) (SignatureProfile, bool) {

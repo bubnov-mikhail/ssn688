@@ -8,26 +8,42 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/world"
 )
 
 const (
-	waterfallMaxRows   = 400
-	waterfallSampleSec = 0.15
-	waterfallRowH      = 1
-	waterfallPanelX    = 20
-	waterfallPanelY    = 108
-	waterfallPanelW    = 900
-	waterfallPanelH    = 590
-	waterfallLabelW    = 46
-	waterfallHeaderH   = 56
-	waterfallAxisH     = 22
-	waterfallPlotX     = waterfallPanelX + waterfallLabelW
-	waterfallPlotY     = waterfallPanelY + waterfallHeaderH
-	waterfallPlotW     = waterfallPanelW - waterfallLabelW - 8
-	waterfallPlotH     = waterfallPanelH - waterfallHeaderH - waterfallAxisH
+	waterfallMaxRows   = layout.WaterfallMaxRows
+	waterfallSampleSec = layout.WaterfallSampleSec
+	waterfallRowH      = layout.WaterfallRowH
+	waterfallPanelX    = layout.WaterfallPanelX
+	waterfallPanelY    = layout.WaterfallPanelY
+	waterfallPanelW    = layout.WaterfallPanelW
+	waterfallPanelH    = layout.WaterfallPanelH
+	waterfallLabelW    = layout.WaterfallLabelW
+	waterfallHeaderH   = layout.WaterfallHeaderH
+	waterfallAxisH     = layout.WaterfallAxisH
+	waterfallPlotX     = layout.WaterfallPlotX
+	waterfallPlotY     = layout.WaterfallPlotY
+	waterfallPlotW     = layout.WaterfallPlotW
+	waterfallPlotH     = layout.WaterfallPlotH
 )
+
+func waterfallMonitorRGBA() (r, g, b, a byte) {
+	c := render.ColorMonitorFace
+	return c.R, c.G, c.B, 255
+}
+
+func fillWaterfallMonitorBG(pix []byte) {
+	r, g, b, a := waterfallMonitorRGBA()
+	for i := 0; i < len(pix)/4; i++ {
+		off := i * 4
+		pix[off] = r
+		pix[off+1] = g
+		pix[off+2] = b
+		pix[off+3] = a
+	}
+}
 
 func waterfallBearingDisplayX(bearing float64, plotW int) int {
 	b := math.Mod(bearing+180, 360)
@@ -142,12 +158,14 @@ func (a *App) updateBearingWaterfall() {
 
 	sonar := &a.Engine.Sonar
 	player := a.Engine.Scenario.Player
-	emitters := a.Engine.Scenario.AllEntities()
+	emitters := a.Engine.AcousticEmitters()
 	if a.waterfallScratch == nil || len(a.waterfallScratch) != acoustics.BearingWaterfallBins {
 		a.waterfallScratch = make([]float64, acoustics.BearingWaterfallBins)
 	}
 
-	// Sample the displayed array every tick; keep the other warm at 1/3 rate.
+	// Sample both arrays every tick while on PASSIVE/SPECTRUM so switching
+	// HULL↔TOWED does not rebuild from a thinner history (looks "half height").
+	// Off those screens, keep the non-selected array warm at a lower rate.
 	primary := sonar.PassiveArray
 	secondary := acoustics.PassiveArrayHull
 	if primary == acoustics.PassiveArrayHull {
@@ -156,47 +174,73 @@ func (a *App) updateBearingWaterfall() {
 	acoustics.BearingWaterfallInto(a.waterfallScratch, a.Engine.Acoustics, player, emitters, sonar, primary, t)
 	a.bearingWaterfalls.ForArray(primary).PushCopy(a.waterfallScratch, player.HeadingDeg)
 
-	a.waterfallAltCounter++
-	if a.waterfallAltCounter%3 == 0 {
+	sampleSecondary := true
+	if a.CurrentScreen != ScreenPassive && a.CurrentScreen != ScreenSpectrum {
+		a.waterfallAltCounter++
+		sampleSecondary = a.waterfallAltCounter%6 == 0
+	}
+	if sampleSecondary {
 		acoustics.BearingWaterfallInto(a.waterfallScratch, a.Engine.Acoustics, player, emitters, sonar, secondary, t)
 		a.bearingWaterfalls.ForArray(secondary).PushCopy(a.waterfallScratch, player.HeadingDeg)
 	}
 
 	a.waterfallPendingScroll = true
-	if a.CurrentScreen == ScreenPassive || a.CurrentScreen == ScreenSpectrum {
-		a.passivePPIPending = true
+}
+
+func (a *App) disposeWaterfallImages() {
+	if a.waterfallImg != nil {
+		a.waterfallImg.Dispose()
+		a.waterfallImg = nil
 	}
+	a.waterfallPix = nil
 }
 
 func (a *App) ensureWaterfallImage() {
 	w, h := waterfallPlotW, waterfallPlotH
 	if a.waterfallImg == nil || a.waterfallImg.Bounds().Dx() != w || a.waterfallImg.Bounds().Dy() != h {
+		a.disposeWaterfallImages()
 		a.waterfallImg = ebiten.NewImage(w, h)
 		a.waterfallPix = make([]byte, w*h*4)
-		for i := 0; i < w*h; i++ {
-			off := i * 4
-			a.waterfallPix[off+1] = 2
-			a.waterfallPix[off+2] = 16
-			a.waterfallPix[off+3] = 255
-		}
+		fillWaterfallMonitorBG(a.waterfallPix)
 		a.waterfallImg.WritePixels(a.waterfallPix)
 		a.waterfallPendingScroll = true
 		a.waterfallFullRebuild = true
 	}
 }
 
+func (a *App) waterfallRNG() *rand.Rand {
+	if a.waterfallRng == nil {
+		a.waterfallRng = rand.New(rand.NewSource(1))
+	}
+	seed := int64(a.lastWaterfallSample*1000) ^ int64(a.waterfallArray)*0x51f0
+	a.waterfallRng.Seed(seed)
+	return a.waterfallRng
+}
+
+func (a *App) clearWaterfallRowPix(rowPix []byte) {
+	fillWaterfallMonitorBG(rowPix)
+}
+
 func (a *App) paintWaterfallRow(pix []byte, w, py int, row *acoustics.BearingWaterfallRow, rng *rand.Rand) {
+	bgR, bgG, bgB, bgA := waterfallMonitorRGBA()
 	if row == nil || len(row.Bearings) == 0 {
+		rowBytes := w * 4 * waterfallRowH
+		fillWaterfallMonitorBG(pix[py*w*4 : py*w*4+rowBytes])
 		return
 	}
 	bins := acoustics.BearingWaterfallBins
 	for px := 0; px < w; px++ {
+		off := (py*w + px) * 4
 		bearing := waterfallDisplayBearingDeg(px, w)
 		bi := int(bearing / 360 * float64(bins))
 		if bi >= bins {
 			bi = bins - 1
 		}
 		if bi >= len(row.Bearings) {
+			pix[off] = bgR
+			pix[off+1] = bgG
+			pix[off+2] = bgB
+			pix[off+3] = bgA
 			continue
 		}
 		power := row.Bearings[bi]
@@ -207,14 +251,17 @@ func (a *App) paintWaterfallRow(pix []byte, w, py int, row *acoustics.BearingWat
 		if bi+1 < len(row.Bearings) {
 			right = row.Bearings[bi+1]
 		}
-		smooth := power*0.55 + left*0.225 + right*0.225
-		floor := 0.35 + rng.Float64()*0.9
-		if smooth < floor {
-			smooth = floor
+		smooth := power*0.78 + left*0.11 + right*0.11
+		smooth *= 0.92 + 0.16*rng.Float64()
+		intensity := waterfallSNRToIntensity(smooth)
+		if intensity <= 0 {
+			pix[off] = bgR
+			pix[off+1] = bgG
+			pix[off+2] = bgB
+			pix[off+3] = bgA
+			continue
 		}
-		smooth *= 0.84 + 0.28*rng.Float64()
-		clr := sonarHeatColorFast(snrToIntensity(smooth))
-		off := (py*w + px) * 4
+		clr := sonarHeatColorFast(intensity)
 		pix[off] = clr.R
 		pix[off+1] = clr.G
 		pix[off+2] = clr.B
@@ -232,8 +279,18 @@ func (a *App) paintWaterfallRow(pix []byte, w, py int, row *acoustics.BearingWat
 		pix[off] = 255
 		pix[off+1] = 220
 		pix[off+2] = 80
-		pix[off+3] = 200
+		pix[off+3] = 255
 	}
+}
+
+func (a *App) scrollWaterfallPix(pix []byte, w, h int) {
+	rowBytes := w * 4 * waterfallRowH
+	rows := h / waterfallRowH
+	if rows <= 1 {
+		return
+	}
+	copy(pix[rowBytes:], pix[:rowBytes*(rows-1)])
+	a.clearWaterfallRowPix(pix[:rowBytes])
 }
 
 func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
@@ -241,16 +298,11 @@ func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
 	w, h := waterfallPlotW, waterfallPlotH
 	pix := a.waterfallPix
 	wf := a.bearingWaterfalls.ForArray(sonar.PassiveArray)
-	rng := rand.New(rand.NewSource(int64(a.lastWaterfallSample*1000) ^ int64(sonar.PassiveArray)*0x51f0))
+	rng := a.waterfallRNG()
+	changed := false
 
 	if a.waterfallFullRebuild || a.waterfallArray != sonar.PassiveArray {
-		for i := 0; i < w*h; i++ {
-			off := i * 4
-			pix[off] = 0
-			pix[off+1] = 2
-			pix[off+2] = 16
-			pix[off+3] = 255
-		}
+		fillWaterfallMonitorBG(pix)
 		n := wf.Len()
 		if n > h {
 			n = h
@@ -259,45 +311,33 @@ func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
 			a.paintWaterfallRow(pix, w, ri, wf.Row(ri), rng)
 		}
 		a.waterfallFullRebuild = false
+		changed = true
 	} else if a.waterfallPendingScroll {
-		// Scroll history down one row; paint only the newest line at the top.
-		rowBytes := w * 4
-		copy(pix[rowBytes:], pix[:rowBytes*(h-1)])
-		// Clear top row to navy before paint.
-		for px := 0; px < w; px++ {
-			off := px * 4
-			pix[off] = 0
-			pix[off+1] = 2
-			pix[off+2] = 16
-			pix[off+3] = 255
-		}
+		// CPU scroll — GPU alpha-blend would stack semi-transparent rows on every frame.
+		a.scrollWaterfallPix(pix, w, h)
 		a.paintWaterfallRow(pix, w, 0, wf.Latest(), rng)
+		changed = true
 	}
 
-	a.waterfallImg.WritePixels(pix)
+	if changed {
+		a.waterfallImg.WritePixels(pix)
+	}
+
 	a.waterfallPendingScroll = false
 	a.waterfallArray = sonar.PassiveArray
 	a.waterfallStamp = a.lastWaterfallSample
 }
 
-func (a *App) drawBearingWaterfall(screen *ebiten.Image, player *world.Entity, sonar *acoustics.SonarState) {
+func (a *App) drawBearingWaterfall(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	const (
-	x      = waterfallPanelX
-	y      = waterfallPanelY
-	w      = waterfallPanelW
-	h      = waterfallPanelH
-	labelW = waterfallLabelW
+		x = waterfallPanelX
+		y = waterfallPanelY
+		h = waterfallPanelH
 	)
 	plotX := waterfallPlotX
 	plotY := waterfallPlotY
 	plotW := waterfallPlotW
 	plotH := waterfallPlotH
-
-	render.FillRect(screen, x, y, w, h, color.RGBA{0, 2, 16, 255})
-	render.DrawLine(screen, float64(x), float64(y), float64(x+w), float64(y), render.ColorBevelLight)
-	render.DrawLine(screen, float64(x), float64(y+h), float64(x+w), float64(y+h), render.ColorBevelDark)
-	render.DrawLine(screen, float64(x), float64(y), float64(x), float64(y+h), render.ColorBevelLight)
-	render.DrawLine(screen, float64(x+w), float64(y), float64(x+w), float64(y+h), render.ColorBevelDark)
 
 	if a.waterfallPendingScroll || a.waterfallFullRebuild || a.waterfallImg == nil || a.waterfallArray != sonar.PassiveArray {
 		a.rebuildWaterfallImage(sonar)
@@ -329,10 +369,4 @@ func (a *App) drawBearingWaterfall(screen *ebiten.Image, player *world.Entity, s
 	render.DrawText(screen, "000", plotX+plotW/2-10, y+h-4, render.ColorPhosphor, true)
 	render.DrawText(screen, "090", plotX+3*plotW/4-10, y+h-4, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "180", plotX+plotW-18, y+h-4, render.ColorPhosphorDim, true)
-
-	arrayLabel := "HULL"
-	if sonar.PassiveArray == acoustics.PassiveArrayTowed {
-		arrayLabel = "TOWED"
-	}
-	render.DrawText(screen, fmt.Sprintf("BEARING WATERFALL  |  HDG %.0f°  |  SPD %.1f kts  |  %s", player.HeadingDeg, player.SpeedKts, arrayLabel), x+8, y+20, render.ColorAmber, true)
 }

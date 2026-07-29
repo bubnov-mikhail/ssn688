@@ -62,26 +62,106 @@ func ProfileBladeHarmonics(profile world.SignatureProfile, maxHarmonics int) []f
 
 // ObservedPeaksFromBins converts analyzer SNR bins into a dense peak list for
 // the fuzzy live-signal panel (Cold Waters lower strip).
+// Weak absolute SNR (same regime as a faint waterfall trace) keeps harmonics
+// buried in the noise floor instead of auto-stretching them to full height.
 func ObservedPeaksFromBins(bins []float64) []SpectrumPeak {
 	if len(bins) == 0 {
 		return nil
 	}
-	maxV := 1.0
+	peak := 0.0
 	for _, v := range bins {
-		if v > maxV {
-			maxV = v
+		if v > peak {
+			peak = v
 		}
 	}
+	clarity := SpectrumClarity01(peak)
+	const refDB = 24.0 // absolute full-scale reference (not per-frame max)
 	out := make([]SpectrumPeak, len(bins))
 	for i, v := range bins {
-		lvl := math.Max(0, v/maxV)
-		// Emphasize local peaks so tonals read as brighter streaks.
-		if i > 0 && i < len(bins)-1 && v >= bins[i-1] && v >= bins[i+1] {
-			lvl = math.Min(1, lvl*1.25+0.08)
+		abs := v / refDB
+		if abs < 0 {
+			abs = 0
+		}
+		if abs > 1 {
+			abs = 1
+		}
+		// Rising noise floor as clarity falls — tonals drown first.
+		floor := 0.10 + (1-clarity)*0.48
+		// Absolute amplitude, compressed when the track is weak.
+		lvl := abs * (0.18 + 0.82*clarity)
+		detect := 0.10 + 0.40*(1-clarity)
+		if abs < detect {
+			// Below detection margin: show only noisy floor, no harmonic tip.
+			lvl = floor * (0.55 + 0.45*abs/math.Max(detect, 0.01))
+		} else {
+			lvl = floor + (lvl-floor)*clarity
+		}
+		// Local-peak emphasis only when the waterfall would also look strong.
+		if clarity > 0.38 && i > 0 && i < len(bins)-1 && v >= bins[i-1] && v >= bins[i+1] {
+			lvl = math.Min(1, lvl*(1+0.28*clarity)+0.06*clarity)
+		}
+		if lvl < 0 {
+			lvl = 0
+		}
+		if lvl > 1 {
+			lvl = 1
 		}
 		out[i] = SpectrumPeak{FreqHz: BandCenterHz(i), Level: lvl}
 	}
 	return out
+}
+
+// SpectrumClarity01 maps peak analyzer SNR to 0..1 tonal readability.
+// Aligned with waterfall visibility: faint traces stay muddy longer.
+func SpectrumClarity01(peakSNR float64) float64 {
+	t := (peakSNR - 7.0) / 20.0
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	return math.Pow(t, 1.28)
+}
+
+// DegradeSpectrumBinsForClarity smears and buries weak spectra so distant /
+// quiet contacts do not retain crisp LOFAR lines in the analyzer.
+func DegradeSpectrumBinsForClarity(bins []float64) {
+	if len(bins) < 3 {
+		return
+	}
+	peak := 0.0
+	for _, v := range bins {
+		if v > peak {
+			peak = v
+		}
+	}
+	clarity := SpectrumClarity01(peak)
+	if clarity >= 0.92 {
+		return
+	}
+	mud := 1 - clarity
+	tmp := make([]float64, len(bins))
+	copy(tmp, bins)
+	for i := range bins {
+		// Spatial smear across neighboring bands (lost frequency resolution).
+		left, right := tmp[i], tmp[i]
+		if i > 0 {
+			left = tmp[i-1]
+		}
+		if i < len(tmp)-1 {
+			right = tmp[i+1]
+		}
+		smeared := tmp[i]*(1-0.55*mud) + (left+right)*0.5*(0.55*mud)
+		// Raise / flatten toward a noisy floor.
+		floor := 2.0 + mud*6.0
+		noise := (float64((i*37+11)%17)/17.0 - 0.5) * mud * 4.5
+		v := smeared*(0.35+0.65*clarity) + floor*mud*0.65 + noise
+		if v < floor*0.4 {
+			v = floor * 0.4
+		}
+		bins[i] = v
+	}
 }
 
 // ProfileDisplayBins keeps a coarse bar view for tests / legacy callers.

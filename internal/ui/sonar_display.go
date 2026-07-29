@@ -40,14 +40,16 @@ func sonarHeatColorRaw(intensity float64) color.RGBA {
 		t       float64
 		r, g, b float64
 	}{
-		{0.00, 0, 4, 36},
-		{0.18, 0, 30, 110},
-		{0.35, 0, 110, 170},
-		{0.50, 0, 190, 140},
-		{0.65, 40, 220, 60},
-		{0.80, 220, 220, 30},
-		{0.92, 255, 120, 20},
-		{1.00, 255, 40, 30},
+		{0.00, 0, 4, 32},
+		{0.22, 0, 28, 105},
+		{0.40, 0, 95, 165},
+		{0.58, 0, 175, 155},
+		{0.72, 60, 210, 95},
+		{0.83, 200, 210, 45},
+		{0.92, 245, 175, 35},
+		{0.965, 255, 115, 38},
+		{0.992, 255, 70, 35},
+		{1.00, 255, 70, 35},
 	}
 	for i := 0; i < len(stops)-1; i++ {
 		a, b := stops[i], stops[i+1]
@@ -66,7 +68,7 @@ func sonarHeatColorRaw(intensity float64) color.RGBA {
 }
 
 func snrToIntensity(snr float64) float64 {
-	const lo, hi = 2.5, 28.0
+	const lo, hi = 5.5, 38.0
 	t := (snr - lo) / (hi - lo)
 	if t < 0 {
 		return 0
@@ -74,5 +76,26 @@ func snrToIntensity(snr float64) float64 {
 	if t > 1 {
 		return 1
 	}
-	return math.Pow(t, 1.18)
+	// Keep weak-signal (blue) mapping; compress the top so red is rare.
+	exp := 1.48 + 0.52*t*t
+	v := math.Pow(t, exp)
+	if v > 0.80 {
+		u := (v - 0.80) / 0.20
+		v = 0.80 + 0.17*u // peak SNR tops out ~0.97, not full red
+	}
+	return v
+}
+
+// waterfallSNRToIntensity maps waterfall bin energy to color. Uses a gentler curve
+// tuned for self-noise (roughly 4–22 dB) so high speed visibly washes the display.
+func waterfallSNRToIntensity(snr float64) float64 {
+	const lo, hi = 2.0, 24.0
+	t := (snr - lo) / (hi - lo)
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	return math.Pow(t, 1.12)
 }

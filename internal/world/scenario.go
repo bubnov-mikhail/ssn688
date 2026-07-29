@@ -159,11 +159,22 @@ func placeOnWater(rng *rand.Rand, e *Entity, minR, maxR float64, others []*Entit
 	}
 }
 
+// AppendAllEntities appends player + mission entities into dst without allocating
+// when cap(dst) is already large enough.
+func (s *Scenario) AppendAllEntities(dst []*Entity) []*Entity {
+	need := 1 + len(s.Entities)
+	if cap(dst) < need {
+		dst = make([]*Entity, 0, need)
+	} else {
+		dst = dst[:0]
+	}
+	dst = append(dst, s.Player)
+	dst = append(dst, s.Entities...)
+	return dst
+}
+
 func (s *Scenario) AllEntities() []*Entity {
-	out := make([]*Entity, 0, len(s.Entities)+1)
-	out = append(out, s.Player)
-	out = append(out, s.Entities...)
-	return out
+	return s.AppendAllEntities(nil)
 }
 
 func (s *Scenario) CheckObjectives() {

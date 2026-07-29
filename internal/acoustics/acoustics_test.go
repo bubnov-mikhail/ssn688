@@ -13,6 +13,22 @@ func testEntity(id, sig string, kind world.EntityKind, depth, speed float64) *wo
 	}
 }
 
+func TestPassiveSNRDecreasesWithRange(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	listener := testEntity("sub", "los_angeles", world.KindSubmarine, 180, 8)
+	emitter := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+
+	near := model.Detect(listener, emitter, ModePassive, 0).PeakSNR
+	emitter.Y = 4000
+	mid := model.Detect(listener, emitter, ModePassive, 0).PeakSNR
+	emitter.Y = 9000
+	far := model.Detect(listener, emitter, ModePassive, 0).PeakSNR
+
+	if mid >= near-3 || far >= mid-3 {
+		t.Fatalf("passive SNR should fall with range: near=%.1f mid=%.1f far=%.1f", near, mid, far)
+	}
+}
+
 func TestThermoclineHidesSub(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 
@@ -27,6 +43,36 @@ func TestThermoclineHidesSub(t *testing.T) {
 
 	if deepSNR >= shallowSNR {
 		t.Fatalf("sub under thermocline should be harder to detect: deep=%.1f shallow=%.1f", deepSNR, shallowSNR)
+	}
+}
+
+func TestColumnAttenuationGrowsWithDepthSeparation(t *testing.T) {
+	env := DefaultEnvironment()
+	near := env.ColumnAttenuationDB(100, 200, 200)
+	far := env.ColumnAttenuationDB(100, 700, 200)
+	if far <= near+2 {
+		t.Fatalf("column loss should grow with Δdepth: near=%.2f far=%.2f", near, far)
+	}
+	hf := env.ColumnAttenuationDB(100, 700, 1500)
+	if hf <= far {
+		t.Fatalf("higher frequency should scatter more vertically: lf=%.2f hf=%.2f", far, hf)
+	}
+}
+
+func TestDeepImmersionHarderForEnemy(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy.Y = 4500
+
+	playerShallow := testEntity("p1", "los_angeles", world.KindSubmarine, 120, 8)
+	playerDeep := testEntity("p2", "los_angeles", world.KindSubmarine, 550, 8)
+	playerShallow.Y = 0
+	playerDeep.Y = 0
+
+	shallowSNR := model.Detect(enemy, playerShallow, ModePassive, 0).PeakSNR
+	deepSNR := model.Detect(enemy, playerDeep, ModePassive, 0).PeakSNR
+	if deepSNR >= shallowSNR-1.5 {
+		t.Fatalf("deeper player should be quieter to surface enemy: deep=%.1f shallow=%.1f", deepSNR, shallowSNR)
 	}
 }
 

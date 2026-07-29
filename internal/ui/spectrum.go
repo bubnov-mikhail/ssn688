@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -26,6 +27,9 @@ const (
 	spectrumGap      = 10
 	spectrumRefY     = 330
 	spectrumObsY     = spectrumRefY + spectrumPanelH + 40
+
+	spectrumArrayLabelX = 40
+	spectrumArrayLabelY = 106
 )
 
 var (
@@ -36,24 +40,15 @@ var (
 	cwSigPanelBG   = color.RGBA{0, 0, 0, 255}
 )
 
-type contactTableRow struct {
-	SourceID   string
-	X, Y, W, H int
-}
-
-func (a *App) contactTableRows(sonar *acoustics.SonarState) []contactTableRow {
-	var rows []contactTableRow
+func (a *App) spectrumContactAt(mx, my int, sonar *acoustics.SonarState) *acoustics.Contact {
 	y := spectrumTableY + spectrumTableRow
-	for range sonar.Contacts {
-		rows = append(rows, contactTableRow{
-			X: spectrumTableX,
-			Y: y,
-			W: spectrumTableW,
-			H: spectrumTableRow,
-		})
+	for i := range sonar.Contacts {
+		if mx >= spectrumTableX && mx < spectrumTableX+spectrumTableW && my >= y && my < y+spectrumTableRow {
+			return &sonar.Contacts[i]
+		}
 		y += spectrumTableRow
 	}
-	return rows
+	return nil
 }
 
 func (a *App) referenceProfile() world.SignatureProfile {
@@ -70,15 +65,23 @@ const (
 	refNavGap   = 4
 )
 
+var referenceLabelWidthOnce struct {
+	once sync.Once
+	w    int
+}
+
 func referenceLabelWidth() int {
-	w := 160
-	for _, p := range world.SignatureLibrary {
-		tw := render.ButtonLabelWidth(p.Name) + refLabelPad
-		if tw > w {
-			w = tw
+	referenceLabelWidthOnce.once.Do(func() {
+		w := 160
+		for _, p := range world.SignatureLibrary {
+			tw := render.ButtonLabelWidth(p.Name) + refLabelPad
+			if tw > w {
+				w = tw
+			}
 		}
-	}
-	return w
+		referenceLabelWidthOnce.w = w
+	})
+	return referenceLabelWidthOnce.w
 }
 
 func (a *App) referenceNavLayout(x, y int) (prev, next sonarUIButton, labelX, labelW int) {
@@ -119,12 +122,9 @@ func (a *App) updateSpectrumScreen(sonar *acoustics.SonarState) {
 	mx, my := ebiten.CursorPosition()
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		rows := a.contactTableRows(sonar)
-		for i, row := range rows {
-			if mx >= row.X && mx < row.X+row.W && my >= row.Y && my < row.Y+row.H {
-				a.selectContact(sonar, &sonar.Contacts[i])
-				return
-			}
+		if c := a.spectrumContactAt(mx, my, sonar); c != nil {
+			a.selectContact(sonar, c)
+			return
 		}
 		navX := spectrumChartX + 78
 		prev, next, _, _ := a.referenceNavLayout(navX, spectrumRefY-58)
@@ -160,7 +160,7 @@ func (a *App) confirmClassification(sonar *acoustics.SonarState) {
 	if c.Confidence < 0.85 {
 		c.Confidence = math.Min(0.95, c.Confidence+0.2)
 	}
-	a.Audio.PlayClip(audio.ClipSonarPassiveOn, fmt.Sprintf("Contact %s classified as %s.", c.ID, p.Name))
+	a.Audio.PlayClip(audio.ClipSonarContactClassified, fmt.Sprintf("Contact %s classified as %s.", c.ID, p.Name))
 }
 
 func (a *App) drawSpectrumContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
@@ -292,7 +292,12 @@ func (a *App) drawFuzzySignature(screen *ebiten.Image, x, y, w, h int, peaks []a
 			pix[off+3] = 255
 		}
 		if len(peaks) > 0 {
-			levels := make([]float64, w)
+			if cap(a.spectrumFuzzyLevels) < w {
+				a.spectrumFuzzyLevels = make([]float64, w)
+			} else {
+				a.spectrumFuzzyLevels = a.spectrumFuzzyLevels[:w]
+			}
+			levels := a.spectrumFuzzyLevels
 			for px := 0; px < w; px++ {
 				freq := acoustics.MinFreqHz + (float64(px)/float64(w-1))*(acoustics.MaxFreqHz-acoustics.MinFreqHz)
 				i := 0
@@ -311,8 +316,18 @@ func (a *App) drawFuzzySignature(screen *ebiten.Image, x, y, w, h int, peaks []a
 				}
 			}
 			rng := rand.New(rand.NewSource(stamp ^ 0xc0ffee))
-			// Sparse grain — far cheaper than per-pixel noise FillRects.
-			for i := 0; i < w*h/40; i++ {
+			clarity := 0.0
+			for _, p := range peaks {
+				if p.Level > clarity {
+					clarity = p.Level
+				}
+			}
+			// More grain / hash when harmonics are weak (matches faint waterfall).
+			grainN := w * h / 40
+			if clarity < 0.55 {
+				grainN = w * h / (12 + int(clarity*20))
+			}
+			for i := 0; i < grainN; i++ {
 				gx := rng.Intn(w)
 				gy := rng.Intn(h)
 				v := rng.Float64()
@@ -325,8 +340,19 @@ func (a *App) drawFuzzySignature(screen *ebiten.Image, x, y, w, h int, peaks []a
 			base := h - 2
 			for px := 0; px < w; px++ {
 				lvl := levels[px]
-				lvl *= 0.78 + 0.32*rng.Float64()
+				jitter := 0.78 + 0.32*rng.Float64()
+				if clarity < 0.5 {
+					// Extra flutter — lines break up instead of reading as clean spikes.
+					jitter = 0.45 + 0.70*rng.Float64()
+					if rng.Float64() > 0.35+clarity {
+						lvl *= 0.25 + rng.Float64()*0.4
+					}
+				}
+				lvl *= jitter
 				floor := 0.04 + rng.Float64()*0.05
+				if clarity < 0.45 {
+					floor = 0.12 + rng.Float64()*(0.22-clarity*0.15)
+				}
 				if lvl < floor {
 					lvl = floor
 				}
@@ -337,6 +363,9 @@ func (a *App) drawFuzzySignature(screen *ebiten.Image, x, y, w, h int, peaks []a
 				for dy := 0; dy < lh; dy++ {
 					t := float64(dy) / float64(lh)
 					intensity := lvl * (0.35 + 0.65*t)
+					if clarity < 0.4 {
+						intensity *= 0.55 + 0.45*clarity
+					}
 					if intensity < 0.03 {
 						continue
 					}
@@ -373,6 +402,9 @@ func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile wo
 	a.drawSharpSignature(screen, spectrumChartX, spectrumRefY, spectrumChartW, spectrumPanelH, refPeaks)
 
 	render.DrawText(screen, fmt.Sprintf("CONTACT SIGNAL @ %.0f°", bearing), spectrumChartX, spectrumObsY-18, cwSigGreenDim, true)
+	if acoustics.CountSpectrumMixContacts(&a.Engine.Sonar, bearing) >= 2 {
+		render.DrawText(screen, "BEARING MIX — harmonics may overlap", spectrumChartX+220, spectrumObsY-18, render.ColorAmber, true)
+	}
 	obsPeaks := acoustics.ObservedPeaksFromBins(bins)
 	a.drawFuzzySignature(screen, spectrumChartX, spectrumObsY, spectrumChartW, spectrumPanelH+20, obsPeaks)
 	a.drawFreqScale(screen, spectrumChartX, spectrumObsY+spectrumPanelH+28, spectrumChartW)
@@ -384,16 +416,18 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	bearing := a.spectrumAnalysisBearing(sonar)
 	gt := a.Engine.Clock.GameTime
 	if a.spectrumCacheBins == nil || math.Abs(bearing-a.spectrumCacheBearing) > 0.5 || gt-a.spectrumCacheAt >= 0.1 {
-		a.spectrumCacheBins = acoustics.SpectrumAtBearing(a.Engine.Acoustics, player, a.Engine.Scenario.AllEntities(), sonar, bearing)
+		a.spectrumCacheBins = acoustics.SpectrumAtBearingInto(a.spectrumCacheBins, a.Engine.Acoustics, player, a.Engine.AcousticEmitters(), sonar, bearing, gt)
 		a.spectrumCacheAt = gt
 		a.spectrumCacheBearing = bearing
 	}
 	bins := a.spectrumCacheBins
 	profile := a.referenceProfile()
 
-	render.FillRect(screen, 20, 50, 1100, 700, render.ColorPanel)
-	render.DrawTextLarge(screen, "SPECTRUM ANALYZER", 40, 90, render.ColorText)
-	a.drawArraySelector(screen, sonar, 40, 128)
+	render.DrawConsolePanel(screen, 20, 50, 1100, 700)
+	render.DrawMonitor(screen, spectrumTableX, spectrumTableY, spectrumTableW, spectrumTableRow*6+44)
+	render.DrawMonitor(screen, spectrumChartX, spectrumRefY-10, spectrumChartW, spectrumPanelH*2+60)
+	render.DrawText(screen, "SPECTRUM ANALYZER", 40, 90, render.ColorPlateLabel, true)
+	a.drawArraySelector(screen, sonar, spectrumArrayLabelX, spectrumArrayLabelY, cachedSpectrumArrayButtons())
 
 	if c := a.selectedContact(sonar); c != nil {
 		render.DrawText(screen, fmt.Sprintf("SELECTED: %s  |  BRG %.0f°  |  R %.1f kyd  |  SPD %.1f kts  |  %s  |  %s",

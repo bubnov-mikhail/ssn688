@@ -28,6 +28,23 @@ type Contact struct {
 	LastUpdate       float64
 	FirstSeen        float64
 	ListenTime       float64
+
+	// Last active range-bearing snapshot (held for ActiveFixHoldSec on the plot).
+	LastActiveBearingDeg float64
+	LastActiveRangeYd    float64
+	LastActiveFixAt      float64
+}
+
+// ActiveFixHoldSec is how long a solid active fix anchors the tactical plot
+// (matches the ACTIVE echo marker fade window).
+const ActiveFixHoldSec = 30.0
+
+// ContactActiveFixValid reports whether the last active fix is still within the hold window.
+func ContactActiveFixValid(c *Contact, gameTime float64) bool {
+	if c == nil || c.LastActiveFixAt <= 0 || c.LastActiveRangeYd < 50 {
+		return false
+	}
+	return gameTime-c.LastActiveFixAt <= ActiveFixHoldSec
 }
 
 // SonarState holds player sonar equipment state.
@@ -41,11 +58,23 @@ type SonarState struct {
 	PassiveArray    PassiveArrayKind
 	TowedCablePct   float64
 	TowedCableRate  float64
+	ListenBand      ListenBand
 	Contacts        []Contact
-	contactSeq      int
+	BioTransients   []BioTransient
+	nextBioAt       float64
+	// SonarDeafUntil — temporary washout after nearby underwater detonation.
+	SonarDeafUntil   float64
+	LastBlastAt      float64
+	LastBlastX       float64
+	LastBlastY       float64
+	LastBlastRangeYd float64 // washout visibility radius for this event
+	LastBlastFlashSec float64
+	contactSeq       int
 	// activeEchoDone marks SourceEntityIDs already processed for the current ping.
 	activeEchoDone map[string]bool
 	activeEchoAt   float64
+	// passiveContactIndex is scratch for UpdatePassive (reused each tick).
+	passiveContactIndex map[string]int
 }
 
 func NewSonarState() SonarState {
@@ -64,19 +93,47 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		return
 	}
 
-	existing := map[string]int{}
+	if sonar.passiveContactIndex == nil {
+		sonar.passiveContactIndex = make(map[string]int)
+	} else {
+		clear(sonar.passiveContactIndex)
+	}
+	existing := sonar.passiveContactIndex
 	for i, c := range sonar.Contacts {
 		existing[c.SourceEntityID] = i
 	}
 
+	deafActive := gameTime < sonar.SonarDeafUntil && sonar.LastBlastAt > 0
+	var blastBrg float64
+	if deafActive {
+		blastBrg = math.Atan2(sonar.LastBlastX-listener.X, sonar.LastBlastY-listener.Y) * 180 / math.Pi
+		if blastBrg < 0 {
+			blastBrg += 360
+		}
+	}
+
 	for _, em := range emitters {
-		if em.ID == listener.ID || !em.Alive() {
+		if em.ID == listener.ID {
+			continue
+		}
+		if !em.Alive() && em.Status != world.StatusSinking {
 			continue
 		}
 
 		result := model.Detect(listener, em, ModePassive, 0)
+		ApplyListenBand(&result, sonar.ListenBand)
 		applyPassiveArrayModifiers(&result, sonar)
 		rel := AngleDiffDeg(result.BearingDeg, listener.HeadingDeg)
+		sensDB := 20 * math.Log10(math.Max(PassiveArraySensitivity(sonar.PassiveArray, rel, sonar.TowedCablePct), 0.001))
+		result.PeakSNR += sensDB
+		for i := range result.SNR {
+			result.SNR[i] += sensDB
+		}
+		for i := range result.SignalForClassify {
+			result.SignalForClassify[i] += sensDB * 0.65
+		}
+		result.BandsAbove = result.SNR.BandsAbove(DetectThreshold)
+		result.Detected = result.BandsAbove >= MinDetectBands || result.PeakSNR >= PeakDetectSNR
 		if penalty := PassiveSelfNoiseDeltaDB(sonar.PassiveArray, rel, listener.SpeedKts, listener.DepthFt, sonar.TowedCablePct); penalty != 0 {
 			result.PeakSNR -= penalty
 			for i := range result.SNR {
@@ -84,6 +141,22 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			}
 			for i := range result.SignalForClassify {
 				result.SignalForClassify[i] -= penalty * 0.65
+			}
+			result.BandsAbove = result.SNR.BandsAbove(DetectThreshold)
+			result.Detected = result.BandsAbove >= MinDetectBands || result.PeakSNR >= PeakDetectSNR
+		}
+
+		// Directional blast deaf: heavy toward explosion, mild opposite.
+		if deafActive {
+			ang := math.Abs(AngleDiffDeg(result.BearingDeg, blastBrg))
+			toward := math.Exp(-(ang * ang) / (2 * 55 * 55))
+			deafDB := 8 + 42*toward
+			result.PeakSNR -= deafDB
+			for i := range result.SNR {
+				result.SNR[i] -= deafDB
+			}
+			for i := range result.SignalForClassify {
+				result.SignalForClassify[i] -= deafDB * 0.65
 			}
 			result.BandsAbove = result.SNR.BandsAbove(DetectThreshold)
 			result.Detected = result.BandsAbove >= MinDetectBands || result.PeakSNR >= PeakDetectSNR
@@ -102,8 +175,9 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			continue
 		}
 
-		class := Classify(result.SignalForClassify, result.PeakSNR, result.TrueRangeYd)
-		class = refineClassification(class, result.SignalForClassify, em.SignatureID)
+		classifySig := ContaminateClassifySignal(result.SignalForClassify, model, listener, em.ID, emitters, result.BearingDeg, sonar)
+		class := Classify(classifySig, result.PeakSNR, result.TrueRangeYd)
+		class = refineClassification(class, classifySig, em.SignatureID, result.PeakSNR)
 		bearing := bearingWithError(result.BearingDeg, result.PeakSNR, result.BandsAbove, sonar.passiveBearingSigmaScale())
 		estRange := estimatePassiveRange(model.Env, listener, em, result.TrueRangeYd, result.PeakSNR)
 
@@ -163,9 +237,10 @@ func FireActivePing(model Model, listener *world.Entity, emitters []*world.Entit
 	transmitActivePing(listener, sonar, gameTime)
 }
 
-// FireActivePingNow transmits immediately regardless of the auto-ping timer.
+// FireActivePingNow transmits a single pulse immediately, even when active mode
+// is on standby (auto-ping still requires ActiveEnabled).
 func FireActivePingNow(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, gameTime float64) bool {
-	if !sonar.ActiveEnabled {
+	if sonar == nil || listener == nil {
 		return false
 	}
 	transmitActivePing(listener, sonar, gameTime)
@@ -219,7 +294,11 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 	}
 	if sonar.activeEchoAt != sonar.LastPingTime || sonar.activeEchoDone == nil {
 		sonar.activeEchoAt = sonar.LastPingTime
-		sonar.activeEchoDone = map[string]bool{}
+		if sonar.activeEchoDone == nil {
+			sonar.activeEchoDone = make(map[string]bool)
+		} else {
+			clear(sonar.activeEchoDone)
+		}
 	}
 	age := gameTime - sonar.LastPingTime
 	if age < 0 {
@@ -244,7 +323,7 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 			sonar.activeEchoDone[em.ID] = true
 
 			class := Classify(result.SignalForClassify, result.PeakSNR, result.TrueRangeYd)
-			class = refineClassification(class, result.SignalForClassify, em.SignatureID)
+			class = refineClassification(class, result.SignalForClassify, em.SignatureID, result.PeakSNR)
 			class.Confidence = math.Min(0.99, class.Confidence+0.12)
 
 			found := false
@@ -257,28 +336,35 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 					c.Confidence = math.Max(c.Confidence, class.Confidence)
 					c.UncBearingDeg = math.Min(c.UncBearingDeg, 2.5)
 					c.UncRangeYd = math.Min(c.UncRangeYd, math.Max(80, result.TrueRangeYd*0.04))
+					c.LastActiveBearingDeg = result.BearingDeg
+					c.LastActiveRangeYd = measRange
+					c.LastActiveFixAt = gameTime
 					found = true
 					break
 				}
 			}
 			if !found {
 				sonar.contactSeq++
+				measRange := result.TrueRangeYd
 				c := Contact{
-					ID:               formatContactID(sonar.contactSeq),
-					BearingDeg:       result.BearingDeg,
-					EstimatedRangeYd: result.TrueRangeYd,
-					SNR:              result.PeakSNR,
-					BandsAbove:       result.BandsAbove,
-					BestMatchID:      class.ProfileID,
-					BestMatchName:    class.ProfileName,
-					Confidence:       class.Confidence,
-					SourceEntityID:   em.ID,
-					Kind:             em.Kind,
-					DetectedBy:       "active",
-					LastUpdate:       gameTime,
-					FirstSeen:        gameTime,
-					UncBearingDeg:    2.5,
-					UncRangeYd:       math.Max(80, result.TrueRangeYd*0.04),
+					ID:                   formatContactID(sonar.contactSeq),
+					BearingDeg:           result.BearingDeg,
+					EstimatedRangeYd:     measRange,
+					SNR:                  result.PeakSNR,
+					BandsAbove:           result.BandsAbove,
+					BestMatchID:          class.ProfileID,
+					BestMatchName:        class.ProfileName,
+					Confidence:           class.Confidence,
+					SourceEntityID:       em.ID,
+					Kind:                 em.Kind,
+					DetectedBy:           "active",
+					LastUpdate:           gameTime,
+					FirstSeen:            gameTime,
+					UncBearingDeg:        2.5,
+					UncRangeYd:           math.Max(80, result.TrueRangeYd*0.04),
+					LastActiveBearingDeg: result.BearingDeg,
+					LastActiveRangeYd:    measRange,
+					LastActiveFixAt:      gameTime,
 				}
 				sonar.Contacts = append(sonar.Contacts, c)
 			}
@@ -300,16 +386,64 @@ func ContactHasActiveRange(c *Contact) bool {
 }
 
 // SpectrumAtBearing returns SNR spectrum for the analyzer display at a bearing.
-func SpectrumAtBearing(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, bearingDeg float64) []float64 {
+func SpectrumAtBearing(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, bearingDeg, gameTime float64) []float64 {
+	return SpectrumAtBearingInto(nil, model, listener, emitters, sonar, bearingDeg, gameTime)
+}
+
+// SpectrumBeamSigmaDeg is the soft analyzer beam width (1σ). Contacts within
+// ~2σ contribute strongly; harmonics from neighbors mix into the LOFAR trace.
+func SpectrumBeamSigmaDeg(sonar *SonarState) float64 {
+	base := 6.5 // hull spherical — modest bearing discrimination for LOFAR
+	if sonar != nil && sonar.PassiveArray == PassiveArrayTowed && sonar.TowedCablePct > 40 {
+		base = 4.2 // streamed TA resolves bearings better
+	}
+	if sonar != nil {
+		base *= math.Max(0.45, sonar.passiveBearingSigmaScale())
+	}
+	return base
+}
+
+// SpectrumBeamWeight returns 0..1 contribution of an emitter at true bearing
+// offset deltaDeg from the analyzer look bearing.
+func SpectrumBeamWeight(deltaDeg, sigmaDeg float64) float64 {
+	if sigmaDeg < 0.5 {
+		sigmaDeg = 0.5
+	}
+	d := math.Abs(normalizeBearingDiff(deltaDeg))
+	if d > sigmaDeg*3.5 {
+		return 0
+	}
+	return math.Exp(-(d * d) / (2 * sigmaDeg * sigmaDeg))
+}
+
+// SpectrumAtBearingInto fills dst with the analyzer spectrum, reusing dst when len >= NumBands.
+// Nearby emitters are power-summed through a soft bearing beam so close contacts
+// interleave their tonals and complicate fingerprint matching.
+func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, bearingDeg, gameTime float64) []float64 {
+	if len(dst) < NumBands {
+		dst = make([]float64, NumBands)
+	} else {
+		dst = dst[:NumBands]
+		for i := range dst {
+			dst[i] = 0
+		}
+	}
+	out := dst
 	selfNoise := SelfNoiseSpectrum(listener, model.Env, sonar.PassiveArray, sonar.TowedCablePct)
-	out := make([]float64, NumBands)
+	sigma := SpectrumBeamSigmaDeg(sonar)
+	var accum Spectrum
+	for i := range accum {
+		accum[i] = -200
+	}
+	nStrong := 0
 
 	for _, em := range emitters {
-		if !em.Alive() || em.ID == listener.ID {
+		if em == nil || !em.Alive() || em.ID == listener.ID {
 			continue
 		}
 		b := listener.BearingDegTo(em)
-		if math.Abs(normalizeBearingDiff(b-bearingDeg)) > 6 {
+		w := SpectrumBeamWeight(b-bearingDeg, sigma)
+		if w < 0.02 {
 			continue
 		}
 		src := SourceSpectrum(em)
@@ -323,19 +457,104 @@ func SpectrumAtBearing(model Model, listener *world.Entity, emitters []*world.En
 			sens = 0.001
 		}
 		sensDB := 20 * math.Log10(sens)
+		wDB := 10 * math.Log10(w)
 		for i := 0; i < NumBands; i++ {
-			v := snr[i] + bonus - penalty + sensDB
-			if v > out[i] {
-				out[i] = v
-			}
+			v := snr[i] + bonus - penalty + sensDB - listenBandAttenuationDB(sonar.ListenBand, BandCenterHz(i)) + wDB
+			accum[i] = combineDB(accum[i], v)
+		}
+		if w >= 0.22 {
+			nStrong++
 		}
 	}
 
-	// Ambient noise floor visible in analyzer.
 	for i := 0; i < NumBands; i++ {
-		out[i] = math.Max(out[i], 0) + 1.5 + rand.Float64()
+		v := accum[i]
+		if v < -150 {
+			v = 0
+		}
+		out[i] = math.Max(v, 0) + 1.5 + rand.Float64()
+	}
+	BioSpectrumFloor(out, sonar, bearingDeg, gameTime)
+	DegradeSpectrumBinsForClarity(out)
+	if nStrong >= 2 {
+		// Multiple contacts in-beam: extra smear so neither fingerprint stays clean.
+		degradeSpectrumForBearingMix(out, nStrong)
+	}
+	return dst
+}
+
+// ContaminateClassifySignal power-adds nearby emitters into a classify spectrum
+// so auto-matching degrades when contacts share a bearing beam.
+func ContaminateClassifySignal(signal Spectrum, model Model, listener *world.Entity, primaryID string, emitters []*world.Entity, bearingDeg float64, sonar *SonarState) Spectrum {
+	sigma := SpectrumBeamSigmaDeg(sonar)
+	ambient := model.Env.AmbientSpectrum(listener.DepthFt)
+	out := signal
+	for _, em := range emitters {
+		if em == nil || em.ID == listener.ID || em.ID == primaryID {
+			continue
+		}
+		if !em.Alive() && em.Status != world.StatusSinking {
+			continue
+		}
+		b := listener.BearingDegTo(em)
+		w := SpectrumBeamWeight(b-bearingDeg, sigma)
+		if w < 0.15 {
+			continue
+		}
+		src := SourceSpectrum(em)
+		recv := Propagate(model.Env, src, em, listener)
+		other := recv.SubNoise(ambient)
+		wDB := 10 * math.Log10(w)
+		for i := range other {
+			other[i] += wDB
+			other[i] -= listenBandAttenuationDB(sonar.ListenBand, BandCenterHz(i)) * 0.7
+		}
+		out = out.AddPower(other)
 	}
 	return out
+}
+
+func degradeSpectrumForBearingMix(bins []float64, nStrong int) {
+	if len(bins) < 3 || nStrong < 2 {
+		return
+	}
+	mud := 0.35 + 0.12*float64(nStrong-2)
+	if mud > 0.7 {
+		mud = 0.7
+	}
+	tmp := make([]float64, len(bins))
+	copy(tmp, bins)
+	for i := range bins {
+		left, right := tmp[i], tmp[i]
+		if i > 0 {
+			left = tmp[i-1]
+		}
+		if i < len(tmp)-1 {
+			right = tmp[i+1]
+		}
+		// Neighbor bleed + raised floor — overlapping tonals wash together.
+		smear := tmp[i]*(1-0.65*mud) + (left+right)*0.5*(0.65*mud)
+		floor := 3.0 + mud*5.0
+		hash := (float64((i*53+7)%19)/19.0 - 0.5) * mud * 5.0
+		bins[i] = smear + floor*mud*0.4 + hash
+	}
+}
+
+// CountSpectrumMixContacts returns how many tracked contacts sit inside the
+// analyzer beam around bearingDeg (for UI "MIXED" cues).
+func CountSpectrumMixContacts(sonar *SonarState, bearingDeg float64) int {
+	if sonar == nil {
+		return 0
+	}
+	sigma := SpectrumBeamSigmaDeg(sonar)
+	n := 0
+	for i := range sonar.Contacts {
+		c := &sonar.Contacts[i]
+		if SpectrumBeamWeight(c.BearingDeg-bearingDeg, sigma) >= 0.22 {
+			n++
+		}
+	}
+	return n
 }
 
 func bearingWithError(trueBearing, peakSNR float64, bands int, sigmaScale float64) float64 {
@@ -462,7 +681,7 @@ func normalizeBearingDiff(d float64) float64 {
 	return d
 }
 
-func refineClassification(class Classification, signal Spectrum, trueSignatureID string) Classification {
+func refineClassification(class Classification, signal Spectrum, trueSignatureID string, peakSNR float64) Classification {
 	profile, ok := world.ProfileByID(trueSignatureID)
 	if !ok {
 		return class
@@ -471,7 +690,9 @@ func refineClassification(class Classification, signal Spectrum, trueSignatureID
 	if dist < 30 {
 		class.ProfileID = profile.ID
 		class.ProfileName = profile.Name
-		class.Confidence = math.Max(class.Confidence, 0.55)
+		// Only boost toward a firm ID when the spectrum is actually readable.
+		boost := 0.55 * (0.25 + 0.75*SpectrumClarity01(peakSNR))
+		class.Confidence = math.Max(class.Confidence, boost)
 	}
 	return class
 }

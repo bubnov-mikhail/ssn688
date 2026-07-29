@@ -6,35 +6,30 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// 688(I)-style phosphor palette for helm panels.
+// Ballast-board console palette (dark gray panels, light engraved labels, green sonar data).
 var (
-	ColorPanelDark   = color.RGBA{6, 14, 12, 255}
-	ColorPanelMid    = color.RGBA{14, 36, 30, 255}
-	ColorPanelBezel  = color.RGBA{24, 58, 48, 255}
-	ColorPanelInset  = color.RGBA{4, 10, 8, 255}
+	ColorPanelDark   = color.RGBA{18, 18, 20, 255}
+	ColorPanelMid    = color.RGBA{28, 28, 30, 255}
+	ColorPanelBezel  = color.RGBA{34, 34, 36, 255}
+	ColorPanelInset  = color.RGBA{10, 10, 12, 255}
 	ColorPhosphor    = color.RGBA{0, 255, 153, 255}
 	ColorPhosphorDim = color.RGBA{0, 170, 110, 255}
 	ColorAmber       = color.RGBA{255, 191, 64, 255}
-	ColorBevelLight  = color.RGBA{70, 130, 110, 255}
-	ColorBevelDark   = color.RGBA{8, 20, 16, 255}
+	ColorBevelLight  = color.RGBA{58, 58, 62, 255}
+	ColorBevelDark   = color.RGBA{22, 22, 24, 255}
+	ColorPlateLabel  = color.RGBA{178, 180, 186, 255}
 )
 
-// DrawPanel draws a recessed instrument panel with bezel.
+// DrawPanel draws a flat console panel.
 func DrawPanel(screen *ebiten.Image, x, y, w, h int) {
-	FillRect(screen, x, y, w, h, ColorPanelBezel)
-	FillRect(screen, x+3, y+3, w-6, h-6, ColorPanelDark)
-	FillRect(screen, x+6, y+6, w-12, h-12, ColorPanelMid)
-	DrawLine(screen, float64(x+6), float64(y+6), float64(x+w-7), float64(y+6), ColorBevelLight)
-	DrawLine(screen, float64(x+6), float64(y+6), float64(x+6), float64(y+h-7), ColorBevelLight)
-	DrawLine(screen, float64(x+w-7), float64(y+6), float64(x+w-7), float64(y+h-7), ColorBevelDark)
-	DrawLine(screen, float64(x+6), float64(y+h-7), float64(x+w-7), float64(y+h-7), ColorBevelDark)
+	DrawConsolePanel(screen, x, y, w, h)
 }
 
 // DrawBevelButton draws a clickable 688-style push button.
 func DrawBevelButton(screen *ebiten.Image, x, y, w, h int, label string, hovered, pressed bool) {
 	face := ColorPanelMid
 	if hovered {
-		face = color.RGBA{30, 68, 54, 255}
+		face = color.RGBA{38, 38, 42, 255}
 	}
 	if pressed {
 		face = ColorPanelInset

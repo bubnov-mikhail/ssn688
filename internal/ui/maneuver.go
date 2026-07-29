@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -36,32 +37,40 @@ const (
 
 var colorDepthActual = color.RGBA{160, 160, 160, 255}
 
-func (a *App) maneuverButtons() []uiButton {
-	buttons := []uiButton{
-		{ID: "spd_down", Label: "−", Tooltip: "Reduce ordered speed by 1 knot", X: 80, Y: 280, H: 44},
-		{ID: "spd_up", Label: "+", Tooltip: "Increase ordered speed by 1 knot", X: 80, Y: 220, H: 44},
-		{ID: "spd_stop", Label: "STOP", Tooltip: "All stop — ordered speed zero", X: 80, Y: 340, H: 44},
-		{ID: "hdg_port10", Label: "◄◄", Tooltip: "Come left 10 degrees", Y: 520, H: 40},
-		{ID: "hdg_port", Label: "◄ PORT", Tooltip: "Come left 5 degrees", Y: 520, H: 40},
-		{ID: "hdg_stbd", Label: "STBD ►", Tooltip: "Come right 5 degrees", Y: 520, H: 40},
-		{ID: "hdg_stbd10", Label: "►►", Tooltip: "Come right 10 degrees", Y: 520, H: 40},
-		{ID: "dep_shallow", Label: "▲", Tooltip: "Rise 20 feet (shallower)", X: 980, Y: 200, H: 44},
-		{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: 980, Y: 520, H: 44},
-		{ID: "dep_hold", Label: "HOLD", Tooltip: "Hold present depth", X: 980, Y: 360, H: 44},
-		{ID: "bt_cast", Label: "BT CAST", Tooltip: "Launch SSXBT — survey thermocline (~15 s sim time)", X: 780, Y: 665, H: 36},
-	}
-	for i := range buttons {
-		buttons[i].W = render.ButtonWidth(buttons[i].Label, 12)
-	}
-	x := 330
-	for i := range buttons {
-		switch buttons[i].ID {
-		case "hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10":
-			buttons[i].X = x
-			x += buttons[i].W + 6
+var cachedManeuverButtons struct {
+	once sync.Once
+	btns []uiButton
+}
+
+func maneuverButtons() []uiButton {
+	cachedManeuverButtons.once.Do(func() {
+		buttons := []uiButton{
+			{ID: "spd_down", Label: "−", Tooltip: "Reduce ordered speed by 1 knot", X: 80, Y: 280, H: 44},
+			{ID: "spd_up", Label: "+", Tooltip: "Increase ordered speed by 1 knot", X: 80, Y: 220, H: 44},
+			{ID: "spd_stop", Label: "STOP", Tooltip: "All stop — ordered speed zero", X: 80, Y: 340, H: 44},
+			{ID: "hdg_port10", Label: "◄◄", Tooltip: "Come left 10 degrees", Y: 520, H: 40},
+			{ID: "hdg_port", Label: "◄ PORT", Tooltip: "Come left 5 degrees", Y: 520, H: 40},
+			{ID: "hdg_stbd", Label: "STBD ►", Tooltip: "Come right 5 degrees", Y: 520, H: 40},
+			{ID: "hdg_stbd10", Label: "►►", Tooltip: "Come right 10 degrees", Y: 520, H: 40},
+			{ID: "dep_shallow", Label: "▲", Tooltip: "Rise 20 feet (shallower)", X: 980, Y: 200, H: 44},
+			{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: 980, Y: 520, H: 44},
+			{ID: "dep_hold", Label: "HOLD", Tooltip: "Hold present depth", X: 980, Y: 360, H: 44},
+			{ID: "bt_cast", Label: "BT CAST", Tooltip: "Launch SSXBT — survey thermocline (~15 s sim time)", X: 780, Y: 665, H: 36},
 		}
-	}
-	return buttons
+		for i := range buttons {
+			buttons[i].W = render.ButtonWidth(buttons[i].Label, 12)
+		}
+		x := 330
+		for i := range buttons {
+			switch buttons[i].ID {
+			case "hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10":
+				buttons[i].X = x
+				x += buttons[i].W + 6
+			}
+		}
+		cachedManeuverButtons.btns = buttons
+	})
+	return cachedManeuverButtons.btns
 }
 
 const (
@@ -110,7 +119,7 @@ func depthToGaugeY(ft float64) int {
 	return depthTop + int(ft/depthMaxFt*float64(depthH))
 }
 
-func (a *App) clampOrderedDepth(player *world.Entity, want float64) float64 {
+func (a *App) clampOrderedDepth(player *world.Entity, want float64) (depth float64, limited bool, bottomFt float64) {
 	if want < depthMinOrder {
 		want = depthMinOrder
 	}
@@ -118,21 +127,31 @@ func (a *App) clampOrderedDepth(player *world.Entity, want float64) float64 {
 		want = depthMaxFt
 	}
 	if a.Engine == nil || a.Engine.Scenario == nil || a.Engine.Scenario.Bathy == nil || !a.Engine.Scenario.Bathy.Valid() || player == nil {
-		return want
+		return want, false, 0
 	}
 	bot := a.Engine.Scenario.Bathy.DepthAtFt(player.X, player.Y)
 	if bot <= 0 {
-		return want
+		return want, false, 0
 	}
 	maxDepth := bot - 50
 	if maxDepth < depthMinOrder {
 		maxDepth = depthMinOrder
 	}
 	if want > maxDepth {
-		a.StatusMessage = fmt.Sprintf("Unable to dive deeper here — bottom %.0f ft, max safe depth %.0f ft.", bot, maxDepth)
-		return maxDepth
+		return maxDepth, true, bot
 	}
-	return want
+	return want, false, bot
+}
+
+func (a *App) orderMakeDepth(player *world.Entity, want float64) {
+	depth, limited, bottomFt := a.clampOrderedDepth(player, want)
+	player.OrderedDepth = depth
+	if limited {
+		a.Audio.PlayClip(audio.ClipDiveUnableDeeper,
+			fmt.Sprintf("Unable to dive deeper here — bottom %.0f ft, max safe depth %.0f ft.", bottomFt, depth))
+		return
+	}
+	a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(depth)))
 }
 
 func drawDashedHLine(screen *ebiten.Image, x1, x2, y float64, clr color.Color, dash, gap float64) {
@@ -168,7 +187,7 @@ func (a *App) playOrderedHeadingVoice(player *world.Entity) {
 }
 
 func (a *App) updateManeuverUI(player *world.Entity) {
-	buttons := a.maneuverButtons()
+	buttons := maneuverButtons()
 	mx, my := ebiten.CursorPosition()
 	a.updateButtonTooltips(buttons, mx, my)
 
@@ -185,8 +204,7 @@ func (a *App) updateManeuverUI(player *world.Entity) {
 		}
 		if !clickedButton {
 			if depthGaugeContains(mx, my) {
-				player.OrderedDepth = a.clampOrderedDepth(player, depthFromGaugeY(my))
-				a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(player.OrderedDepth)))
+				a.orderMakeDepth(player, depthFromGaugeY(my))
 				clickedButton = true
 			} else if hdg, ok := compassHeadingAt(mx, my); ok {
 				a.compassDrag = true
@@ -260,14 +278,12 @@ func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 		}
 		a.Audio.PlayClip(audio.ClipDiveComeRight, fmt.Sprintf("Come right to %d.", int(player.OrderedHead)))
 	case "dep_shallow":
-		player.OrderedDepth = a.clampOrderedDepth(player, math.Max(depthMinOrder, player.OrderedDepth-20))
-		a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(player.OrderedDepth)))
+		a.orderMakeDepth(player, math.Max(depthMinOrder, player.OrderedDepth-20))
 	case "dep_deep":
-		player.OrderedDepth = a.clampOrderedDepth(player, math.Min(depthMaxFt, player.OrderedDepth+20))
-		a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(player.OrderedDepth)))
+		a.orderMakeDepth(player, math.Min(depthMaxFt, player.OrderedDepth+20))
 	case "dep_hold":
 		player.OrderedDepth = player.DepthFt
-		a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Hold depth %d feet.", int(player.OrderedDepth)))
+		a.Audio.PlayClip(audio.ClipDiveHoldDepth, fmt.Sprintf("Hold depth %d feet.", int(player.OrderedDepth)))
 	case "bt_cast":
 		env := &a.Engine.Acoustics.Env
 		gt := a.Engine.Clock.GameTime
@@ -282,7 +298,7 @@ func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 				msg = fmt.Sprintf("SSXBT re-cast — refreshing layer profile (~%.0fs).", acoustics.LayerSurveyDurationSec)
 			}
 			a.StatusMessage = msg
-			a.Audio.PlayClip(audio.ClipSonarPassiveOn, "Launching bathythermograph.")
+			a.Audio.PlayClip(audio.ClipSonarBTLaunch, "Launching bathythermograph.")
 		} else {
 			a.StatusMessage = "Unable to start BT cast."
 		}
@@ -328,7 +344,7 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 	render.DrawText(screen, "KTS ORDERED", 188, 300, render.ColorPhosphorDim, true)
 	render.DrawText(screen, fmt.Sprintf("ACT %.1f", p.SpeedKts), 188, 318, render.ColorPhosphor, true)
 
-	buttons := a.maneuverButtons()
+	buttons := maneuverButtons()
 	mx, my := ebiten.CursorPosition()
 	for _, b := range buttons {
 		hover := b.contains(mx, my)

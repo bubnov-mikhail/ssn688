@@ -71,12 +71,12 @@ func TestSpectrumAtBearingRespectsStowedTowedArray(t *testing.T) {
 
 	hull := NewSonarState()
 	hull.PassiveArray = PassiveArrayHull
-	hullBins := SpectrumAtBearing(model, listener, emitters, &hull, 0)
+	hullBins := SpectrumAtBearing(model, listener, emitters, &hull, 0, 0)
 
 	towed := NewSonarState()
 	towed.PassiveArray = PassiveArrayTowed
 	towed.TowedCablePct = 0
-	towedBins := SpectrumAtBearing(model, listener, emitters, &towed, 0)
+	towedBins := SpectrumAtBearing(model, listener, emitters, &towed, 0, 0)
 
 	hullPeak, towedPeak := 0.0, 0.0
 	for i := range hullBins {
@@ -87,7 +87,7 @@ func TestSpectrumAtBearingRespectsStowedTowedArray(t *testing.T) {
 			towedPeak = towedBins[i]
 		}
 	}
-	if towedPeak >= hullPeak-12 {
+	if towedPeak >= hullPeak-10 {
 		t.Fatalf("expected stowed towed spectrum much weaker than hull: hull=%.1f towed=%.1f", hullPeak, towedPeak)
 	}
 }

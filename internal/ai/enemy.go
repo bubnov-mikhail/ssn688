@@ -2,28 +2,33 @@ package ai
 
 import (
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
 // UpdateEnemyAI drives hostile unit behavior using the unified acoustic model.
-func UpdateEnemyAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model) {
+func UpdateEnemyAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo) {
 	for _, e := range entities {
 		if !e.Alive() || e.Side != world.SideEnemy {
 			continue
 		}
 		switch e.Kind {
 		case world.KindSurfaceShip:
-			updateSurfaceAI(e, player, gameTime, model)
+			updateSurfaceAI(e, player, gameTime, model, torps)
 		case world.KindSubmarine:
-			updateSubAI(e, player, gameTime, model)
+			updateSubAI(e, player, gameTime, model, torps)
 		}
 	}
 }
 
-func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acoustics.Model) {
+func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo) {
+	if tryEvadeTorpedo(ship, torps) {
+		return
+	}
+
 	rangeYd := ship.RangeYardsTo(player)
 	bearing := ship.BearingDegTo(player)
-	heardPing := acoustics.HeardPlayerPing(ship, player, gameTime)
+	heardPing := acoustics.HeardPlayerPing(model.Env, ship, player, gameTime)
 
 	if gameTime-ship.LastPingTime > 8 {
 		ship.ActiveSonar = true
@@ -72,10 +77,14 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 	ship.AIState = "SEARCH"
 }
 
-func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Model) {
+func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo) {
+	if tryEvadeTorpedo(sub, torps) {
+		return
+	}
+
 	rangeYd := sub.RangeYardsTo(player)
 	bearing := sub.BearingDegTo(player)
-	heardPing := acoustics.HeardPlayerPing(sub, player, gameTime)
+	heardPing := acoustics.HeardPlayerPing(model.Env, sub, player, gameTime)
 
 	passiveDetected := model.CanDetectPlayerPassive(sub, player, gameTime)
 	active := model.Detect(sub, player, acoustics.ModeActive, 0.6)
@@ -126,7 +135,7 @@ func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model
 		if !e.Alive() || e.Side != world.SideEnemy {
 			continue
 		}
-		if acoustics.HeardPlayerPing(e, player, gameTime) {
+		if acoustics.HeardPlayerPing(model.Env, e, player, gameTime) {
 			return true
 		}
 		if e.ActiveSonar && model.CanDetectActive(e, player, 0.7) {

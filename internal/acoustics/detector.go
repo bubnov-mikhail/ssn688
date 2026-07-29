@@ -37,7 +37,10 @@ func NewModel(env Environment) Model {
 
 // Detect evaluates whether listener detects target using passive or active sonar.
 func (m Model) Detect(listener, target *world.Entity, mode DetectionMode, activePower float64) DetectionResult {
-	if !listener.Alive() || !target.Alive() || listener.ID == target.ID {
+	if !listener.Alive() || target == nil || listener.ID == target.ID {
+		return DetectionResult{}
+	}
+	if !target.Alive() && target.Status != world.StatusSinking {
 		return DetectionResult{}
 	}
 
@@ -122,7 +125,7 @@ func (m Model) CanDetectActive(listener, target *world.Entity, power float64) bo
 // CanDetectPlayerPassive applies a temporary SNR bonus after the player active-pings.
 func (m Model) CanDetectPlayerPassive(listener, player *world.Entity, gameTime float64) bool {
 	r := m.Detect(listener, player, ModePassive, 0)
-	if heardAge := PlayerPingHeardAge(listener, player, gameTime); heardAge >= 0 {
+	if heardAge := PlayerPingHeardAge(m.Env, listener, player, gameTime); heardAge >= 0 {
 		power := player.LastPingPower
 		if power <= 0 {
 			power = 0.7

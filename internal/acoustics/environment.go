@@ -88,6 +88,39 @@ func (e Environment) LayerCrossingLoss(srcDepthFt, dstDepthFt float64) float64 {
 	return loss
 }
 
+// ColumnAttenuationDB is continuous vertical transmission loss through the water
+// column (volume scattering / multipath), separate from discrete LayerCrossingLoss.
+// Deeper immersion and larger vertical separation both weaken the received signal.
+func (e Environment) ColumnAttenuationDB(srcDepthFt, dstDepthFt, freqHz float64) float64 {
+	dz := math.Abs(srcDepthFt - dstDepthFt)
+	if dz < 1 {
+		return 0
+	}
+	// Higher frequencies scatter more along the vertical path.
+	freqFac := 1.0 + 0.35*math.Min(2.0, freqHz/700.0)
+	const rateNear = 0.012 // dB/ft for the first ~600 ft of Δdepth
+	const rateFar = 0.005  // diminishing returns beyond that
+	loss := 0.0
+	if dz <= 600 {
+		loss = dz * rateNear * freqFac
+	} else {
+		loss = (600*rateNear + (dz-600)*rateFar) * freqFac
+	}
+	// Extra isolation when one platform is shallow and the other deep below the
+	// mixed layer — models increasing duct/shadow loss with submergence.
+	shallow := math.Min(srcDepthFt, dstDepthFt)
+	deep := math.Max(srcDepthFt, dstDepthFt)
+	thermo := 240.0
+	if len(e.Layers) > 1 {
+		thermo = e.Layers[1].TopDepthFt
+	}
+	if shallow < thermo && deep > thermo {
+		below := deep - thermo
+		loss += math.Min(7.0, below*0.007)
+	}
+	return loss
+}
+
 func (e Environment) LayerName(depthFt float64) string {
 	return e.Layers[e.layerIndex(depthFt)].Name
 }
@@ -208,5 +241,15 @@ func spreadingLossDB(rangeYd float64) float64 {
 	if rangeYd < 100 {
 		rangeYd = 100
 	}
-	return 20 * math.Log10(rangeYd / 100)
+	return 20 * math.Log10(rangeYd/100)
+}
+
+// passiveSpreadingLossDB models one-way passive transmission loss (spherical + extra
+// range dependence so contacts fade noticeably with distance on the waterfall).
+func passiveSpreadingLossDB(rangeYd float64) float64 {
+	if rangeYd < 100 {
+		rangeYd = 100
+	}
+	// 15·log(r) + 10·log(r) ≈ practical deep-water passive TL curve.
+	return 25 * math.Log10(rangeYd/100)
 }

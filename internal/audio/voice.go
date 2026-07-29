@@ -275,8 +275,24 @@ func humanSubtitle(id ClipID) string {
 		return "Passive sonar offline."
 	case ClipSonarActiveStandby:
 		return "Active sonar standby."
+	case ClipSonarActiveOnline:
+		return "Active sonar online."
 	case ClipSonarActivePing:
 		return "Transmitting active pulse."
+	case ClipSonarDeployTowed:
+		return "Deploying towed array."
+	case ClipSonarTowedHeld:
+		return "Towed array held."
+	case ClipSonarRetractTowed:
+		return "Retracting towed array."
+	case ClipSonarBTLaunch:
+		return "Launching bathythermograph."
+	case ClipSonarLayerSurveyComplete:
+		return "Layer survey complete."
+	case ClipSonarContactClassified:
+		return "Contact classified."
+	case ClipSonarEnableActiveFirst:
+		return "Enable active sonar before transmitting."
 	case ClipWepsImpactConfirmed:
 		return "Weapon impact confirmed."
 	case ClipWepsOuterDoorClosed:
@@ -301,6 +317,10 @@ func humanSubtitle(id ClipID) string {
 		return "Come right, aye."
 	case ClipDiveMakeDepth:
 		return "Make depth, aye."
+	case ClipDiveHoldDepth:
+		return "Holding depth, aye."
+	case ClipDiveUnableDeeper:
+		return "Unable to dive deeper. Bottom limits ordered depth."
 	case ClipNavSpeedHalf:
 		return "Time acceleration 0.5x."
 	case ClipNavSpeedNormal:

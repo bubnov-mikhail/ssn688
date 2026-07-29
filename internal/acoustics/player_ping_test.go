@@ -11,10 +11,10 @@ func TestPlayerPingHeardAfterOneWayDelay(t *testing.T) {
 	enemy := &world.Entity{ID: "dd", X: 8000, Y: 0}
 
 	travel := 8000.0 / SoundSpeedYdPerSec
-	if HeardPlayerPing(enemy, player, 100+travel*0.5) {
+	if HeardPlayerPing(DefaultEnvironment(), enemy, player, 100+travel*0.5) {
 		t.Fatal("ping should not be heard before one-way travel time")
 	}
-	if !HeardPlayerPing(enemy, player, 100+travel+0.2) {
+	if !HeardPlayerPing(DefaultEnvironment(), enemy, player, 100+travel+0.2) {
 		t.Fatal("ping should be heard after one-way travel time")
 	}
 }

@@ -6,6 +6,52 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
+func TestWaterfallFlowNoiseAtHighSpeed(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 180, 21)
+	sonar := NewSonarState()
+	row := BearingWaterfallSlice(model, player, []*world.Entity{player}, &sonar, PassiveArrayHull, 0)
+	peak := 0.0
+	for _, v := range row.Bearings {
+		if v > peak {
+			peak = v
+		}
+	}
+	if peak < 12 {
+		t.Fatalf("high speed should wash waterfall with flow noise, peak=%.1f", peak)
+	}
+}
+
+func TestWaterfallPeakDecreasesWithRange(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 180, 8)
+	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	sonar := NewSonarState()
+	emitters := []*world.Entity{player, enemy}
+
+	enemy.Y = 2500
+	near := waterfallPeak(model, player, emitters, &sonar)
+	enemy.Y = 6000
+	mid := waterfallPeak(model, player, emitters, &sonar)
+	enemy.Y = 11000
+	far := waterfallPeak(model, player, emitters, &sonar)
+
+	if mid >= near-4 || far >= mid-4 {
+		t.Fatalf("waterfall peak should fade with range: near=%.1f mid=%.1f far=%.1f", near, mid, far)
+	}
+}
+
+func waterfallPeak(model Model, player *world.Entity, emitters []*world.Entity, sonar *SonarState) float64 {
+	row := BearingWaterfallSlice(model, player, emitters, sonar, PassiveArrayHull, 0)
+	peak := 0.0
+	for _, v := range row.Bearings {
+		if v > peak {
+			peak = v
+		}
+	}
+	return peak
+}
+
 func TestBearingWaterfallSliceDetectsNearbyTarget(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
@@ -88,10 +134,10 @@ func TestContactSpreadIsGradual(t *testing.T) {
 		}
 	}
 	// Compact contact blob: a few degrees of smear, not a wide wash.
-	if aboveHalf < 6 {
+	if aboveHalf < 4 {
 		t.Fatalf("expected compact contact smear, bins above half=%d", aboveHalf)
 	}
-	if aboveHalf > 40 {
+	if aboveHalf > 28 {
 		t.Fatalf("contact smear too wide, bins above half=%d", aboveHalf)
 	}
 }

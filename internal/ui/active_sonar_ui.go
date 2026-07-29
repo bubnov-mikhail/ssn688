@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -35,12 +36,12 @@ const (
 	activePlotY            = 152
 	activePlotW            = 860
 	activePlotH            = 528
-	activeEchoMarkerFadeSec  = 30.0 // fixed marker dissolve time; independent of AUTO PING
-	activeFlashCrossMin    = 5.0
-	activeFlashCrossMax    = 11.0
-	activePlotBgR          = 0
-	activePlotBgG          = 2
-	activePlotBgB          = 16
+	activeEchoMarkerFadeSec = acoustics.ActiveFixHoldSec // dissolve time; matches tactical active-fix hold
+	activeFlashCrossMin     = 5.0
+	activeFlashCrossMax     = 11.0
+	activePlotBgR           = 0
+	activePlotBgG           = 2
+	activePlotBgB           = 16
 )
 
 // activeEchoFlash is a fixed range-bearing snapshot from one active echo return.
@@ -56,23 +57,20 @@ type activeEchoFlash struct {
 	Strength       float64 // 1 = bright; stepped down on newer echoes from same contact
 }
 
-func activeSonarButtons(sonar *acoustics.SonarState) []sonarUIButton {
-	toggleLabel := "STANDBY"
-	if sonar.ActiveEnabled {
-		toggleLabel = "ACTIVE ON"
-	}
-	return layoutButtonRow(activeControlsX, activeControlsY+10, 34, 6, []buttonSpec{
-		{"active_toggle", toggleLabel, "Enable or disable active sonar transmit mode"},
-		{"active_ping", "PING NOW", "Fire one immediate active sonar pulse"},
-	})
+var cachedActiveRangeScale struct {
+	once sync.Once
+	btns []sonarUIButton
 }
 
-func (a *App) activeRangeScaleButtons() []sonarUIButton {
-	return layoutButtonRow(activeSliderTrackX, activeRangeScaleY, 28, 4, []buttonSpec{
-		{"active_range_2k", "2k", "Range scale 2 kyd"},
-		{"active_range_6k", "6k", "Range scale 6 kyd"},
-		{"active_range_12k", "12k", "Range scale 12 kyd"},
+func cachedActiveRangeScaleButtons() []sonarUIButton {
+	cachedActiveRangeScale.once.Do(func() {
+		cachedActiveRangeScale.btns = layoutButtonRow(activeSliderTrackX, activeRangeScaleY, 28, 4, []buttonSpec{
+			{"active_range_2k", "2k", "Range scale 2 kyd"},
+			{"active_range_6k", "6k", "Range scale 6 kyd"},
+			{"active_range_12k", "12k", "Range scale 12 kyd"},
+		})
 	})
+	return cachedActiveRangeScale.btns
 }
 
 func (a *App) activeRangeMaxYd() float64 {
@@ -112,8 +110,16 @@ func (a *App) activeRangeButtonAction(id string) {
 }
 
 func (a *App) activeControlButtons(sonar *acoustics.SonarState) []sonarUIButton {
-	out := activeSonarButtons(sonar)
-	return append(out, a.activeRangeScaleButtons()...)
+	toggleLabel := "STANDBY"
+	if sonar.ActiveEnabled {
+		toggleLabel = "ACTIVE ON"
+	}
+	specs := []buttonSpec{
+		{"active_toggle", toggleLabel, "Enable or disable active sonar transmit mode"},
+		{"active_ping", "PING NOW", "Fire one immediate pulse (works in standby)"},
+	}
+	a.sonarBtnScratch = layoutButtonRowInto(a.sonarBtnScratch[:0], activeControlsX, activeControlsY+10, 34, 6, specs)
+	return append(a.sonarBtnScratch, cachedActiveRangeScaleButtons()...)
 }
 
 func (a *App) activePingIntervalSliderRect() (x, y, w, h int) {
@@ -272,12 +278,20 @@ func (a *App) activePlotClick(sonar *acoustics.SonarState, mx, my int) bool {
 	if bestID == 0 {
 		return false
 	}
+	var bestSourceID string
+	for _, f := range a.activeEchoFlashes {
+		if f.ID == bestID {
+			bestSourceID = f.SourceEntityID
+			break
+		}
+	}
+	if bestSourceID == "" {
+		return false
+	}
 	for i := range sonar.Contacts {
-		for _, f := range a.activeEchoFlashes {
-			if f.ID == bestID && sonar.Contacts[i].SourceEntityID == f.SourceEntityID {
-				a.selectContact(sonar, &sonar.Contacts[i])
-				return true
-			}
+		if sonar.Contacts[i].SourceEntityID == bestSourceID {
+			a.selectContact(sonar, &sonar.Contacts[i])
+			return true
 		}
 	}
 	return false
@@ -359,7 +373,7 @@ func (a *App) activeSonarButtonAction(id string, sonar *acoustics.SonarState) {
 	case "active_toggle":
 		sonar.ActiveEnabled = !sonar.ActiveEnabled
 		if sonar.ActiveEnabled {
-			a.Audio.PlayClip(audio.ClipSonarActiveStandby, "Active sonar online.")
+			a.Audio.PlayClip(audio.ClipSonarActiveOnline, "Active sonar online.")
 		} else {
 			a.Audio.PlayClip(audio.ClipSonarActiveStandby, "Active sonar standby.")
 		}
@@ -368,14 +382,12 @@ func (a *App) activeSonarButtonAction(id string, sonar *acoustics.SonarState) {
 			return
 		}
 		player := a.Engine.Scenario.Player
-		emitters := a.Engine.Scenario.AllEntities()
+		emitters := a.Engine.AcousticEmitters()
 		if acoustics.FireActivePingNow(a.Engine.Acoustics, player, emitters, sonar, a.Engine.Clock.GameTime) {
 			a.Audio.PlayEnemyPing()
 			if a.lastPingPlayed < sonar.LastPingTime {
 				a.lastPingPlayed = sonar.LastPingTime
 			}
-		} else if !sonar.ActiveEnabled {
-			a.StatusMessage = "Enable active sonar before transmitting."
 		}
 	}
 }
@@ -416,18 +428,11 @@ func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarSta
 	buttons := a.activeControlButtons(sonar)
 	scaleYd := a.activeRangeMaxYd()
 	for _, b := range buttons {
-		disabled := b.ID == "active_ping" && !sonar.ActiveEnabled
-		hover := !disabled && b.contains(mx, my)
+		hover := b.contains(mx, my)
 		pressed := a.uiPressedID == b.ID && time.Since(a.uiPressedAt) < 120*time.Millisecond
 		selectedRange := (b.ID == "active_range_2k" && scaleYd == 2000) ||
 			(b.ID == "active_range_6k" && scaleYd == 6000) ||
 			(b.ID == "active_range_12k" && scaleYd == 12000)
-		if disabled {
-			render.FillRect(screen, b.X, b.Y, b.W, b.H, render.ColorPanelInset)
-			tw := render.ButtonLabelWidth(b.Label)
-			render.DrawButtonText(screen, b.Label, b.X+(b.W-tw)/2, b.Y+b.H/2+4, render.ColorPhosphorDim)
-			continue
-		}
 		if b.ID == "active_toggle" && sonar.ActiveEnabled {
 			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorActive)
 		}

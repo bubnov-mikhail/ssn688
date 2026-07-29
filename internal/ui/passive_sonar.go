@@ -10,19 +10,20 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
 )
 
 const (
-	passivePlotCX         = 470.0
-	passivePlotCY         = 430.0
-	passivePlotR          = 222.0
-	passivePlotMaxRangeYd = 8000.0
-	passiveListX          = 950
-	passiveListY          = 278
-	passiveListW          = 310
-	passiveListRow        = 22
+	passivePlotCX         = layout.PassivePlotCX
+	passivePlotCY         = layout.PassivePlotCY
+	passivePlotR          = layout.PassivePlotR
+	passivePlotMaxRangeYd = layout.PassivePlotMaxRangeYd
+	passiveListX          = layout.PassiveListX
+	passiveListY          = layout.PassiveListY
+	passiveListW          = layout.PassiveListW
+	passiveListRow        = layout.PassiveListRow
 )
 
 type contactChip struct {
@@ -32,6 +33,7 @@ type contactChip struct {
 
 func (a *App) selectContact(sonar *acoustics.SonarState, c *acoustics.Contact) {
 	a.selectedContactID = c.SourceEntityID
+	a.waterfallChipCacheKey = 0
 	sonar.SpectrumBearing = c.BearingDeg
 	if c.BestMatchID != "" {
 		for i, p := range world.SignatureLibrary {
@@ -127,7 +129,7 @@ func (a *App) updatePassiveInput(sonar *acoustics.SonarState) {
 		}
 		y += passiveListRow
 	}
-	for _, chip := range a.waterfallContactChips(sonar) {
+	for _, chip := range a.cachedWaterfallContactChips(sonar) {
 		if mx >= chip.X && mx < chip.X+chip.W && my >= chip.Y && my < chip.Y+chip.H {
 			for j := range sonar.Contacts {
 				if sonar.Contacts[j].SourceEntityID == chip.SourceID {
@@ -139,20 +141,39 @@ func (a *App) updatePassiveInput(sonar *acoustics.SonarState) {
 	}
 }
 
-func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
+func waterfallChipCacheKey(sonar *acoustics.SonarState, stamp float64) uint64 {
+	h := uint64(sonar.PassiveArray)*0x9e3779b1 ^ uint64(stamp*1000)
+	for i := range sonar.Contacts {
+		c := &sonar.Contacts[i]
+		h ^= uint64(i)*0x85ebca6b + uint64(c.BearingDeg*100)
+	}
+	return h
+}
+
+func (a *App) cachedWaterfallContactChips(sonar *acoustics.SonarState) []contactChip {
+	key := waterfallChipCacheKey(sonar, a.waterfallStamp)
+	if key != 0 && key == a.waterfallChipCacheKey && len(a.waterfallChipCache) > 0 {
+		return a.waterfallChipCache
+	}
+	a.waterfallChipCache = a.buildWaterfallContactChips(sonar, a.waterfallChipCache[:0])
+	a.waterfallChipCacheKey = key
+	return a.waterfallChipCache
+}
+
+func (a *App) buildWaterfallContactChips(sonar *acoustics.SonarState, dst []contactChip) []contactChip {
 	const (
 		panelX = waterfallPlotX
 		panelW = waterfallPlotW
-		chipY0 = waterfallPanelY + 34
+		chipY0 = layout.WaterfallChipY
 		chipH  = 16
 		gap    = 6
 	)
 
 	type pending struct {
-		id   string
-		cx   int
-		w    int
-		brg  float64
+		id  string
+		cx  int
+		w   int
+		brg float64
 	}
 	var items []pending
 	player := a.Engine.Scenario.Player
@@ -172,7 +193,7 @@ func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 	})
 
 	rowEnd := panelX - gap
-	var chips []contactChip
+	chips := dst
 	for _, it := range items {
 		chipX := it.cx - it.w/2
 		if chipX < panelX {
@@ -192,7 +213,7 @@ func (a *App) waterfallContactChips(sonar *acoustics.SonarState) []contactChip {
 		}
 		chips = append(chips, contactChip{
 			SourceID: it.id,
-			X: chipX, Y: chipY0, W: it.w, H: chipH,
+			X:        chipX, Y: chipY0, W: it.w, H: chipH,
 		})
 		end := chipX + it.w
 		if end > rowEnd {
@@ -249,7 +270,7 @@ func aContactCenter(c *acoustics.Contact) (float64, float64) {
 }
 
 func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	render.FillRect(screen, passiveListX, passiveListY, passiveListW, passiveListRow*max(1, len(sonar.Contacts)+1)+14, render.ColorPanelInset)
+	render.DrawText(screen, "CONTACT LOG", layout.PassiveContactLabelX, layout.PassiveContactLabelY+12, render.ColorPlateLabel, true)
 	render.DrawText(screen, "CONTACT", passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "BRG", passiveListX+72, passiveListY+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "RNG", passiveListX+112, passiveListY+16, render.ColorPhosphorDim, true)
@@ -499,7 +520,7 @@ func drawFilledCircle(screen *ebiten.Image, cx, cy, r float64, clr color.RGBA) {
 
 func (a *App) drawWaterfallContactChips(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	mx, my := ebiten.CursorPosition()
-	for _, chip := range a.waterfallContactChips(sonar) {
+	for _, chip := range a.cachedWaterfallContactChips(sonar) {
 		selected := false
 		for i := range sonar.Contacts {
 			if sonar.Contacts[i].SourceEntityID == chip.SourceID {

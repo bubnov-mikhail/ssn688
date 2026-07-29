@@ -42,7 +42,15 @@ LINES: list[tuple[str, str, str]] = [
     ("sonar", "passive_on.wav", "Passive sonar online."),
     ("sonar", "passive_off.wav", "Passive sonar offline."),
     ("sonar", "active_standby.wav", "Active sonar standby."),
+    ("sonar", "active_online.wav", "Active sonar online."),
     ("sonar", "active_ping.wav", "Transmitting active pulse."),
+    ("sonar", "deploy_towed.wav", "Deploying towed array."),
+    ("sonar", "towed_held.wav", "Towed array held."),
+    ("sonar", "retract_towed.wav", "Retracting towed array."),
+    ("sonar", "bt_launch.wav", "Launching bathythermograph."),
+    ("sonar", "layer_survey_complete.wav", "Layer survey complete."),
+    ("sonar", "contact_classified.wav", "Contact classified."),
+    ("sonar", "enable_active_first.wav", "Enable active sonar before transmitting."),
     ("weps", "impact_confirmed.wav", "Weapon impact confirmed."),
     ("weps", "outer_door_closed.wav", "Outer door closed."),
     ("weps", "gyro_set.wav", "Gyro angle set."),
@@ -63,6 +71,8 @@ LINES: list[tuple[str, str, str]] = [
     ("dive", "come_left.wav", "Come left, aye."),
     ("dive", "come_right.wav", "Come right, aye."),
     ("dive", "make_depth.wav", "Make depth, aye."),
+    ("dive", "hold_depth.wav", "Holding depth, aye."),
+    ("dive", "unable_deeper.wav", "Unable to dive deeper. Bottom limits ordered depth."),
     ("nav", "speed_half.wav", "Time acceleration one half."),
     ("nav", "speed_normal.wav", "Time acceleration normal."),
     ("nav", "speed_double.wav", "Time acceleration double."),
@@ -84,19 +94,35 @@ def to_pcm16_mono(path: Path, target_sr: int = TARGET_SR) -> None:
 
 
 def main() -> int:
+    # Optional args: generate only matching filenames or dept/filename paths.
+    # Example: python generate_voices_kokoro.py unable_deeper.wav deploy_towed.wav
+    only = {a.lower() for a in sys.argv[1:]} if len(sys.argv) > 1 else None
+
     print(f"Loading Kokoro model: {MODEL}")
     model = load_model(MODEL)
     tmp_dir = ROOT / ".tts_tmp"
     tmp_dir.mkdir(exist_ok=True)
 
-    for i, (dept, filename, text) in enumerate(LINES, 1):
+    selected = [
+        (dept, filename, text)
+        for dept, filename, text in LINES
+        if only is None
+        or filename.lower() in only
+        or f"{dept}/{filename}".lower() in only
+        or Path(filename).stem.lower() in only
+    ]
+    if only and not selected:
+        print(f"ERROR: no lines matched {sorted(only)}", file=sys.stderr)
+        return 1
+
+    for i, (dept, filename, text) in enumerate(selected, 1):
         voice = VOICES[dept]
         speed = SPEED[dept]
         out_path = OUT / dept / filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
         prefix = f"{dept}_{Path(filename).stem}"
         lang = "b" if voice.startswith(("bm_", "bf_")) else "a"
-        print(f"[{i}/{len(LINES)}] {dept}/{filename}  voice={voice}")
+        print(f"[{i}/{len(selected)}] {dept}/{filename}  voice={voice}")
         generate_audio(
             text=text,
             model=model,
@@ -124,7 +150,7 @@ def main() -> int:
     for p in tmp_dir.glob("*"):
         p.unlink()
     tmp_dir.rmdir()
-    print(f"Done. Generated {len(LINES)} clips with Kokoro.")
+    print(f"Done. Generated {len(selected)} clips with Kokoro.")
     return 0
 
 

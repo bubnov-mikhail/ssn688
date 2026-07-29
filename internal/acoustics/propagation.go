@@ -26,19 +26,19 @@ func TwoWayTravelSec(rangeYd float64) float64 {
 	return 2 * rangeYd / SoundSpeedYdPerSec
 }
 
-// Propagate applies spreading, absorption, and layer effects to a source spectrum.
+// Propagate applies spreading, absorption, layer, and water-column effects to a source spectrum.
 func Propagate(env Environment, source Spectrum, emitter, listener *world.Entity) Spectrum {
 	rangeYd := emitter.RangeYardsTo(listener)
 	rangeKy := rangeYd / 1000
-	spread := spreadingLossDB(rangeYd)
+	spread := passiveSpreadingLossDB(rangeYd)
 	layerLoss := env.LayerCrossingLoss(emitter.DepthFt, listener.DepthFt)
 
 	var out Spectrum
 	for i := 0; i < NumBands; i++ {
 		freq := BandCenterHz(i)
 		abs := absorptionDBPerKy(freq, rangeKy)
-		depthDiff := math.Abs(emitter.DepthFt-listener.DepthFt) * 0.0015
-		out[i] = source[i] - spread - abs - layerLoss - depthDiff
+		column := env.ColumnAttenuationDB(emitter.DepthFt, listener.DepthFt, freq)
+		out[i] = source[i] - spread - abs - layerLoss - column
 	}
 	return out
 }
@@ -56,7 +56,8 @@ func PropagateActive(env Environment, emitter, target *world.Entity, sourceLevel
 	for i := 0; i < NumBands; i++ {
 		freq := BandCenterHz(i)
 		abs := absorptionDBPerKy(freq, rangeKy) * 2
-		out[i] = sourceLevelDB + ts - spread - abs - layerLoss
+		column := env.ColumnAttenuationDB(emitter.DepthFt, target.DepthFt, freq) * 2
+		out[i] = sourceLevelDB + ts - spread - abs - layerLoss - column
 	}
 	return out
 }
@@ -67,6 +68,8 @@ func targetStrengthDB(target *world.Entity) float64 {
 		return -8
 	case world.KindSurfaceShip:
 		return 15
+	case world.KindTorpedo:
+		return -16 // small reflector — close-range active only
 	default:
 		return 0
 	}
