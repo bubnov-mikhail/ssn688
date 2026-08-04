@@ -16,13 +16,33 @@ func ApplyDetonationDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTi
 	}
 	washRange := weapons.BlastDeafRadiusYd * 1.2
 	deafRange := weapons.BlastDeafRadiusYd
-	flashSec := 8.0
+	flashSec := 24.0
 	if hit != nil && hit.Kind == world.KindSurfaceShip {
 		// Under-keel / shallow warhead: loud broadband for many kiloyards.
 		washRange = weapons.BlastDeafRadiusYd * 4.0 // ~10 kyd visual flash
 		deafRange = weapons.BlastDeafRadiusYd * 2.2
+		flashSec = 32.0
+	}
+	stampBlastWashout(sonar, listener, x, y, gameTime, washRange, deafRange, flashSec)
+}
+
+// ApplyCookOffDeaf is a lighter secondary magazine/fuel flash on a sinking wreck.
+func ApplyCookOffDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTime float64, hit *world.Entity) {
+	if sonar == nil || listener == nil {
+		return
+	}
+	washRange := weapons.BlastDeafRadiusYd * 0.85
+	deafRange := weapons.BlastDeafRadiusYd * 0.55
+	flashSec := 9.0
+	if hit != nil && hit.Kind == world.KindSurfaceShip {
+		washRange = weapons.BlastDeafRadiusYd * 2.4
+		deafRange = weapons.BlastDeafRadiusYd * 1.2
 		flashSec = 12.0
 	}
+	stampBlastWashout(sonar, listener, x, y, gameTime, washRange, deafRange, flashSec)
+}
+
+func stampBlastWashout(sonar *SonarState, listener *world.Entity, x, y, gameTime, washRange, deafRange, flashSec float64) {
 	sonar.LastBlastAt = gameTime
 	sonar.LastBlastX = x
 	sonar.LastBlastY = y
@@ -30,7 +50,7 @@ func ApplyDetonationDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTi
 	sonar.LastBlastFlashSec = flashSec
 	dist := math.Hypot(listener.X-x, listener.Y-y)
 	if dist <= deafRange {
-		until := gameTime + weapons.BlastDeafDurationSec*(1-dist/deafRange*0.4)
+		until := gameTime + weapons.BlastDeafDurationSec*(0.35+0.45*(1-dist/deafRange))
 		if until > sonar.SonarDeafUntil {
 			sonar.SonarDeafUntil = until
 		}

@@ -3,6 +3,7 @@ package ai
 import (
 	"math"
 
+	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -15,19 +16,33 @@ const (
 	torpAwareSubQuietYd   = 2200.0
 	// Aim gate: fish nose within this of line-of-sight to us, or already locked.
 	torpAimGateDeg = 48.0
+	// Zigzag amplitude around the comb course while evading.
+	evadeZigzagDeg = 18.0
+	evadeZigzagSec = 9.0
 )
 
-// tryEvadeTorpedo steers and accelerates away from the most threatening player fish.
+// EvadeContext supplies CM batteries and ocean layers for enriched evasion.
+type EvadeContext struct {
+	CM       *weapons.CountermeasureSystem
+	Env      acoustics.Environment
+	GameTime float64
+}
+
+// tryEvadeTorpedo steers, deploys CM, and accelerates away from the most threatening fish.
 // Returns true when evasion orders were applied (caller should skip other AI).
-func tryEvadeTorpedo(e *world.Entity, torps []*weapons.Torpedo) bool {
+func tryEvadeTorpedo(e *world.Entity, torps []*weapons.Torpedo, ctx EvadeContext) bool {
 	if e == nil || !e.Alive() {
 		return false
 	}
 	threat := mostThreateningTorpedo(e, torps)
 	if threat == nil {
+		if ctx.CM != nil && e.Kind == world.KindSurfaceShip {
+			// Drop Nixie once the immediate torpedo threat is gone.
+			ctx.CM.SetNixie(e.ID, false)
+		}
 		return false
 	}
-	applyTorpedoEvade(e, threat)
+	applyTorpedoEvade(e, threat, ctx)
 	return true
 }
 
@@ -89,41 +104,81 @@ func torpedoAwarenessYd(e *world.Entity) float64 {
 	}
 }
 
-func applyTorpedoEvade(e *world.Entity, threat *weapons.Torpedo) {
-	// "Comb the torpedo": high speed, course ~90° to the fish track to open CPA.
+func applyTorpedoEvade(e *world.Entity, threat *weapons.Torpedo, ctx EvadeContext) {
 	track := threat.HeadingDeg
 	combPort := normalizeHead(track - 90)
 	combStbd := normalizeHead(track + 90)
 	brgToFish := bearingDeg(e.X, e.Y, threat.X, threat.Y)
+	baseComb := combStbd
 	if math.Abs(shortestRel(combPort-brgToFish)) > math.Abs(shortestRel(combStbd-brgToFish)) {
-		e.OrderedHead = combPort
-	} else {
-		e.OrderedHead = combStbd
+		baseComb = combPort
 	}
 	d := math.Hypot(threat.X-e.X, threat.Y-e.Y)
 	if d < 600 {
-		// Very close: bias stern-to-threat so we don't comb into the fish.
 		away := normalizeHead(brgToFish + 180)
-		e.OrderedHead = blendHeadings(e.OrderedHead, away, 0.55)
+		baseComb = blendHeadings(baseComb, away, 0.55)
 	}
+
+	// Zigzag around comb course — harder for a re-acquiring seeker to hold CPA.
+	zig := evadeZigzagDeg * math.Sin(ctx.GameTime*(2*math.Pi/evadeZigzagSec)+float64(hashID(e.ID)%7))
+	e.OrderedHead = normalizeHead(baseComb + zig)
 
 	e.ActiveSonar = false
 	e.AIState = "TORPEDO_EVADE"
+	collisionThreat := torpedoCollisionThreat(e, threat)
 
 	switch e.Kind {
 	case world.KindSurfaceShip:
 		e.OrderedSpeed = 28
 		e.OrderedDepth = 0
+		if ctx.CM != nil && collisionThreat {
+			ctx.CM.EnsureMagazine(e.ID)
+			ctx.CM.SetNixie(e.ID, true)
+			ctx.CM.DeployADC(e, threat.X, threat.Y, ctx.GameTime)
+			ctx.CM.DeployJitter(e, threat.X, threat.Y, ctx.GameTime)
+		} else if ctx.CM != nil {
+			ctx.CM.SetNixie(e.ID, false)
+		}
 	case world.KindSubmarine:
 		e.OrderedSpeed = 20
-		if threat.DepthFt <= e.DepthFt {
-			e.OrderedDepth = math.Min(520, e.DepthFt+160)
-		} else {
-			e.OrderedDepth = math.Max(80, e.DepthFt-140)
+		e.OrderedDepth = evadeDepthForSub(e, threat, ctx.Env)
+		if ctx.CM != nil && collisionThreat {
+			ctx.CM.EnsureMagazine(e.ID)
+			ctx.CM.DeployADC(e, threat.X, threat.Y, ctx.GameTime)
+			ctx.CM.DeployJitter(e, threat.X, threat.Y, ctx.GameTime)
 		}
 	default:
 		e.OrderedSpeed = math.Max(e.OrderedSpeed, 18)
 	}
+}
+
+func torpedoCollisionThreat(e *world.Entity, threat *weapons.Torpedo) bool {
+	if e == nil || threat == nil {
+		return false
+	}
+	return world.CollisionThreat2D(
+		e.X, e.Y, e.HeadingDeg, e.SpeedKts,
+		threat.X, threat.Y, threat.HeadingDeg, threat.SpeedKts,
+		14*60.0, 260.0,
+	)
+}
+
+func evadeDepthForSub(e *world.Entity, threat *weapons.Torpedo, env acoustics.Environment) float64 {
+	// Prefer crossing a known layer boundary relative to the fish.
+	fishZ := threat.DepthFt
+	ownZ := e.DepthFt
+	bound := 240.0 // default mixed/thermocline from DefaultEnvironment
+	if len(env.Layers) > 1 {
+		bound = env.Layers[1].TopDepthFt
+	}
+	if fishZ <= bound+40 {
+		// Fish in/near mixed layer — go deep under the thermocline.
+		return math.Min(520, math.Max(bound+120, ownZ+140))
+	}
+	if ownZ > fishZ {
+		return math.Min(520, ownZ+120)
+	}
+	return math.Max(80, ownZ-140)
 }
 
 func blendHeadings(a, b, towardB float64) float64 {

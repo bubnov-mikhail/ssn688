@@ -72,6 +72,7 @@ func (a *App) activateMenuItem(index int) error {
 		a.refreshLoadList()
 		a.Mode = ModeLoad
 		a.LoadIndex = 0
+		a.StatusMessage = ""
 	case menuActionSettings:
 		a.Mode = ModeSettings
 	case menuActionQuit:

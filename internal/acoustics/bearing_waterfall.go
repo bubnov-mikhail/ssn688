@@ -35,6 +35,18 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 	synth := *sonar
 	synth.PassiveArray = array
 
+	// Damaged towed array: no contact energy (UI shows NO DATA overlay).
+	if array == PassiveArrayTowed && sonar.TowedDamaged {
+		addAmbientNoise(bins, gameTime, array, 0, listener.HeadingDeg, listener.SpeedKts)
+		return
+	}
+
+	listenFrom := listener
+	var towedListen world.Entity
+	if array == PassiveArrayTowed && PlaceTowedListener(&towedListen, listener, sonar.TowedCablePct) {
+		listenFrom = &towedListen
+	}
+
 	for _, em := range emitters {
 		if em == nil || em.ID == listener.ID {
 			continue
@@ -42,9 +54,10 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 		if !em.Alive() && em.Status != world.StatusSinking {
 			continue
 		}
-		result := model.Detect(listener, em, ModePassive, 0)
+		result := model.Detect(listenFrom, em, ModePassive, 0)
 		ApplyListenBand(&result, synth.ListenBand)
 		applyPassiveArrayModifiers(&result, &synth)
+		// Beampattern relative to tow/hull axis (ownship heading).
 		rel := angleDiffDeg(result.BearingDeg, listener.HeadingDeg)
 		sens := arraySensitivity(array, rel, sonar.TowedCablePct)
 		sensDB := 20 * math.Log10(math.Max(sens, 0.001))
@@ -53,22 +66,27 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 		if peak < 0 {
 			peak = 0
 		}
+		peak *= waterfallListenBandKindGain(synth.ListenBand, em.Kind)
 		sigmaScale := 1.0
+		displayPeak := peak
 
 		if age := EnemyActivePingAgeSec(em, gameTime); age >= 0 {
-			if ping := enemyActivePingPeak(result.TrueRangeYd, age); ping > 0 {
-				pingPeak := ping + sensDB
-				if pingPeak > peak {
-					peak = pingPeak
+			if activePingAudibleOnWaterfall(em, listenFrom) {
+				if ping := enemyActivePingPeak(result.TrueRangeYd, age); ping > 0 {
+					pingPeak := ping + sensDB
+					if pingPeak > displayPeak {
+						displayPeak = pingPeak
+					}
+					sigmaScale = 1.7
 				}
-				sigmaScale = 1.7
 			}
 		}
 
-		if peak <= 0.05 {
+		if displayPeak <= 0.05 {
 			continue
 		}
-		spreadBearingEnergy(bins, result.BearingDeg, peak, array, sonar.TowedCablePct, sigmaScale)
+		// Absolute bearing from the listening aperture (towed lever arm ≠ hull).
+		spreadBearingEnergy(bins, result.BearingDeg, displayPeak, array, sonar.TowedCablePct, sigmaScale)
 	}
 	for _, bio := range sonar.BioTransients {
 		peak := BioWaterfallContribution(bio, sonar.ListenBand, gameTime)
@@ -82,6 +100,41 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 	applyBlastWashout(bins, sonar, listener, gameTime)
 }
 
+// waterfallListenBandKindGain extra-attenuates off-band platform noise on the bearing
+// waterfall (beyond ApplyListenBand). Active pings are applied separately and bypass this.
+func waterfallListenBandKindGain(band ListenBand, kind world.EntityKind) float64 {
+	switch band {
+	case ListenHF:
+		switch kind {
+		case world.KindSurfaceShip, world.KindSubmarine:
+			return 0.07 // ships/subs barely visible in torpedo-hunt band
+		case world.KindCountermeasure:
+			return 0.12
+		}
+	default: // ListenBroadband — LF/MF ship/sub hunt
+		switch kind {
+		case world.KindTorpedo:
+			return 0.06 // torpedo machinery barely visible in broadband
+		}
+	}
+	return 1.0
+}
+
+// activePingAudibleOnWaterfall reports whether a recent active transmission should flash
+// on the bearing waterfall. Ship/sub pings are omnidirectional; torpedo search pings
+// are forward-beamed and only audible when the fish points at the listener.
+func activePingAudibleOnWaterfall(emitter, listener *world.Entity) bool {
+	if emitter == nil || listener == nil {
+		return false
+	}
+	if emitter.Kind != world.KindTorpedo {
+		return true
+	}
+	bearingToListener := emitter.BearingDegTo(listener)
+	diff := math.Abs(angleDiffDeg(emitter.HeadingDeg, bearingToListener))
+	return diff <= weapons.SeekConeHalfAngleDeg
+}
+
 func applyBlastWashout(bins []float64, sonar *SonarState, listener *world.Entity, gameTime float64) {
 	if sonar == nil || listener == nil || sonar.LastBlastAt <= 0 {
 		return
@@ -89,9 +142,9 @@ func applyBlastWashout(bins []float64, sonar *SonarState, listener *world.Entity
 	age := gameTime - sonar.LastBlastAt
 	flashSec := sonar.LastBlastFlashSec
 	if flashSec <= 0 {
-		flashSec = 8
+		flashSec = 14
 	}
-	if age < 0 || age > flashSec {
+	if age < 0 || age >= flashSec {
 		return
 	}
 	maxR := sonar.LastBlastRangeYd
@@ -102,8 +155,16 @@ func applyBlastWashout(bins []float64, sonar *SonarState, listener *world.Entity
 	if dist > maxR {
 		return
 	}
-	flash := math.Exp(-age*(0.55*8/flashSec)) * (1 - dist/maxR)
-	wash := 35 + 55*flash
+	// Smooth ease-out to zero at flashSec — avoids a hard cliff on the waterfall.
+	t := age / flashSec
+	envelope := (1 - t) * (1 - t) * (1 - 0.35*t)
+	// Early punch still decays exponentially, but is gated by the envelope tail.
+	punch := math.Exp(-age * (0.42 * 14 / flashSec))
+	flash := envelope * punch * (1 - dist/maxR)
+	if flash < 0.002 {
+		return
+	}
+	wash := 90 * flash
 	// Absolute bearing from listener toward detonation (same convention as entity bearings).
 	blastBrg := math.Atan2(sonar.LastBlastX-listener.X, sonar.LastBlastY-listener.Y) * 180 / math.Pi
 	if blastBrg < 0 {
@@ -119,7 +180,7 @@ func applyBlastWashout(bins []float64, sonar *SonarState, listener *world.Entity
 		if w > bins[i] {
 			bins[i] = w
 		} else {
-			bins[i] = bins[i]*0.3 + w*0.7
+			bins[i] = bins[i]*0.35 + w*0.65
 		}
 	}
 }

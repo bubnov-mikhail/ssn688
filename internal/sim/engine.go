@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 
@@ -29,6 +30,9 @@ type Engine struct {
 	Acoustics         acoustics.Model
 	Sonar             acoustics.SonarState
 	FireControl       weapons.FireControl
+	CM                weapons.CountermeasureSystem
+	PlotMarkers       []world.PlotMarker
+	plotMarkerSeq     int
 	Accum             float64
 	Events            []string
 	entityScratch     []*world.Entity
@@ -38,13 +42,83 @@ type Engine struct {
 }
 
 func NewEngine(scenario *world.Scenario) *Engine {
-	return &Engine{
+	e := &Engine{
 		Clock:       NewClock(),
 		Scenario:    scenario,
 		Acoustics:   acoustics.NewModel(acoustics.DefaultEnvironment()),
 		Sonar:       acoustics.NewSonarState(),
 		FireControl: weapons.NewFireControl(),
+		CM:          weapons.NewCountermeasureSystem(),
 	}
+	if scenario != nil {
+		if scenario.Player != nil {
+			e.CM.EnsureMagazine(scenario.Player.ID)
+		}
+		for _, ent := range scenario.Entities {
+			if ent != nil && ent.Side == world.SideEnemy &&
+				(ent.Kind == world.KindSubmarine || ent.Kind == world.KindSurfaceShip) {
+				e.CM.EnsureMagazine(ent.ID)
+			}
+		}
+	}
+	return e
+}
+
+// LaunchPlayerCM deploys an expendable acoustic decoy (ADC).
+func (e *Engine) LaunchPlayerCM() (*weapons.Countermeasure, string) {
+	return e.LaunchPlayerDecoy()
+}
+
+// LaunchPlayerDecoy deploys an expendable ADC toward the nearest threat.
+func (e *Engine) LaunchPlayerDecoy() (*weapons.Countermeasure, string) {
+	return e.launchPlayerCM(weapons.CMExpendableADC)
+}
+
+// LaunchPlayerJitter deploys a broadband jammer toward the nearest threat.
+func (e *Engine) LaunchPlayerJitter() (*weapons.Countermeasure, string) {
+	return e.launchPlayerCM(weapons.CMExpendableJitter)
+}
+
+func (e *Engine) launchPlayerCM(kind weapons.CMKind) (*weapons.Countermeasure, string) {
+	if e == nil || e.Scenario == nil || e.Scenario.Player == nil {
+		return nil, "No ownship."
+	}
+	player := e.Scenario.Player
+	e.CM.EnsureMagazine(player.ID)
+	label := "DECOY"
+	left := e.CM.DecoyLeft(player.ID)
+	if kind == weapons.CMExpendableJitter {
+		label = "JITTER"
+		left = e.CM.JitterLeft(player.ID)
+	}
+	if left <= 0 {
+		return nil, fmt.Sprintf("%s magazine empty.", label)
+	}
+	tx, ty := player.X+math.Sin(player.HeadingDeg*math.Pi/180)*2000, player.Y+math.Cos(player.HeadingDeg*math.Pi/180)*2000
+	bestD := 1e18
+	for _, t := range e.FireControl.ActiveTorpedoes {
+		if t == nil || !t.Alive || t.Side == world.SidePlayer {
+			continue
+		}
+		d := math.Hypot(t.X-player.X, t.Y-player.Y)
+		if d < bestD {
+			bestD = d
+			tx, ty = t.X, t.Y
+		}
+	}
+	var cm *weapons.Countermeasure
+	if kind == weapons.CMExpendableJitter {
+		cm = e.CM.DeployJitter(player, tx, ty, e.Clock.GameTime)
+		left = e.CM.JitterLeft(player.ID)
+	} else {
+		cm = e.CM.DeployADC(player, tx, ty, e.Clock.GameTime)
+		left = e.CM.DecoyLeft(player.ID)
+	}
+	if cm == nil {
+		return nil, fmt.Sprintf("%s launch unavailable (cooldown).", label)
+	}
+	e.Events = append(e.Events, label+" launched")
+	return cm, fmt.Sprintf("%s away — %d remaining.", label, left)
 }
 
 func (e *Engine) Update(realDT float64) {
@@ -79,6 +153,8 @@ func (e *Engine) tick(dt float64) {
 	player := e.Scenario.Player
 
 	player.Advance(dt)
+	player.Damage.AdvanceRepair(dt)
+	e.syncDamageSideEffects(player)
 	for _, ent := range e.Scenario.Entities {
 		if ent.InWater() {
 			ent.Advance(dt)
@@ -86,16 +162,32 @@ func (e *Engine) tick(dt float64) {
 	}
 	e.expireTransientNoise(t)
 	e.clampToSeafloor()
+	e.processCookOffs(t)
 	e.finalizeSunkWrecks(t)
+	e.checkCatastrophicDamage(t)
 
-	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes)
+	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM)
 	e.guideEnemyTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
 
 	e.FireControl.UpdateTubes(t)
+	e.CM.Advance(dt, t, e.AllEntities())
 
 	emitters := e.AcousticEmitters()
 	e.Sonar.UpdateTowed(dt)
+	if player != nil {
+		if sheared, warn := e.Sonar.CheckTowedSpeed(player.SpeedKts); sheared {
+			player.EnsureDamage()
+			player.Damage.Eff[world.SysTowed] = 0
+			e.Events = append(e.Events, "TOWED ARRAY PARTED — cable shear")
+		} else if warn {
+			// Soft event every ~8 s so the status line can pick it up without spam.
+			if int(t*10)%80 == 0 {
+				e.Events = append(e.Events, fmt.Sprintf(
+					"TOWED CABLE STRESS — reduce speed below %.0f kn", acoustics.TowedWarnSpeedKts(e.Sonar.TowedCablePct)))
+			}
+		}
+	}
 	if e.bioRng == nil {
 		e.bioRng = rand.New(rand.NewSource(0xB10C0DE ^ int64(t*1000)))
 	}
@@ -104,7 +196,7 @@ func (e *Engine) tick(dt float64) {
 	acoustics.FireActivePing(e.Acoustics, player, emitters, &e.Sonar, t)
 	acoustics.ProcessActiveEchoes(e.Acoustics, player, emitters, &e.Sonar, t)
 
-	shipTargets := e.AllEntities()
+	shipTargets := e.SeekerTargets()
 	alive := e.FireControl.ActiveTorpedoes[:0]
 	for _, torp := range e.FireControl.ActiveTorpedoes {
 		if torp == nil || !torp.Alive {
@@ -128,9 +220,38 @@ func (e *Engine) tick(dt float64) {
 			e.Acoustics.Env.BottomDepthFt = d
 		}
 	}
+}
 
-	if player.DepthFt > 1200 && player.Alive() {
-		player.Status = world.StatusSunk
+func (e *Engine) checkCatastrophicDamage(gameTime float64) {
+	check := func(ent *world.Entity) {
+		if ent == nil || !ent.Alive() {
+			return
+		}
+		ent.EnsureDamage()
+		fatal := false
+		reason := ""
+		if ent.Damage.EffOf(world.SysHull) <= 0 {
+			fatal = true
+			reason = "hull failure"
+		}
+		if ent.Kind == world.KindSubmarine && ent.DepthFt > world.CrushDepthFt {
+			fatal = true
+			reason = "crush depth"
+		}
+		if !fatal {
+			return
+		}
+		e.beginSinking(ent, gameTime)
+		e.FireControl.OnPlatformLost(ent.ID)
+		if e.Scenario.Player != nil && ent.ID == e.Scenario.Player.ID {
+			e.Events = append(e.Events, "PLAYER SUBMARINE LOST — "+reason)
+		} else {
+			e.Events = append(e.Events, "Target destroyed: "+ent.Name+" ("+reason+")")
+		}
+	}
+	check(e.Scenario.Player)
+	for _, ent := range e.Scenario.Entities {
+		check(ent)
 	}
 }
 
@@ -195,15 +316,52 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	acoustics.ApplyDetonationDeaf(&e.Sonar, player, det.X, det.Y, gameTime, det.Hit)
 	e.emitBlastTransient(player, det, gameTime)
 	if det.Hit != nil && det.Hit.Alive() {
-		e.beginSinking(det.Hit, gameTime)
-		e.FireControl.OnPlatformLost(det.Hit.ID)
-		if player != nil && det.Hit.ID == player.ID {
-			e.Events = append(e.Events, "PLAYER SUBMARINE HIT - SINKING")
+		fatal, msgs := world.ApplyTorpedoHit(det.Hit, e.cookOffRng())
+		for _, m := range msgs {
+			e.Events = append(e.Events, m)
+		}
+		e.syncDamageSideEffects(det.Hit)
+		if fatal {
+			e.beginSinking(det.Hit, gameTime)
+			e.FireControl.OnPlatformLost(det.Hit.ID)
+			if player != nil && det.Hit.ID == player.ID {
+				e.Events = append(e.Events, "PLAYER SUBMARINE FATAL DAMAGE — SINKING")
+			} else {
+				e.Events = append(e.Events, "Target destroyed: "+det.Hit.Name)
+			}
+		} else if player != nil && det.Hit.ID == player.ID {
+			e.Events = append(e.Events, "OWN SHIP HIT — systems damaged")
 		} else {
-			e.Events = append(e.Events, "Target destroyed: "+det.Hit.Name)
+			e.Events = append(e.Events, "Target hit: "+det.Hit.Name+" — damaged")
 		}
 	} else {
 		e.Events = append(e.Events, "Underwater explosion")
+	}
+}
+
+// syncDamageSideEffects mirrors subsystem casualties onto sonar / orders.
+func (e *Engine) syncDamageSideEffects(ent *world.Entity) {
+	if ent == nil {
+		return
+	}
+	ent.EnsureDamage()
+	if ent == e.Scenario.Player {
+		if ent.Damage.Destroyed(world.SysTowed) {
+			e.Sonar.TowedDamaged = true
+			e.Sonar.TowedCablePct = 0
+			e.Sonar.TowedCableRate = 0
+		} else if e.Sonar.TowedDamaged && ent.Damage.Operational(world.SysTowed) {
+			// Restored by damage control — array usable again once redeployed.
+			e.Sonar.TowedDamaged = false
+		}
+		if ent.Damage.Destroyed(world.SysActive) {
+			e.Sonar.ActiveEnabled = false
+			ent.ActiveSonar = false
+		}
+	} else {
+		if ent.Damage.Destroyed(world.SysActive) {
+			ent.ActiveSonar = false
+		}
 	}
 }
 
@@ -230,6 +388,30 @@ func (e *Engine) emitBlastTransient(player *world.Entity, det *weapons.Detonatio
 	acoustics.AddPassiveTransient(&e.Sonar, bearing, peak, 6.5, "blast", 60, gameTime)
 }
 
+func (e *Engine) emitCookOffTransient(player, wreck *world.Entity, gameTime float64) {
+	if player == nil || wreck == nil {
+		return
+	}
+	dist := math.Hypot(player.X-wreck.X, player.Y-wreck.Y)
+	const hearYd = 10000.0
+	if dist > hearYd {
+		return
+	}
+	bearing := math.Atan2(wreck.X-player.X, wreck.Y-player.Y) * 180 / math.Pi
+	if bearing < 0 {
+		bearing += 360
+	}
+	peak := 55 * (1 - dist/hearYd)
+	if wreck.Kind == world.KindSurfaceShip {
+		peak *= 1.2
+	}
+	if peak < 8 {
+		peak = 8
+	}
+	dur := 3.5 + e.cookOffRng().Float64()*2.5
+	acoustics.AddPassiveTransient(&e.Sonar, bearing, peak, dur, "cookoff", 80, gameTime)
+}
+
 func (e *Engine) beginSinking(ent *world.Entity, gameTime float64) {
 	if ent == nil {
 		return
@@ -240,7 +422,50 @@ func (e *Engine) beginSinking(ent *world.Entity, gameTime float64) {
 	if ent.Kind == world.KindSurfaceShip {
 		ent.SinkRateFPM = 25
 	}
-	ent.WreckNoiseUntil = gameTime + 90
+	// Wreck radiates while settling; cook-offs continue for ~1–2 minutes.
+	window := 60.0 + e.cookOffRng().Float64()*60.0
+	ent.WreckNoiseUntil = gameTime + window
+	n := 3 + e.cookOffRng().Intn(5) // 3–7 secondary detonations
+	if ent.Kind == world.KindSurfaceShip {
+		n = 4 + e.cookOffRng().Intn(6) // surface ships: more magazine/fuel events
+	}
+	ent.CookOffLeft = n
+	ent.NextCookOffAt = gameTime + 4.0 + e.cookOffRng().Float64()*14.0
+}
+
+func (e *Engine) cookOffRng() *rand.Rand {
+	if e.bioRng == nil {
+		e.bioRng = rand.New(rand.NewSource(0xC00C0FF ^ int64(e.Clock.GameTime*1000)))
+	}
+	return e.bioRng
+}
+
+func (e *Engine) processCookOffs(gameTime float64) {
+	player := e.Scenario.Player
+	check := func(ent *world.Entity) {
+		if ent == nil || ent.Status != world.StatusSinking || ent.CookOffLeft <= 0 {
+			return
+		}
+		if ent.NextCookOffAt <= 0 || gameTime < ent.NextCookOffAt {
+			return
+		}
+		acoustics.ApplyCookOffDeaf(&e.Sonar, player, ent.X, ent.Y, gameTime, ent)
+		e.emitCookOffTransient(player, ent, gameTime)
+		ent.CookOffLeft--
+		if ent.CookOffLeft <= 0 || gameTime >= ent.WreckNoiseUntil {
+			ent.CookOffLeft = 0
+			ent.NextCookOffAt = 0
+			return
+		}
+		// Irregular spacing: denser early, sparser later in the window.
+		remain := math.Max(8, ent.WreckNoiseUntil-gameTime)
+		gap := 6.0 + e.cookOffRng().Float64()*math.Min(28, remain/float64(ent.CookOffLeft+1))
+		ent.NextCookOffAt = gameTime + gap
+	}
+	check(player)
+	for _, ent := range e.Scenario.Entities {
+		check(ent)
+	}
 }
 
 func (e *Engine) finalizeSunkWrecks(gameTime float64) {
@@ -259,6 +484,8 @@ func (e *Engine) finalizeSunkWrecks(gameTime float64) {
 			ent.DepthFt = bottom - 10
 			ent.Status = world.StatusSunk
 			ent.SinkRateFPM = 0
+			ent.CookOffLeft = 0
+			ent.NextCookOffAt = 0
 		}
 		if gameTime > ent.WreckNoiseUntil && ent.WreckNoiseUntil > 0 {
 			ent.WreckNoiseUntil = 0
@@ -297,8 +524,9 @@ func (e *Engine) guideEnemyTorpedoes(player *world.Entity, gameTime float64) {
 		diff := shortest(torp.OrderedHead, brg)
 		torp.OrderedHead += clampAngle(diff*0.35, -8, 8)
 		torp.RunDepthFt += (player.DepthFt - torp.RunDepthFt) * 0.2
-		// Enable seeker mid-run.
-		if torp.Age > 25 && !torp.SeekerOn {
+		// Wire-guide most of the mid-course, then cut for autonomous search
+		// so soft-kill still has a window before CPA.
+		if torp.Age > 50 && !torp.SeekerOn {
 			torp.SeekerOn = true
 			torp.Mode = weapons.ModeSearch
 			torp.WireCut = true
@@ -350,7 +578,7 @@ func (e *Engine) AllEntities() []*world.Entity {
 	return e.entityScratch
 }
 
-// AcousticEmitters is AllEntities plus live torpedoes as synthetic acoustic sources.
+// AcousticEmitters is AllEntities plus live torpedoes and countermeasures.
 func (e *Engine) AcousticEmitters() []*world.Entity {
 	ents := e.AllEntities()
 	n := 0
@@ -360,6 +588,7 @@ func (e *Engine) AcousticEmitters() []*world.Entity {
 		}
 	}
 	if n == 0 {
+		ents = e.CM.AcousticEntities(ents)
 		return ents
 	}
 	if cap(e.torpedoEntityPool) < n {
@@ -378,8 +607,14 @@ func (e *Engine) AcousticEmitters() []*world.Entity {
 		ents = append(ents, e.torpedoEntityPtrs[i])
 		i++
 	}
+	ents = e.CM.AcousticEntities(ents)
 	e.entityScratch = ents
 	return ents
+}
+
+// SeekerTargets is platforms + soft-kill decoys for ModeSearch acquisition.
+func (e *Engine) SeekerTargets() []*world.Entity {
+	return e.CM.AcousticEntities(e.AllEntities())
 }
 
 func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
@@ -393,8 +628,21 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 		if ent.AIState != "FIRING" && ent.AIState != "ATTACK" {
 			continue
 		}
+		ent.EnsureDamage()
+		// Need at least one operational tube to fire.
+		canTube := false
+		for tn := 1; tn <= 4; tn++ {
+			if ent.Damage.Operational(world.TubeSys(tn)) {
+				canTube = true
+				break
+			}
+		}
+		if !canTube {
+			continue
+		}
 		rangeYd := ent.RangeYardsTo(player)
-		if rangeYd > 3500 || rangeYd < 400 {
+		// Prefer standoff shots — no point-blank / collision-range launches.
+		if rangeYd > 3400 || rangeYd < 1400 {
 			continue
 		}
 		if e.FireControl.EnemyTubeOpenAt != nil {
@@ -406,12 +654,13 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 				if e.FireControl.SpawnHostileTorpedo(ent, player) != nil {
 					e.EmitTubeTransient(ent, gameTime, false)
 					e.Events = append(e.Events, "Torpedo launch detected (hostile)")
-					ent.AIState = "ATTACK"
+					ent.AIState = "SHADOW"
 				}
 				continue
 			}
 		}
-		if e.FireControl.HasRecentShotFrom(ent.ID, 45) {
+		// Longer pause between salvos so the fish can open / re-flank.
+		if e.FireControl.HasRecentShotFrom(ent.ID, 70) {
 			continue
 		}
 		if ent.AIState == "ATTACK" && int(gameTime*10)%110 != 0 {
@@ -467,4 +716,42 @@ func (e *Engine) EnemyEmitters() []*world.Entity {
 		}
 	}
 	return out
+}
+
+// AddPlotMarker places a chart annotation at world yards (east, north).
+func (e *Engine) AddPlotMarker(x, y float64) world.PlotMarker {
+	e.plotMarkerSeq++
+	m := world.PlotMarker{
+		ID: fmt.Sprintf("MARK-%d", e.plotMarkerSeq),
+		X:  x,
+		Y:  y,
+	}
+	e.PlotMarkers = append(e.PlotMarkers, m)
+	return m
+}
+
+// DeletePlotMarker removes a chart annotation by ID. Returns true if removed.
+func (e *Engine) DeletePlotMarker(id string) bool {
+	if id == "" {
+		return false
+	}
+	for i, m := range e.PlotMarkers {
+		if m.ID == id {
+			e.PlotMarkers = append(e.PlotMarkers[:i], e.PlotMarkers[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// SetPlotMarkerSeq raises the marker ID counter (used when loading saves).
+func (e *Engine) SetPlotMarkerSeq(n int) {
+	if n > e.plotMarkerSeq {
+		e.plotMarkerSeq = n
+	}
+}
+
+// PlotMarkerSeq returns the current marker ID counter.
+func (e *Engine) PlotMarkerSeq() int {
+	return e.plotMarkerSeq
 }

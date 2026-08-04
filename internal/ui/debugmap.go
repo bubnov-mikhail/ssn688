@@ -179,7 +179,7 @@ func debugEntityColor(e *world.Entity) color.Color {
 		return color.RGBA{180, 180, 200, 255}
 	}
 	switch e.AIState {
-	case "INTERCEPT", "ATTACK", "FIRING":
+	case "INTERCEPT", "ATTACK", "FIRING", "SHADOW", "CLOSING", "OPENING":
 		return render.ColorDebugAttack
 	case "SEARCH", "PINGING", "ACTIVE_SEARCH":
 		return render.ColorDebugSearch

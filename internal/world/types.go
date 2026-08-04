@@ -14,6 +14,7 @@ const (
 	KindSubmarine EntityKind = iota
 	KindSurfaceShip
 	KindTorpedo
+	KindCountermeasure // soft-kill ADC / Nixie (acoustic seduction only)
 )
 
 type Status int

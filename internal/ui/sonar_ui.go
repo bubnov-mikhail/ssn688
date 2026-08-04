@@ -108,6 +108,15 @@ func (a *App) sonarArrayLabel(sonar *acoustics.SonarState) string {
 }
 
 func (a *App) towedCableStatus(sonar *acoustics.SonarState) string {
+	if sonar.TowedDamaged {
+		return "DAMAGED — NO DATA"
+	}
+	player := a.Engine.Scenario.Player
+	if player != nil && sonar.TowedCablePct >= 0.20 {
+		if player.SpeedKts >= acoustics.TowedWarnSpeedKts(sonar.TowedCablePct) {
+			return fmt.Sprintf("CABLE STRESS %.0f%% — SLOW", sonar.TowedCablePct*100)
+		}
+	}
 	switch {
 	case sonar.TowedInMotion() && sonar.TowedCableRate > 0:
 		return fmt.Sprintf("DEPLOYING %.0f%%", sonar.TowedCablePct*100)
@@ -181,6 +190,10 @@ func (a *App) sonarButtonAction(id string, sonar *acoustics.SonarState) {
 		sonar.ListenBand = acoustics.ListenHF
 		a.waterfallFullRebuild = true
 	case "towed_deploy":
+		if sonar.TowedDamaged {
+			a.StatusMessage = "Towed array damaged — cannot deploy."
+			return
+		}
 		if sonar.TowedDeployed() || (sonar.TowedInMotion() && sonar.TowedCableRate > 0) {
 			return
 		}
@@ -269,22 +282,27 @@ func (a *App) drawTowedControls(screen *ebiten.Image, sonar *acoustics.SonarStat
 
 	status := a.towedCableStatus(sonar)
 	clr := render.ColorPhosphor
-	if sonar.PassiveArray == acoustics.PassiveArrayTowed && sonar.TowedStowed() {
+	if sonar.TowedDamaged {
 		clr = render.ColorWarn
+	} else if sonar.PassiveArray == acoustics.PassiveArrayTowed && sonar.TowedStowed() {
+		clr = render.ColorWarn
+	} else if player := a.Engine.Scenario.Player; player != nil && sonar.TowedCablePct >= 0.20 &&
+		player.SpeedKts >= acoustics.TowedWarnSpeedKts(sonar.TowedCablePct) {
+		clr = render.ColorAmber
 	}
 	render.DrawText(screen, status, layout.PassiveTowedStatusX+8, layout.PassiveTowedStatusY+18, clr, true)
 
 	buttons := cachedPassiveTowedButtons()
 	mx, my := ebiten.CursorPosition()
 	for _, b := range buttons {
-		disabled := false
+		disabled := sonar.TowedDamaged
 		switch b.ID {
 		case "towed_deploy":
-			disabled = sonar.TowedDeployed() || (sonar.TowedInMotion() && sonar.TowedCableRate > 0)
+			disabled = disabled || sonar.TowedDeployed() || (sonar.TowedInMotion() && sonar.TowedCableRate > 0)
 		case "towed_stop":
-			disabled = !sonar.TowedInMotion()
+			disabled = disabled || !sonar.TowedInMotion()
 		case "towed_retract":
-			disabled = sonar.TowedStowed() || (sonar.TowedInMotion() && sonar.TowedCableRate < 0)
+			disabled = disabled || sonar.TowedStowed() || (sonar.TowedInMotion() && sonar.TowedCableRate < 0)
 		}
 		hover := !disabled && b.contains(mx, my)
 		pressed := a.uiPressedID == b.ID

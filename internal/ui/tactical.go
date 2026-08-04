@@ -11,6 +11,7 @@ import (
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/render"
+	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -20,19 +21,16 @@ const (
 	tacticalPanelW = 1260
 	tacticalPanelH = 700
 
-	tacticalZoomMin  = 0.012
-	tacticalZoomMax  = 0.12
-	tacticalZoomStep = 1.25
-	tacticalTrailMax = 48
-	tacticalTrailSec = 2.5
-	tacticalOuterYd  = 12000.0 // bearing-only contacts sit on this ring
-	tacticalCourseDragPx = 10
+	tacticalZoomMin        = 0.012
+	tacticalZoomMax        = 0.12
+	tacticalZoomStep       = 1.25
+	tacticalOuterYd        = 12000.0 // bearing-only contacts sit on this ring
+	tacticalCourseDragPx   = 10
 	tacticalSmoothStaleSec = 8.0 // reset average if contact absent this long
 )
 
-type trailPoint struct {
-	X, Y float64
-}
+var contactTMALineColor = color.RGBA{88, 88, 88, 210}
+var torpedoThreatBlinkColor = color.RGBA{255, 80, 60, 255}
 
 // smoothedContactPos is an EMA of tactical plot position relative to ownship.
 type smoothedContactPos struct {
@@ -46,40 +44,36 @@ type coastSegment struct {
 }
 
 type bathyViewKey struct {
-	zoom           float64
-	panX, panY     float64
-	mapX, mapY     int
-	mapW, mapH     int
+	zoom       float64
+	panX, panY float64
+	mapX, mapY int
+	mapW, mapH int
 }
 
 type tacticalState struct {
-	zoom              float64
-	panX, panY        float64
-	courseDragging    bool
-	courseArmed       bool // LMB pressed, waiting to distinguish click vs course drag
-	courseDeg         float64
-	coursePressMX     int
-	coursePressMY     int
-	panDragging       bool
-	panLastMX         int
-	panLastMY         int
-	trails            map[string][]trailPoint
-	trailAliveScratch map[string]bool
-	smoothedPos       map[string]smoothedContactPos
+	zoom               float64
+	panX, panY         float64
+	courseDragging     bool
+	courseArmed        bool // LMB pressed, waiting to distinguish click vs course drag
+	courseDeg          float64
+	coursePressMX      int
+	coursePressMY      int
+	panDragging        bool
+	panLastMX          int
+	panLastMY          int
+	smoothedPos        map[string]smoothedContactPos
 	smoothAliveScratch map[string]bool
-	lastTrailSample   float64
-	fitPending        bool
-	coastBathy        *world.Bathymetry
-	coastSegments     []coastSegment
-	bathyImg          *ebiten.Image
-	bathyPix          []byte
-	bathyKey          bathyViewKey
+	fitPending         bool
+	coastBathy         *world.Bathymetry
+	coastSegments      []coastSegment
+	bathyImg           *ebiten.Image
+	bathyPix           []byte
+	bathyKey           bathyViewKey
 }
 
 func (a *App) ensureTactical() {
 	if a.tactical.zoom == 0 {
 		a.tactical.zoom = 0.035
-		a.tactical.trails = map[string][]trailPoint{}
 		a.tactical.smoothedPos = map[string]smoothedContactPos{}
 		a.tactical.fitPending = true
 	}
@@ -104,9 +98,32 @@ func (a *App) updateTacticalUI() {
 		}
 	}
 
-	inMap := inRect(mx, my, tacticalPanelX+8, tacticalPanelY+36, tacticalPanelW-16, tacticalPanelH-48)
+	mapX := tacticalPanelX + 8
+	mapY := tacticalPanelY + 40
+	mapW := tacticalPanelW - 16
+	mapH := tacticalPanelH - 52
+	inMap := inRect(mx, my, mapX, mapY, mapW, mapH)
 	player := a.Engine.Scenario.Player
 	sonar := &a.Engine.Sonar
+
+	if a.pendingPlotMarker {
+		a.pendingPlotMarker = false
+		if inMap {
+			wx, wy := a.tacticalScreenToWorld(mx, my)
+			m := a.Engine.AddPlotMarker(wx, wy)
+			a.selectedPlotMarkerID = m.ID
+			a.selectedContactID = ""
+			a.StatusMessage = fmt.Sprintf("Marker %s placed", m.ID)
+			return
+		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) || inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
+		if a.selectedPlotMarkerID != "" && a.Engine.DeletePlotMarker(a.selectedPlotMarkerID) {
+			a.StatusMessage = fmt.Sprintf("Marker %s deleted", a.selectedPlotMarkerID)
+			a.selectedPlotMarkerID = ""
+			return
+		}
+	}
 
 	// Middle mouse (wheel click) — pan. RMB also pans.
 	panHeld := (ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight)) && inMap
@@ -128,7 +145,7 @@ func (a *App) updateTacticalUI() {
 		a.tactical.panDragging = false
 	}
 
-	// LMB: click selects contact; drag orders course.
+	// LMB: click selects contact/marker; drag orders course.
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && inMap && !a.tactical.panDragging {
 		a.tactical.courseArmed = true
 		a.tactical.courseDragging = false
@@ -163,10 +180,16 @@ func (a *App) updateTacticalUI() {
 				}
 			}
 		} else if a.tactical.courseArmed {
-			// Click without drag — select nearest contact under cursor.
-			if c := a.tacticalContactAt(mx, my); c != nil {
+			// Click without drag — prefer chart markers, then contacts.
+			if m := a.tacticalMarkerAt(mx, my); m != nil {
+				a.selectedPlotMarkerID = m.ID
+				a.selectedContactID = ""
+				a.StatusMessage = fmt.Sprintf("Selected marker %s", m.ID)
+			} else if c := a.tacticalContactAt(mx, my); c != nil {
 				a.selectContact(sonar, c)
 				a.StatusMessage = fmt.Sprintf("Selected %s", contactLongLabel(c))
+			} else {
+				a.selectedPlotMarkerID = ""
 			}
 		}
 		a.tactical.courseArmed = false
@@ -212,6 +235,31 @@ func (a *App) tacticalContactAt(mx, my int) *acoustics.Contact {
 		if d2 <= hitR2 && d2 < bestD {
 			bestD = d2
 			best = c
+		}
+	}
+	return best
+}
+
+func (a *App) tacticalMarkerAt(mx, my int) *world.PlotMarker {
+	var best *world.PlotMarker
+	bestD := 1e18
+	halfYd := world.PlotMarkerSizeYd * 0.5
+	const minHalfPx = 8.0
+	for i := range a.Engine.PlotMarkers {
+		m := &a.Engine.PlotMarkers[i]
+		sx, sy := a.tacticalWorldToScreen(m.X, m.Y)
+		halfPx := halfYd * a.tactical.zoom
+		if halfPx < minHalfPx {
+			halfPx = minHalfPx
+		}
+		dx := math.Abs(float64(mx) - sx)
+		dy := math.Abs(float64(my) - sy)
+		if dx <= halfPx && dy <= halfPx {
+			d2 := dx*dx + dy*dy
+			if d2 < bestD {
+				bestD = d2
+				best = m
+			}
 		}
 	}
 	return best
@@ -438,12 +486,16 @@ func contactRangeAccurate(c *acoustics.Contact) bool {
 	return unc/c.EstimatedRangeYd <= 0.10
 }
 
-func contactIsClassified(c *acoustics.Contact) bool {
-	return c.ConfirmedClass != "" || c.Confidence >= 0.55
+// contactHasKnownRange is false for bearing-only tracks parked on the outer ring.
+func contactHasKnownRange(c *acoustics.Contact, gameTime float64) bool {
+	if c == nil {
+		return false
+	}
+	return acoustics.ContactActiveFixValid(c, gameTime) || contactRangeAccurate(c)
 }
 
-func contactTrackAccurate(c *acoustics.Contact) bool {
-	return c.Confidence >= 0.80 || c.ConfirmedClass != ""
+func contactIsClassified(c *acoustics.Contact) bool {
+	return c.ConfirmedClass != "" || c.Confidence >= 0.55
 }
 
 func contactDisplaySide(c *acoustics.Contact) world.Side {
@@ -459,60 +511,11 @@ func contactDisplaySide(c *acoustics.Contact) world.Side {
 	}
 }
 
-func (a *App) updateContactTrails() {
-	gt := a.Engine.Clock.GameTime
-	if gt-a.tactical.lastTrailSample < tacticalTrailSec {
-		return
-	}
-	a.tactical.lastTrailSample = gt
-	if a.tactical.trails == nil {
-		a.tactical.trails = map[string][]trailPoint{}
-	}
-	if a.tactical.trailAliveScratch == nil {
-		a.tactical.trailAliveScratch = map[string]bool{}
-	} else {
-		clear(a.tactical.trailAliveScratch)
-	}
-	alive := a.tactical.trailAliveScratch
-	player := a.Engine.Scenario.Player
-	for i := range a.Engine.Sonar.Contacts {
-		c := &a.Engine.Sonar.Contacts[i]
-		if a.isOwnTorpedoContact(c) {
-			continue
-		}
-		alive[c.SourceEntityID] = true
-		if !contactTrackAccurate(c) {
-			continue
-		}
-		if !acoustics.ContactActiveFixValid(c, gt) && !contactRangeAccurate(c) {
-			continue
-		}
-		wx, wy := a.contactPlotWorld(player, c, gt)
-		tr := a.tactical.trails[c.SourceEntityID]
-		if len(tr) > 0 {
-			last := tr[len(tr)-1]
-			if math.Hypot(wx-last.X, wy-last.Y) < 80 {
-				continue
-			}
-		}
-		tr = append(tr, trailPoint{X: wx, Y: wy})
-		if len(tr) > tacticalTrailMax {
-			tr = tr[len(tr)-tacticalTrailMax:]
-		}
-		a.tactical.trails[c.SourceEntityID] = tr
-	}
-	for id := range a.tactical.trails {
-		if !alive[id] {
-			delete(a.tactical.trails, id)
-		}
-	}
-}
-
 func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
 	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
 	render.DrawText(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28, render.ColorPlateLabel, true)
-	render.DrawText(screen, "LMB click: select   LMB drag: course   MMB/RMB drag: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "LMB: select   LMB drag: course   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPhosphorDim, true)
 
 	for _, b := range a.tacticalButtons() {
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, a.uiHoverID == b.ID, a.uiPressedID == b.ID)
@@ -541,41 +544,61 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 	a.drawTacticalCoastline(screen, bathy)
 
 	px, py := a.tacticalWorldToScreen(player.X, player.Y)
+	ringLabelClr := color.RGBA{0, 150, 120, 210}
 	for _, rYd := range []float64{2000, 4000, 8000, 12000} {
 		rad := rYd * a.tactical.zoom
 		if rad < 12 || rad > float64(mapW) {
 			continue
 		}
 		drawCircle(screen, px, py, rad, color.RGBA{0, 70, 55, 160})
-	}
-
-	for _, tr := range a.tactical.trails {
-		drawDashedTrail(screen, tr, a)
+		drawMapRangeRingLabel(screen, px, py, rad, rYd, ringLabelClr)
 	}
 
 	for i := range sonar.Contacts {
 		c := &sonar.Contacts[i]
+		if c.Kind == world.KindCountermeasure {
+			continue
+		}
 		if a.isOwnTorpedoContact(c) {
 			continue // own fish: blue telemetry marker only, not a plotted contact
 		}
 		wx, wy := a.contactPlotWorld(player, c, a.Engine.Clock.GameTime)
 		sx, sy := a.tacticalWorldToScreen(wx, wy)
-		lineClr := color.RGBA{0, 180, 120, 200}
-		if c.SourceEntityID == a.selectedContactID {
-			lineClr = color.RGBA{255, 200, 60, 230}
+		if x1, y1, ok := contactTMAWorldLineEnd(c, wx, wy); ok {
+			sx1, sy1 := a.tacticalWorldToScreen(x1, y1)
+			render.DrawLine(screen, sx, sy, sx1, sy1, contactTMALineColor)
 		}
-		render.DrawLine(screen, px, py, sx, sy, lineClr)
+		// Bearing-only (outer ring): draw LOB. Ranged fixes: marker only.
+		if !contactHasKnownRange(c, a.Engine.Clock.GameTime) {
+			lineClr := color.RGBA{0, 180, 120, 200}
+			if c.SourceEntityID == a.selectedContactID {
+				lineClr = color.RGBA{255, 200, 60, 230}
+			}
+			render.DrawLine(screen, px, py, sx, sy, lineClr)
+		}
 		a.drawTacticalContactIcon(screen, c, sx, sy)
+		if a.torpedoThreatMarkerActive(c.SourceEntityID) {
+			drawThreatBlinkMarker(screen, sx, sy)
+		}
 	}
 
 	drawOwnshipSymbol(screen, px, py, player.HeadingDeg, render.ColorHighlight)
+
+	a.drawTacticalPlotMarkers(screen)
 
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
 		if t == nil || !t.Alive || t.Side != world.SidePlayer {
 			continue
 		}
 		sx, sy := a.tacticalWorldToScreen(t.X, t.Y)
-		render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, render.ColorActive)
+		clr := render.ColorActive
+		if t.CMLockID != "" && t.Mode == weapons.ModeSearch {
+			clr = color.RGBA{180, 80, 255, 255}
+		}
+		render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, clr)
+		if a.torpedoThreatMarkerActive(t.ID) {
+			drawThreatBlinkMarker(screen, sx, sy)
+		}
 	}
 
 	if a.tactical.courseDragging {
@@ -588,9 +611,71 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 	kyd := 2000.0
 	bar := kyd * a.tactical.zoom
 	bx := mapX + 16
-	by := mapY + mapH - 18
+	by := mapY + mapH - 34
 	render.DrawLine(screen, float64(bx), float64(by), float64(bx)+bar, float64(by), render.ColorPhosphor)
 	render.DrawText(screen, "2 KYD", bx, by-4, render.ColorPhosphorDim, true)
+	a.drawTacticalNavCoords(screen, bx, by+14, mapX, mapY, mapW, mapH, player)
+}
+
+func (a *App) drawTacticalNavCoords(screen *ebiten.Image, x, y, mapX, mapY, mapW, mapH int, player *world.Entity) {
+	if player == nil {
+		return
+	}
+	lat, lon := world.WorldToLatLon(player.X, player.Y)
+	line := world.FormatNavLatLon(lat, lon)
+	mx, my := ebiten.CursorPosition()
+	if inRect(mx, my, mapX, mapY, mapW, mapH) {
+		wx, wy := a.tacticalScreenToWorld(mx, my)
+		clat, clon := world.WorldToLatLon(wx, wy)
+		line += " | " + world.FormatNavLatLon(clat, clon)
+	}
+	render.DrawText(screen, line, x, y, render.ColorPhosphorDim, true)
+}
+
+func (a *App) drawTacticalPlotMarkers(screen *ebiten.Image) {
+	halfYd := world.PlotMarkerSizeYd * 0.5
+	for i := range a.Engine.PlotMarkers {
+		m := &a.Engine.PlotMarkers[i]
+		sx, sy := a.tacticalWorldToScreen(m.X, m.Y)
+		halfPx := halfYd * a.tactical.zoom
+		if halfPx < 4 {
+			halfPx = 4
+		}
+		clr := color.RGBA{220, 200, 80, 255}
+		if m.ID == a.selectedPlotMarkerID {
+			clr = render.ColorAmber
+		}
+		x0, y0 := sx-halfPx, sy-halfPx
+		x1, y1 := sx+halfPx, sy+halfPx
+		render.DrawLine(screen, x0, y0, x1, y0, clr)
+		render.DrawLine(screen, x1, y0, x1, y1, clr)
+		render.DrawLine(screen, x1, y1, x0, y1, clr)
+		render.DrawLine(screen, x0, y1, x0, y0, clr)
+		// X through the square center.
+		render.DrawLine(screen, x0, y0, x1, y1, clr)
+		render.DrawLine(screen, x1, y0, x0, y1, clr)
+		render.DrawText(screen, m.ID, int(sx)+int(halfPx)+4, int(sy)-2, clr, true)
+	}
+}
+
+func contactTMAWorldLineEnd(c *acoustics.Contact, x, y float64) (x1, y1 float64, ok bool) {
+	if !acoustics.ContactTMAAccurate(c) {
+		return 0, 0, false
+	}
+	travelYd := 600.0 * c.TMASpeedKts * world.KnotsToYPS
+	if travelYd < 50 {
+		return 0, 0, false
+	}
+	rad := c.TMACourseDeg * math.Pi / 180
+	return x + math.Sin(rad)*travelYd, y + math.Cos(rad)*travelYd, true
+}
+
+func drawThreatBlinkMarker(screen *ebiten.Image, sx, sy float64) {
+	const r = 10.0
+	render.DrawLine(screen, sx-r, sy-r, sx+r, sy-r, torpedoThreatBlinkColor)
+	render.DrawLine(screen, sx+r, sy-r, sx+r, sy+r, torpedoThreatBlinkColor)
+	render.DrawLine(screen, sx+r, sy+r, sx-r, sy+r, torpedoThreatBlinkColor)
+	render.DrawLine(screen, sx-r, sy+r, sx-r, sy-r, torpedoThreatBlinkColor)
 }
 
 func (a *App) drawTacticalBathymetry(screen *ebiten.Image, mapX, mapY, mapW, mapH int, bathy *world.Bathymetry) {
@@ -614,13 +699,13 @@ func (a *App) invalidateTacticalBathy() {
 
 func (a *App) ensureTacticalBathyImage(mapX, mapY, mapW, mapH int, bathy *world.Bathymetry) *ebiten.Image {
 	key := bathyViewKey{
-		zoom:   a.tactical.zoom,
-		panX:   a.tactical.panX,
-		panY:   a.tactical.panY,
-		mapX:   mapX,
-		mapY:   mapY,
-		mapW:   mapW,
-		mapH:   mapH,
+		zoom: a.tactical.zoom,
+		panX: a.tactical.panX,
+		panY: a.tactical.panY,
+		mapX: mapX,
+		mapY: mapY,
+		mapW: mapW,
+		mapH: mapH,
 	}
 	if a.tactical.bathyImg != nil && a.tactical.bathyKey == key {
 		return a.tactical.bathyImg
@@ -773,22 +858,6 @@ func interpZero(x0, y0, d0, x1, y1, d1 float64) (float64, float64) {
 		t = 1
 	}
 	return x0 + (x1-x0)*t, y0 + (y1-y0)*t
-}
-
-func drawDashedTrail(screen *ebiten.Image, tr []trailPoint, a *App) {
-	if len(tr) < 2 {
-		return
-	}
-	clr := color.RGBA{200, 220, 210, 160}
-	on := true
-	for i := 1; i < len(tr); i++ {
-		x0, y0 := a.tacticalWorldToScreen(tr[i-1].X, tr[i-1].Y)
-		x1, y1 := a.tacticalWorldToScreen(tr[i].X, tr[i].Y)
-		if on {
-			render.DrawLine(screen, x0, y0, x1, y1, clr)
-		}
-		on = !on
-	}
 }
 
 func (a *App) drawTacticalContactIcon(screen *ebiten.Image, c *acoustics.Contact, sx, sy float64) {

@@ -25,6 +25,25 @@ func TestBearingWaterfallNewestFirst(t *testing.T) {
 	}
 }
 
+func TestBearingWaterfallResetThenPush(t *testing.T) {
+	var w BearingWaterfall
+	row := make([]float64, acoustics.BearingWaterfallBins)
+	row[0] = 3
+	w.PushCopy(row, 1)
+	w.Reset()
+	if w.Len() != 0 {
+		t.Fatalf("len after reset=%d", w.Len())
+	}
+	row[0] = 9
+	w.PushCopy(row, 45)
+	if w.Len() != 1 {
+		t.Fatalf("len=%d", w.Len())
+	}
+	if w.Latest() == nil || w.Latest().Bearings[0] != 9 || w.Latest().Heading != 45 {
+		t.Fatalf("latest after reset: %+v", w.Latest())
+	}
+}
+
 func TestSnrToIntensity(t *testing.T) {
 	if snrToIntensity(0) != 0 {
 		t.Fatal("low SNR should be zero intensity")

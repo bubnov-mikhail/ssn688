@@ -14,22 +14,6 @@ func contactClassLabel(c *acoustics.Contact) string {
 	return "—"
 }
 
-func contactTypeLabel(c *acoustics.Contact) string {
-	if c.ConfirmedClass == "" {
-		return "—"
-	}
-	switch c.Kind {
-	case world.KindSubmarine:
-		return "SUB"
-	case world.KindSurfaceShip:
-		return "SURF"
-	case world.KindTorpedo:
-		return "TORP"
-	default:
-		return "UNK"
-	}
-}
-
 func contactRangeAccuracy(c *acoustics.Contact) float64 {
 	if c == nil || c.EstimatedRangeYd <= 0 {
 		return 0
@@ -48,11 +32,18 @@ func contactRangeAccuracy(c *acoustics.Contact) float64 {
 	return acc
 }
 
+func contactBearingLabel(c *acoustics.Contact) string {
+	if c == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%03.0f°", c.BearingDeg)
+}
+
 func contactRangeLabel(c *acoustics.Contact) string {
 	if c == nil || c.EstimatedRangeYd <= 0 {
 		return "—"
 	}
-	val := fmt.Sprintf("%.1f", c.EstimatedRangeYd/1000)
+	val := fmt.Sprintf("%.1f kyd", c.EstimatedRangeYd/1000)
 	if contactRangeAccuracy(c) < 0.80 {
 		return "~" + val
 	}

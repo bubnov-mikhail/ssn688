@@ -98,10 +98,10 @@ var SignatureLibrary = []SignatureProfile{
 	{
 		ID: "merchant", Name: "Merchant Freighter", Class: "MV", Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
-			{LowHz: 15, HighHz: 60, LevelDB: 128},
-			{LowHz: 60, HighHz: 200, LevelDB: 122},
-			{LowHz: 200, HighHz: 500, LevelDB: 110},
-			{LowHz: 500, HighHz: 1400, LevelDB: 95},
+			{LowHz: 15, HighHz: 60, LevelDB: 118},
+			{LowHz: 60, HighHz: 200, LevelDB: 112},
+			{LowHz: 200, HighHz: 500, LevelDB: 100},
+			{LowHz: 500, HighHz: 1400, LevelDB: 88},
 		},
 		Tonals: []TonalLine{
 			{FreqHz: 22, RelLevel: 0.75},
@@ -113,15 +113,15 @@ var SignatureLibrary = []SignatureProfile{
 			{FreqHz: 880, RelLevel: 0.40},
 			{FreqHz: 1320, RelLevel: 0.30},
 		},
-		BladeRateHz: 1.4, CavitationDB: 105,
+		BladeRateHz: 1.4, CavitationDB: 92,
 	},
 	{
 		ID: "tanker", Name: "Oil Tanker", Class: "VLCC", Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
-			{LowHz: 10, HighHz: 50, LevelDB: 135},
-			{LowHz: 50, HighHz: 180, LevelDB: 128},
-			{LowHz: 180, HighHz: 450, LevelDB: 115},
-			{LowHz: 450, HighHz: 1200, LevelDB: 100},
+			{LowHz: 10, HighHz: 50, LevelDB: 124},
+			{LowHz: 50, HighHz: 180, LevelDB: 118},
+			{LowHz: 180, HighHz: 450, LevelDB: 105},
+			{LowHz: 450, HighHz: 1200, LevelDB: 92},
 		},
 		Tonals: []TonalLine{
 			{FreqHz: 16, RelLevel: 0.85},
@@ -134,15 +134,15 @@ var SignatureLibrary = []SignatureProfile{
 			{FreqHz: 960, RelLevel: 0.35},
 			{FreqHz: 1600, RelLevel: 0.25},
 		},
-		BladeRateHz: 1.1, CavitationDB: 112,
+		BladeRateHz: 1.1, CavitationDB: 98,
 	},
 	{
 		ID: "fishing", Name: "Fishing Trawler", Class: "FV", Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
-			{LowHz: 25, HighHz: 90, LevelDB: 118},
-			{LowHz: 90, HighHz: 280, LevelDB: 112},
-			{LowHz: 280, HighHz: 700, LevelDB: 100},
-			{LowHz: 700, HighHz: 1600, LevelDB: 88},
+			{LowHz: 25, HighHz: 90, LevelDB: 110},
+			{LowHz: 90, HighHz: 280, LevelDB: 104},
+			{LowHz: 280, HighHz: 700, LevelDB: 92},
+			{LowHz: 700, HighHz: 1600, LevelDB: 80},
 		},
 		Tonals: []TonalLine{
 			{FreqHz: 28, RelLevel: 0.70},
@@ -154,7 +154,7 @@ var SignatureLibrary = []SignatureProfile{
 			{FreqHz: 840, RelLevel: 0.40},
 			{FreqHz: 1400, RelLevel: 0.30},
 		},
-		BladeRateHz: 2.4, CavitationDB: 98,
+		BladeRateHz: 2.4, CavitationDB: 88,
 	},
 	{
 		ID: "mk48", Name: "Mk48 ADCAP", Class: "Torpedo", Kind: KindTorpedo,
@@ -191,6 +191,63 @@ var SignatureLibrary = []SignatureProfile{
 			{FreqHz: 1940, RelLevel: 0.50},
 		},
 		BladeRateHz: 18, CavitationDB: 100,
+	},
+	{
+		ID: "adc", Name: "Acoustic Decoy", Class: "CM", Kind: KindCountermeasure,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 80, LevelDB: 125},
+			{LowHz: 80, HighHz: 300, LevelDB: 132},
+			{LowHz: 300, HighHz: 900, LevelDB: 128},
+			{LowHz: 900, HighHz: 2000, LevelDB: 118},
+		},
+		Tonals: []TonalLine{
+			{FreqHz: 55, RelLevel: 0.70},
+			{FreqHz: 110, RelLevel: 0.95},
+			{FreqHz: 220, RelLevel: 1.00},
+			{FreqHz: 440, RelLevel: 0.85},
+			{FreqHz: 880, RelLevel: 0.60},
+		},
+		BladeRateHz: 0, CavitationDB: 70,
+	},
+	{
+		ID: "nixie", Name: "Towed Torpedo Decoy", Class: "CM", Kind: KindCountermeasure,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 100, LevelDB: 128},
+			{LowHz: 100, HighHz: 350, LevelDB: 136},
+			{LowHz: 350, HighHz: 1000, LevelDB: 130},
+			{LowHz: 1000, HighHz: 2000, LevelDB: 122},
+		},
+		Tonals: []TonalLine{
+			{FreqHz: 40, RelLevel: 0.80},
+			{FreqHz: 80, RelLevel: 1.00},
+			{FreqHz: 160, RelLevel: 0.95},
+			{FreqHz: 320, RelLevel: 0.75},
+			{FreqHz: 640, RelLevel: 0.55},
+		},
+		BladeRateHz: 1.5, CavitationDB: 90,
+	},
+	{
+		ID: "jitter", Name: "Acoustic Jammer", Class: "CM", Kind: KindCountermeasure,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 80, LevelDB: 130},
+			{LowHz: 80, HighHz: 300, LevelDB: 138},
+			{LowHz: 300, HighHz: 900, LevelDB: 136},
+			{LowHz: 900, HighHz: 2000, LevelDB: 128},
+		},
+		// Dense overlapping lines — broadband confusion rather than a clean hull fingerprint.
+		Tonals: []TonalLine{
+			{FreqHz: 70, RelLevel: 0.90},
+			{FreqHz: 95, RelLevel: 0.85},
+			{FreqHz: 140, RelLevel: 1.00},
+			{FreqHz: 210, RelLevel: 0.95},
+			{FreqHz: 280, RelLevel: 0.90},
+			{FreqHz: 420, RelLevel: 0.80},
+			{FreqHz: 560, RelLevel: 0.75},
+			{FreqHz: 840, RelLevel: 0.65},
+			{FreqHz: 1120, RelLevel: 0.55},
+			{FreqHz: 1680, RelLevel: 0.45},
+		},
+		BladeRateHz: 0, CavitationDB: 60,
 	},
 }
 

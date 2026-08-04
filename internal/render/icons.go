@@ -15,6 +15,7 @@ const (
 	IconWeapons
 	IconManeuver
 	IconTactical
+	IconDamage
 )
 
 // DrawScreenIcon draws a 688-style station icon centered at (cx, cy).
@@ -73,6 +74,12 @@ func DrawScreenIcon(screen *ebiten.Image, kind int, cx, cy, size int, clr color.
 		FillRect(screen, cx-2, cy-2, 5, 5, clr)
 		FillRect(screen, cx+int(s*0.15)-2, cy-int(s*0.1)-2, 5, 5, ColorDanger)
 		FillRect(screen, cx-int(s*0.2)-2, cy+int(s*0.12)-2, 5, 5, ColorWarn)
+	case IconDamage:
+		// Damage control: hull outline + wrench cross
+		drawIconCircle(screen, float64(cx), float64(cy), s*0.38, clr)
+		DrawLine(screen, float64(cx)-s*0.22, float64(cy)+s*0.08, float64(cx)+s*0.22, float64(cy)-s*0.18, clr)
+		DrawLine(screen, float64(cx)-s*0.18, float64(cy)-s*0.18, float64(cx)+s*0.18, float64(cy)+s*0.18, clr)
+		FillRect(screen, cx-int(s*0.08), cy-int(s*0.28), int(s*0.16), int(s*0.14), clr)
 	}
 }
 

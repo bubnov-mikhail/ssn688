@@ -33,11 +33,33 @@ type Contact struct {
 	LastActiveBearingDeg float64
 	LastActiveRangeYd    float64
 	LastActiveFixAt      float64
+
+	// Derived automatic TMA from recent estimated world fixes.
+	TMACourseDeg float64
+	TMASpeedKts  float64
+	TMAAccuracy  float64
+
+	tmaSamples []tmaSample
+}
+
+type tmaSample struct {
+	X, Y    float64
+	At      float64
+	Quality float64
 }
 
 // ActiveFixHoldSec is how long a solid active fix anchors the tactical plot
 // (matches the ACTIVE echo marker fade window).
 const ActiveFixHoldSec = 30.0
+
+const (
+	tmaHistoryWindowSec = 180.0
+	tmaMinSpanSec       = 45.0
+	tmaMinTravelYd      = 180.0
+	tmaMinSampleDtSec   = 8.0
+	tmaMinAccuracy      = 0.65
+	tmaMaxSamples       = 8
+)
 
 // ContactActiveFixValid reports whether the last active fix is still within the hold window.
 func ContactActiveFixValid(c *Contact, gameTime float64) bool {
@@ -45,6 +67,13 @@ func ContactActiveFixValid(c *Contact, gameTime float64) bool {
 		return false
 	}
 	return gameTime-c.LastActiveFixAt <= ActiveFixHoldSec
+}
+
+func ContactTMAAccurate(c *Contact) bool {
+	if c == nil {
+		return false
+	}
+	return c.TMAAccuracy >= tmaMinAccuracy && c.TMASpeedKts >= 0.5
 }
 
 // SonarState holds player sonar equipment state.
@@ -58,18 +87,19 @@ type SonarState struct {
 	PassiveArray    PassiveArrayKind
 	TowedCablePct   float64
 	TowedCableRate  float64
+	TowedDamaged    bool // cable parted / array lost — no TOWED data until mission end
 	ListenBand      ListenBand
 	Contacts        []Contact
 	BioTransients   []BioTransient
 	nextBioAt       float64
 	// SonarDeafUntil — temporary washout after nearby underwater detonation.
-	SonarDeafUntil   float64
-	LastBlastAt      float64
-	LastBlastX       float64
-	LastBlastY       float64
-	LastBlastRangeYd float64 // washout visibility radius for this event
+	SonarDeafUntil    float64
+	LastBlastAt       float64
+	LastBlastX        float64
+	LastBlastY        float64
+	LastBlastRangeYd  float64 // washout visibility radius for this event
 	LastBlastFlashSec float64
-	contactSeq       int
+	contactSeq        int
 	// activeEchoDone marks SourceEntityIDs already processed for the current ping.
 	activeEchoDone map[string]bool
 	activeEchoAt   float64
@@ -92,6 +122,15 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 	if !sonar.PassiveEnabled {
 		return
 	}
+	if listener != nil {
+		listener.EnsureDamage()
+		if sonar.PassiveArray == PassiveArrayHull && listener.Damage.Destroyed(world.SysPassiveHull) {
+			return
+		}
+		if sonar.PassiveArray == PassiveArrayTowed && (sonar.TowedDamaged || listener.Damage.Destroyed(world.SysTowed)) {
+			return
+		}
+	}
 
 	if sonar.passiveContactIndex == nil {
 		sonar.passiveContactIndex = make(map[string]int)
@@ -112,6 +151,19 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		}
 	}
 
+	// Towed array listens from cable center (lever arm), not the sail.
+	listenFrom := listener
+	var towedListen world.Entity
+	useTowedPos := sonar.PassiveArray == PassiveArrayTowed && !sonar.TowedDamaged &&
+		PlaceTowedListener(&towedListen, listener, sonar.TowedCablePct)
+	if useTowedPos {
+		listenFrom = &towedListen
+	}
+	baseline := 0.0
+	if !sonar.TowedDamaged {
+		baseline = TowedBaselineYd(sonar.TowedCablePct)
+	}
+
 	for _, em := range emitters {
 		if em.ID == listener.ID {
 			continue
@@ -119,8 +171,12 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		if !em.Alive() && em.Status != world.StatusSinking {
 			continue
 		}
+		// Soft-kill CM: audible on waterfall, but not tracked as plot/WEPS contacts.
+		if em.Kind == world.KindCountermeasure {
+			continue
+		}
 
-		result := model.Detect(listener, em, ModePassive, 0)
+		result := model.Detect(listenFrom, em, ModePassive, 0)
 		ApplyListenBand(&result, sonar.ListenBand)
 		applyPassiveArrayModifiers(&result, sonar)
 		rel := AngleDiffDeg(result.BearingDeg, listener.HeadingDeg)
@@ -177,13 +233,23 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 
 		classifySig := ContaminateClassifySignal(result.SignalForClassify, model, listener, em.ID, emitters, result.BearingDeg, sonar)
 		class := Classify(classifySig, result.PeakSNR, result.TrueRangeYd)
-		class = refineClassification(class, classifySig, em.SignatureID, result.PeakSNR)
 		bearing := bearingWithError(result.BearingDeg, result.PeakSNR, result.BandsAbove, sonar.passiveBearingSigmaScale())
 		estRange := estimatePassiveRange(model.Env, listener, em, result.TrueRangeYd, result.PeakSNR)
 
 		if idx, ok := existing[em.ID]; ok {
 			c := &sonar.Contacts[idx]
 			updateContactTrack(c, bearing, estRange, result.PeakSNR, result.BandsAbove, class, gameTime, em)
+			updateContactTMA(c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(c)))
+			TryAutoClassifyTorpedo(c, class)
+			if c.ConfirmedClass == "" {
+				if k := KindFromMatch(class); k >= 0 {
+					c.Kind = k
+				}
+			}
+			if baseline >= 80 {
+				relHull := AngleDiffDeg(listener.BearingDegTo(em), listener.HeadingDeg)
+				ApplyTriangulationBonus(c, baseline, c.EstimatedRangeYd, relHull)
+			}
 			continue
 		}
 
@@ -198,7 +264,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			BestMatchName:    class.ProfileName,
 			Confidence:       class.Confidence,
 			SourceEntityID:   em.ID,
-			Kind:             em.Kind,
+			Kind:             KindFromMatch(class),
 			DetectedBy:       "passive",
 			LastUpdate:       gameTime,
 			FirstSeen:        gameTime,
@@ -207,6 +273,12 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			c.DetectedBy = "passive/ping"
 		}
 		initContactUncertainty(&c)
+		updateContactTMA(&c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(&c)))
+		TryAutoClassifyTorpedo(&c, class)
+		if baseline >= 80 {
+			relHull := AngleDiffDeg(listener.BearingDegTo(em), listener.HeadingDeg)
+			ApplyTriangulationBonus(&c, baseline, c.EstimatedRangeYd, relHull)
+		}
 		sonar.Contacts = append(sonar.Contacts, c)
 	}
 
@@ -220,7 +292,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 }
 
 const (
-	PingIntervalMinSec = 0   // 0 = manual pings only
+	PingIntervalMinSec = 0 // 0 = manual pings only
 	PingIntervalMaxSec = 60
 	// ActiveDisplayMaxRangeYd is the PPI scale for the active range display.
 	ActiveDisplayMaxRangeYd = 12000.0
@@ -230,6 +302,12 @@ const (
 func FireActivePing(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, gameTime float64) {
 	if !sonar.ActiveEnabled || sonar.PingInterval <= PingIntervalMinSec {
 		return
+	}
+	if listener != nil {
+		listener.EnsureDamage()
+		if listener.Damage.Destroyed(world.SysActive) {
+			return
+		}
 	}
 	if gameTime-sonar.LastPingTime < sonar.PingInterval {
 		return
@@ -241,6 +319,10 @@ func FireActivePing(model Model, listener *world.Entity, emitters []*world.Entit
 // is on standby (auto-ping still requires ActiveEnabled).
 func FireActivePingNow(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, gameTime float64) bool {
 	if sonar == nil || listener == nil {
+		return false
+	}
+	listener.EnsureDamage()
+	if listener.Damage.Destroyed(world.SysActive) {
 		return false
 	}
 	transmitActivePing(listener, sonar, gameTime)
@@ -310,6 +392,10 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 		if em == nil || em.ID == listener.ID || !em.Alive() {
 			continue
 		}
+		// Too small / soft-kill — no active echo return on PPI.
+		if em.Kind == world.KindCountermeasure {
+			continue
+		}
 		if sonar.activeEchoDone[em.ID] {
 			continue
 		}
@@ -323,8 +409,6 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 			sonar.activeEchoDone[em.ID] = true
 
 			class := Classify(result.SignalForClassify, result.PeakSNR, result.TrueRangeYd)
-			class = refineClassification(class, result.SignalForClassify, em.SignatureID, result.PeakSNR)
-			class.Confidence = math.Min(0.99, class.Confidence+0.12)
 
 			found := false
 			for i := range sonar.Contacts {
@@ -332,6 +416,13 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 					c := &sonar.Contacts[i]
 					measRange := result.TrueRangeYd + rand.NormFloat64()*result.TrueRangeYd*0.02
 					updateContactTrack(c, result.BearingDeg, measRange, result.PeakSNR, result.BandsAbove, class, gameTime, em)
+					updateContactTMA(c, sampleTMAPosition(listener, result.BearingDeg, measRange, gameTime, 0.98))
+					TryAutoClassifyTorpedo(c, class)
+					if c.ConfirmedClass == "" {
+						if k := KindFromMatch(class); k >= 0 {
+							c.Kind = k
+						}
+					}
 					c.DetectedBy = "active"
 					c.Confidence = math.Max(c.Confidence, class.Confidence)
 					c.UncBearingDeg = math.Min(c.UncBearingDeg, 2.5)
@@ -356,7 +447,7 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 					BestMatchName:        class.ProfileName,
 					Confidence:           class.Confidence,
 					SourceEntityID:       em.ID,
-					Kind:                 em.Kind,
+					Kind:                 KindFromMatch(class),
 					DetectedBy:           "active",
 					LastUpdate:           gameTime,
 					FirstSeen:            gameTime,
@@ -366,6 +457,8 @@ func ProcessActiveEchoes(model Model, listener *world.Entity, emitters []*world.
 					LastActiveRangeYd:    measRange,
 					LastActiveFixAt:      gameTime,
 				}
+				TryAutoClassifyTorpedo(&c, class)
+				updateContactTMA(&c, sampleTMAPosition(listener, result.BearingDeg, measRange, gameTime, 0.98))
 				sonar.Contacts = append(sonar.Contacts, c)
 			}
 			continue
@@ -394,7 +487,7 @@ func SpectrumAtBearing(model Model, listener *world.Entity, emitters []*world.En
 // ~2σ contribute strongly; harmonics from neighbors mix into the LOFAR trace.
 func SpectrumBeamSigmaDeg(sonar *SonarState) float64 {
 	base := 6.5 // hull spherical — modest bearing discrimination for LOFAR
-	if sonar != nil && sonar.PassiveArray == PassiveArrayTowed && sonar.TowedCablePct > 40 {
+	if sonar != nil && sonar.PassiveArray == PassiveArrayTowed && sonar.TowedCablePct > 0.40 {
 		base = 4.2 // streamed TA resolves bearings better
 	}
 	if sonar != nil {
@@ -610,7 +703,7 @@ func targetUncertainty(listenTime, confidence, snr float64, rangeYd float64) (be
 	snrT := math.Min(1, math.Max(0, (snr-6)/18))
 	q := 0.45*t + 0.35*confidence + 0.20*snrT
 	bearDeg = 26*(1-q) + 1.8
-	rangeYdUnc = (0.42*(1-q)+0.05)*math.Max(400, rangeYd)
+	rangeYdUnc = (0.42*(1-q) + 0.05) * math.Max(400, rangeYd)
 	if rangeYdUnc < 120 {
 		rangeYdUnc = 120
 	}
@@ -671,6 +764,182 @@ func updateContactTrack(c *Contact, measBearing, measRange, snr float64, bands i
 	c.UncRangeYd = shrinkUncertainty(c.UncRangeYd, tr)
 }
 
+func sampleTMAPosition(origin *world.Entity, bearingDeg, rangeYd, at, quality float64) tmaSample {
+	rad := bearingDeg * math.Pi / 180
+	return tmaSample{
+		X:       origin.X + math.Sin(rad)*rangeYd,
+		Y:       origin.Y + math.Cos(rad)*rangeYd,
+		At:      at,
+		Quality: clamp01(quality),
+	}
+}
+
+func contactSampleQuality(c *Contact) float64 {
+	if c == nil {
+		return 0
+	}
+	if c.DetectedBy == "active" {
+		return 0.98
+	}
+	if c.DetectedBy == "passive/ping" {
+		return 0.88
+	}
+	relRange := c.UncRangeYd / math.Max(c.EstimatedRangeYd, 1)
+	rangeQ := 1 - clamp01(relRange/0.35)
+	bearQ := 1 - clamp01(c.UncBearingDeg/18.0)
+	confQ := clamp01(c.Confidence)
+	q := 0.45*rangeQ + 0.30*bearQ + 0.25*confQ
+	if relRange > 0.22 {
+		q *= 0.65
+	}
+	return clamp01(q)
+}
+
+func updateContactTMA(c *Contact, sample tmaSample) {
+	if c == nil {
+		return
+	}
+	if sample.At <= 0 || sample.Quality <= 0 || math.IsNaN(sample.X) || math.IsNaN(sample.Y) {
+		return
+	}
+	samples := c.tmaSamples
+	if n := len(samples); n > 0 {
+		last := samples[n-1]
+		if sample.At-last.At < tmaMinSampleDtSec && math.Hypot(sample.X-last.X, sample.Y-last.Y) < 80 {
+			if sample.Quality <= last.Quality {
+				return
+			}
+			samples[n-1] = sample
+		} else {
+			samples = append(samples, sample)
+		}
+	} else {
+		samples = append(samples, sample)
+	}
+	cutoff := sample.At - tmaHistoryWindowSec
+	keep := samples[:0]
+	for _, s := range samples {
+		if s.At >= cutoff {
+			keep = append(keep, s)
+		}
+	}
+	samples = keep
+	if len(samples) > tmaMaxSamples {
+		samples = samples[len(samples)-tmaMaxSamples:]
+	}
+	c.tmaSamples = samples
+	computeContactTMA(c)
+}
+
+func computeContactTMA(c *Contact) {
+	if c == nil {
+		return
+	}
+	c.TMAAccuracy = 0
+	c.TMASpeedKts = 0
+	c.TMACourseDeg = 0
+	if len(c.tmaSamples) < 2 {
+		return
+	}
+	latest := c.tmaSamples[len(c.tmaSamples)-1]
+	bestScore := 0.0
+	bestSpeed := 0.0
+	bestCourse := 0.0
+	for i := 0; i < len(c.tmaSamples)-1; i++ {
+		first := c.tmaSamples[i]
+		dt := latest.At - first.At
+		if dt < tmaMinSpanSec {
+			continue
+		}
+		dx := latest.X - first.X
+		dy := latest.Y - first.Y
+		travelYd := math.Hypot(dx, dy)
+		if travelYd < tmaMinTravelYd {
+			continue
+		}
+		speedKts := travelYd / dt / world.KnotsToYPS
+		courseDeg := math.Atan2(dx, dy) * 180 / math.Pi
+		if courseDeg < 0 {
+			courseDeg += 360
+		}
+		quality := math.Min(first.Quality, latest.Quality)
+		coverage := math.Min(1, dt/120.0)
+		consistency := tmaConsistency(c.tmaSamples[i:], dx, dy, dt)
+		score := 0.45*quality + 0.35*consistency + 0.20*coverage
+		if score > bestScore {
+			bestScore = score
+			bestSpeed = speedKts
+			bestCourse = courseDeg
+		}
+	}
+	if bestScore <= 0 {
+		return
+	}
+	c.TMAAccuracy = bestScore
+	c.TMASpeedKts = bestSpeed
+	c.TMACourseDeg = bestCourse
+}
+
+func tmaConsistency(samples []tmaSample, dx, dy, dt float64) float64 {
+	if len(samples) < 2 || dt <= 0 {
+		return 0
+	}
+	mainDist := math.Hypot(dx, dy)
+	if mainDist < 1 {
+		return 0
+	}
+	ux := dx / mainDist
+	uy := dy / mainDist
+	mainSpeed := mainDist / dt
+	sumWeight := 0.0
+	sumDir := 0.0
+	sumSpeed := 0.0
+	for i := 1; i < len(samples); i++ {
+		a := samples[i-1]
+		b := samples[i]
+		segDt := b.At - a.At
+		if segDt < 1 {
+			continue
+		}
+		segDx := b.X - a.X
+		segDy := b.Y - a.Y
+		segDist := math.Hypot(segDx, segDy)
+		if segDist < 10 {
+			continue
+		}
+		w := segDist * math.Min(a.Quality, b.Quality)
+		dir := (segDx/segDist)*ux + (segDy/segDist)*uy
+		if dir < -1 {
+			dir = -1
+		}
+		if dir > 1 {
+			dir = 1
+		}
+		sumWeight += w
+		sumDir += ((dir + 1) * 0.5) * w
+		segSpeed := segDist / segDt
+		ratio := segSpeed / math.Max(mainSpeed, 1e-6)
+		if ratio > 1 {
+			ratio = 1 / ratio
+		}
+		sumSpeed += ratio * w
+	}
+	if sumWeight <= 0 {
+		return 0
+	}
+	return clamp01(0.60*(sumDir/sumWeight) + 0.40*(sumSpeed/sumWeight))
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 func normalizeBearingDiff(d float64) float64 {
 	for d > 180 {
 		d -= 360
@@ -679,20 +948,4 @@ func normalizeBearingDiff(d float64) float64 {
 		d += 360
 	}
 	return d
-}
-
-func refineClassification(class Classification, signal Spectrum, trueSignatureID string, peakSNR float64) Classification {
-	profile, ok := world.ProfileByID(trueSignatureID)
-	if !ok {
-		return class
-	}
-	dist := spectralDistance(signal, templateSpectrum(profile))
-	if dist < 30 {
-		class.ProfileID = profile.ID
-		class.ProfileName = profile.Name
-		// Only boost toward a firm ID when the spectrum is actually readable.
-		boost := 0.55 * (0.25 + 0.75*SpectrumClarity01(peakSNR))
-		class.Confidence = math.Max(class.Confidence, boost)
-	}
-	return class
 }

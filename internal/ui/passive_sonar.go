@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"image/color"
 	"math"
 	"math/rand"
@@ -16,14 +15,15 @@ import (
 )
 
 const (
-	passivePlotCX         = layout.PassivePlotCX
-	passivePlotCY         = layout.PassivePlotCY
-	passivePlotR          = layout.PassivePlotR
-	passivePlotMaxRangeYd = layout.PassivePlotMaxRangeYd
-	passiveListX          = layout.PassiveListX
-	passiveListY          = layout.PassiveListY
-	passiveListW          = layout.PassiveListW
-	passiveListRow        = layout.PassiveListRow
+	passivePlotCX          = layout.PassivePlotCX
+	passivePlotCY          = layout.PassivePlotCY
+	passivePlotR           = layout.PassivePlotR
+	passivePlotMaxRangeYd  = layout.PassivePlotMaxRangeYd
+	passiveListX           = layout.PassiveListX
+	passiveListY           = layout.PassiveListY
+	passiveListW           = layout.PassiveListW
+	passiveListRow         = layout.PassiveListRow
+	passiveListVisibleRows = 12
 )
 
 type contactChip struct {
@@ -33,6 +33,7 @@ type contactChip struct {
 
 func (a *App) selectContact(sonar *acoustics.SonarState, c *acoustics.Contact) {
 	a.selectedContactID = c.SourceEntityID
+	a.selectedPlotMarkerID = ""
 	a.waterfallChipCacheKey = 0
 	sonar.SpectrumBearing = c.BearingDeg
 	if c.BestMatchID != "" {
@@ -117,12 +118,15 @@ func (a *App) contactAudibleOnArray(c *acoustics.Contact, player *world.Entity, 
 
 func (a *App) updatePassiveInput(sonar *acoustics.SonarState) {
 	a.validateSelectedContact(sonar)
+	mx, my := ebiten.CursorPosition()
+	scrollContactTableWheel(mx, my, passiveListX, passiveListY+passiveListRow, passiveListW, passiveListVisibleRows*passiveListRow, len(sonar.Contacts), passiveListVisibleRows, &a.contactTableScroll.passive)
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return
 	}
-	mx, my := ebiten.CursorPosition()
+	a.contactTableScroll.passive = clampContactTableScroll(a.contactTableScroll.passive, len(sonar.Contacts), passiveListVisibleRows)
+	start, end := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.passive, passiveListVisibleRows)
 	y := passiveListY + passiveListRow
-	for i := range sonar.Contacts {
+	for i := start; i < end; i++ {
 		if mx >= passiveListX && mx < passiveListX+passiveListW && my >= y && my < y+passiveListRow {
 			a.selectContact(sonar, &sonar.Contacts[i])
 			return
@@ -272,15 +276,17 @@ func aContactCenter(c *acoustics.Contact) (float64, float64) {
 func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	render.DrawText(screen, "CONTACT LOG", layout.PassiveContactLabelX, layout.PassiveContactLabelY+12, render.ColorPlateLabel, true)
 	render.DrawText(screen, "CONTACT", passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG", passiveListX+72, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RNG", passiveListX+112, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "BRG°", passiveListX+72, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "RNG kyd", passiveListX+112, passiveListY+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "SRC", passiveListX+158, passiveListY+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "CLASS", passiveListX+200, passiveListY+16, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	player := a.Engine.Scenario.Player
+	a.contactTableScroll.passive = clampContactTableScroll(a.contactTableScroll.passive, len(sonar.Contacts), passiveListVisibleRows)
+	start, end := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.passive, passiveListVisibleRows)
 	y := passiveListY + passiveListRow
-	for i := range sonar.Contacts {
+	for i := start; i < end; i++ {
 		c := &sonar.Contacts[i]
 		selected := c.SourceEntityID == a.selectedContactID
 		hover := mx >= passiveListX && mx < passiveListX+passiveListW && my >= y && my < y+passiveListRow
@@ -294,12 +300,13 @@ func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.Son
 			clr = render.ColorAmber
 		}
 		render.DrawText(screen, c.ID, passiveListX+8, y+16, clr, true)
-		render.DrawText(screen, fmt.Sprintf("%03.0f", c.BearingDeg), passiveListX+72, y+16, clr, true)
+		render.DrawText(screen, contactBearingLabel(c), passiveListX+72, y+16, clr, true)
 		render.DrawText(screen, contactRangeLabel(c), passiveListX+112, y+16, clr, true)
 		render.DrawText(screen, contactSourceLabel(c, player, sonar), passiveListX+158, y+16, clr, true)
 		render.DrawText(screen, contactClassLabel(c), passiveListX+200, y+16, clr, true)
 		y += passiveListRow
 	}
+	drawContactTableScrollbar(screen, passiveListX+passiveListW+4, passiveListY+passiveListRow, passiveListVisibleRows*passiveListRow, len(sonar.Contacts), passiveListVisibleRows, a.contactTableScroll.passive)
 }
 
 // ppiPixelLUT caches polar mapping for the PPI raster (avoids atan2 per rebuild).

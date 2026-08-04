@@ -14,6 +14,8 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
+const saveFormat = 5
+
 // Save writes the simulation state to a plain-text file.
 func Save(path string, engine *sim.Engine) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -27,8 +29,9 @@ func Save(path string, engine *sim.Engine) error {
 
 	w := bufio.NewWriter(f)
 	fmt.Fprintf(w, "# SSN688 Save File\n")
-	fmt.Fprintf(w, "format=1\n")
+	fmt.Fprintf(w, "format=%d\n", saveFormat)
 	fmt.Fprintf(w, "scenario=%s\n", engine.Scenario.Name)
+	fmt.Fprintf(w, "fail_reason=%s\n", engine.Scenario.FailReason)
 	fmt.Fprintf(w, "game_time=%.3f\n", engine.Clock.GameTime)
 	fmt.Fprintf(w, "time_scale=%.3f\n", engine.Clock.TimeScale)
 	fmt.Fprintf(w, "paused=%t\n", engine.Clock.Paused)
@@ -39,21 +42,39 @@ func Save(path string, engine *sim.Engine) error {
 		writeEntity(w, e)
 	}
 
+	env := engine.Acoustics.Env
+	fmt.Fprintf(w, "\n[environment]\n")
+	fmt.Fprintf(w, "layer_survey_known=%t\n", env.LayerSurveyKnown)
+	fmt.Fprintf(w, "layer_survey_start=%.3f\n", env.LayerSurveyStartAt)
+	fmt.Fprintf(w, "layer_survey_end=%.3f\n", env.LayerSurveyEndAt)
+
 	fmt.Fprintf(w, "\n[sonar]\n")
 	fmt.Fprintf(w, "passive_enabled=%t\n", engine.Sonar.PassiveEnabled)
 	fmt.Fprintf(w, "active_enabled=%t\n", engine.Sonar.ActiveEnabled)
 	fmt.Fprintf(w, "active_power=%.3f\n", engine.Sonar.ActivePower)
+	fmt.Fprintf(w, "last_ping_time=%.3f\n", engine.Sonar.LastPingTime)
 	fmt.Fprintf(w, "ping_interval=%.3f\n", engine.Sonar.PingInterval)
 	fmt.Fprintf(w, "spectrum_bearing=%.3f\n", engine.Sonar.SpectrumBearing)
 	fmt.Fprintf(w, "passive_array=%d\n", engine.Sonar.PassiveArray)
 	fmt.Fprintf(w, "towed_cable_pct=%.3f\n", engine.Sonar.TowedCablePct)
 	fmt.Fprintf(w, "towed_cable_rate=%.3f\n", engine.Sonar.TowedCableRate)
+	fmt.Fprintf(w, "towed_damaged=%t\n", engine.Sonar.TowedDamaged)
+	fmt.Fprintf(w, "listen_band=%d\n", engine.Sonar.ListenBand)
+	fmt.Fprintf(w, "sonar_deaf_until=%.3f\n", engine.Sonar.SonarDeafUntil)
+	fmt.Fprintf(w, "last_blast_at=%.3f\n", engine.Sonar.LastBlastAt)
+	fmt.Fprintf(w, "last_blast_x=%.3f\n", engine.Sonar.LastBlastX)
+	fmt.Fprintf(w, "last_blast_y=%.3f\n", engine.Sonar.LastBlastY)
+	fmt.Fprintf(w, "last_blast_range=%.3f\n", engine.Sonar.LastBlastRangeYd)
+	fmt.Fprintf(w, "last_blast_flash=%.3f\n", engine.Sonar.LastBlastFlashSec)
 	for _, c := range engine.Sonar.Contacts {
-		fmt.Fprintf(w, "contact=%s|%.3f|%.3f|%.3f|%s|%s|%.3f|%s|%s|%d|%s|%s\n",
+		fmt.Fprintf(w, "contact=%s|%.3f|%.3f|%.3f|%s|%s|%.3f|%s|%s|%d|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f\n",
 			c.ID, c.BearingDeg, c.EstimatedRangeYd, c.SNR,
 			c.BestMatchID, c.BestMatchName, c.Confidence,
 			c.SourceEntityID, c.DetectedBy, c.Kind,
-			c.ConfirmedID, c.ConfirmedClass)
+			c.ConfirmedID, c.ConfirmedClass,
+			c.UncBearingDeg, c.UncRangeYd, c.LastUpdate, c.FirstSeen, c.ListenTime,
+			c.LastActiveBearingDeg, c.LastActiveRangeYd, c.LastActiveFixAt,
+			c.TMACourseDeg, c.TMASpeedKts, c.TMAAccuracy)
 	}
 
 	fmt.Fprintf(w, "\n[fire_control]\n")
@@ -63,23 +84,75 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "speed_setting=%s\n", engine.FireControl.SpeedSetting)
 	fmt.Fprintf(w, "seeker_enabled=%t\n", engine.FireControl.SeekerEnabled)
 	fmt.Fprintf(w, "magazine_left=%d\n", engine.FireControl.MagazineLeft)
+	fmt.Fprintf(w, "torpedo_seq=%d\n", engine.FireControl.TorpedoSeq())
+	for id, n := range engine.FireControl.EnemyMagazine {
+		fmt.Fprintf(w, "enemy_mag=%s|%d\n", id, n)
+	}
+	for id, t := range engine.FireControl.EnemyTubeOpenAt {
+		fmt.Fprintf(w, "enemy_tube_open=%s|%.3f\n", id, t)
+	}
 	for _, t := range engine.FireControl.Tubes {
 		fmt.Fprintf(w, "tube=%d|%d|%s|%t|%s|%.3f\n", t.Number, t.State, t.TorpedoType, t.WireIntact, t.TorpedoID, t.ReloadEnds)
 	}
 	for _, torp := range engine.FireControl.ActiveTorpedoes {
-		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t\n",
+		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%t\n",
 			torp.ID, torp.ParentSubID, torp.TargetID, torp.Side,
 			torp.X, torp.Y, torp.DepthFt, torp.HeadingDeg, torp.SpeedKts, torp.RunDepthFt,
 			torp.SeekerOn, torp.WireCut, torp.Armed, torp.Alive, torp.Mode, torp.Age,
 			torp.TubeNumber, torp.OrderedHead, torp.CruiseKts,
-			torp.LaunchHeadDeg, torp.GyroCourseDeg, torp.ClearDistYd, torp.EnableSearchAfterClear)
+			torp.LaunchHeadDeg, torp.GyroCourseDeg, torp.ClearDistYd, torp.EnableSearchAfterClear,
+			torp.LastPingTime, torp.GyroEnabled())
+	}
+
+	fmt.Fprintf(w, "\n[cm]\n")
+	for id, n := range engine.CM.Magazine {
+		fmt.Fprintf(w, "cm_mag=%s|%d\n", id, n)
+	}
+	for id, n := range engine.CM.JitterMagazine {
+		fmt.Fprintf(w, "jitter_mag=%s|%d\n", id, n)
+	}
+	for id, on := range engine.CM.NixieEnabled {
+		fmt.Fprintf(w, "nixie=%s|%t\n", id, on)
+	}
+	for id, t := range engine.CM.LastDeployAt {
+		fmt.Fprintf(w, "cm_deploy_at=%s|%.3f\n", id, t)
+	}
+	for id, t := range engine.CM.LastJitterAt {
+		fmt.Fprintf(w, "jitter_deploy_at=%s|%.3f\n", id, t)
+	}
+	for _, cm := range engine.CM.Active {
+		if cm == nil {
+			continue
+		}
+		fmt.Fprintf(w, "cm=%s|%s|%d|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%.3f|%.3f\n",
+			cm.ID, cm.ParentID, cm.Side, cm.Kind,
+			cm.X, cm.Y, cm.DepthFt, cm.HeadingDeg, cm.SpeedKts,
+			cm.Alive, cm.Age, cm.TTL, cm.NoiseBoostDB)
 	}
 
 	fmt.Fprintf(w, "\n[objectives]\n")
 	for _, o := range engine.Scenario.Objectives {
 		fmt.Fprintf(w, "objective=%s|%s|%t|%s\n", o.ID, o.Description, o.Complete, o.TargetID)
 	}
+
+	fmt.Fprintf(w, "\n[plot_markers]\n")
+	fmt.Fprintf(w, "marker_seq=%d\n", engine.PlotMarkerSeq())
+	for _, m := range engine.PlotMarkers {
+		fmt.Fprintf(w, "marker=%s|%.3f|%.3f\n", m.ID, m.X, m.Y)
+	}
 	return w.Flush()
+}
+
+func parseTrailingInt(id string) int {
+	i := strings.LastIndexByte(id, '-')
+	if i < 0 || i+1 >= len(id) {
+		return 0
+	}
+	n, err := strconv.Atoi(id[i+1:])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func writeEntity(w *bufio.Writer, e *world.Entity) {
@@ -97,10 +170,26 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "ordered_speed=%.3f\n", e.OrderedSpeed)
 	fmt.Fprintf(w, "ordered_depth=%.3f\n", e.OrderedDepth)
 	fmt.Fprintf(w, "ordered_heading=%.3f\n", e.OrderedHead)
+	fmt.Fprintf(w, "length_ft=%.3f\n", e.LengthFt)
 	fmt.Fprintf(w, "active_sonar=%t\n", e.ActiveSonar)
 	fmt.Fprintf(w, "last_ping_time=%.3f\n", e.LastPingTime)
 	fmt.Fprintf(w, "last_ping_power=%.3f\n", e.LastPingPower)
 	fmt.Fprintf(w, "ai_state=%s\n", e.AIState)
+	fmt.Fprintf(w, "sink_rate_fpm=%.3f\n", e.SinkRateFPM)
+	fmt.Fprintf(w, "wreck_noise_until=%.3f\n", e.WreckNoiseUntil)
+	fmt.Fprintf(w, "cook_off_left=%d\n", e.CookOffLeft)
+	fmt.Fprintf(w, "next_cook_off_at=%.3f\n", e.NextCookOffAt)
+	fmt.Fprintf(w, "transient_until=%.3f\n", e.TransientUntil)
+	fmt.Fprintf(w, "transient_freq=%.3f\n", e.TransientFreqHz)
+	fmt.Fprintf(w, "transient_level=%.3f\n", e.TransientLevelDB)
+	fmt.Fprintf(w, "damage_init=%t\n", e.Damage.Initialized)
+	fmt.Fprintf(w, "damage_repairing=%d\n", e.Damage.Repairing)
+	fmt.Fprintf(w, "damage_runaway_fpm=%.3f\n", e.Damage.DepthRunawayFPM)
+	fmt.Fprintf(w, "damage_steer_jam=%t\n", e.Damage.SteeringJammed)
+	fmt.Fprintf(w, "damage_steer_deg=%.3f\n", e.Damage.SteeringJamDeg)
+	for i := 0; i < world.SysCount; i++ {
+		fmt.Fprintf(w, "damage_eff_%d=%.3f\n", i, e.Damage.Eff[i])
+	}
 	fmt.Fprintf(w, "\n")
 }
 
@@ -118,6 +207,13 @@ func loadClean(path string) (*sim.Engine, error) {
 	sc := world.NewTrainingScenario()
 	engine := sim.NewEngine(sc)
 	engine.Scenario.Entities = nil
+	engine.Sonar.Contacts = nil
+	engine.FireControl.ActiveTorpedoes = nil
+	engine.FireControl.EnemyMagazine = map[string]int{}
+	engine.FireControl.EnemyTubeOpenAt = map[string]float64{}
+	engine.CM = weapons.NewCountermeasureSystem()
+	engine.CM.Active = nil
+	engine.PlotMarkers = nil
 
 	lines := strings.Split(string(data), "\n")
 	section := ""
@@ -156,6 +252,15 @@ func loadClean(path string) (*sim.Engine, error) {
 		}
 
 		switch section {
+		case "environment":
+			switch key {
+			case "layer_survey_known":
+				engine.Acoustics.Env.LayerSurveyKnown, _ = strconv.ParseBool(val)
+			case "layer_survey_start":
+				engine.Acoustics.Env.LayerSurveyStartAt, _ = strconv.ParseFloat(val, 64)
+			case "layer_survey_end":
+				engine.Acoustics.Env.LayerSurveyEndAt, _ = strconv.ParseFloat(val, 64)
+			}
 		case "sonar":
 			switch key {
 			case "passive_enabled":
@@ -164,6 +269,8 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.Sonar.ActiveEnabled, _ = strconv.ParseBool(val)
 			case "active_power":
 				engine.Sonar.ActivePower, _ = strconv.ParseFloat(val, 64)
+			case "last_ping_time":
+				engine.Sonar.LastPingTime, _ = strconv.ParseFloat(val, 64)
 			case "ping_interval":
 				engine.Sonar.PingInterval, _ = strconv.ParseFloat(val, 64)
 			case "spectrum_bearing":
@@ -175,6 +282,23 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.Sonar.TowedCablePct, _ = strconv.ParseFloat(val, 64)
 			case "towed_cable_rate":
 				engine.Sonar.TowedCableRate, _ = strconv.ParseFloat(val, 64)
+			case "towed_damaged":
+				engine.Sonar.TowedDamaged, _ = strconv.ParseBool(val)
+			case "listen_band":
+				n, _ := strconv.Atoi(val)
+				engine.Sonar.ListenBand = acoustics.ListenBand(n)
+			case "sonar_deaf_until":
+				engine.Sonar.SonarDeafUntil, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_at":
+				engine.Sonar.LastBlastAt, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_x":
+				engine.Sonar.LastBlastX, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_y":
+				engine.Sonar.LastBlastY, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_range":
+				engine.Sonar.LastBlastRangeYd, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_flash":
+				engine.Sonar.LastBlastFlashSec, _ = strconv.ParseFloat(val, 64)
 			case "contact":
 				parseContact(&engine.Sonar, val)
 			}
@@ -192,10 +316,32 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.FireControl.SeekerEnabled, _ = strconv.ParseBool(val)
 			case "magazine_left":
 				engine.FireControl.MagazineLeft, _ = strconv.Atoi(val)
+			case "torpedo_seq":
+				n, _ := strconv.Atoi(val)
+				engine.FireControl.SetTorpedoSeq(n)
+			case "enemy_mag":
+				parseEnemyMag(&engine.FireControl, val)
+			case "enemy_tube_open":
+				parseEnemyTubeOpen(&engine.FireControl, val)
 			case "tube":
 				parseTube(&engine.FireControl, val)
 			case "torpedo":
 				parseTorpedo(&engine.FireControl, val)
+			}
+		case "cm":
+			switch key {
+			case "cm_mag":
+				parseCMMag(&engine.CM, val)
+			case "jitter_mag":
+				parseJitterMag(&engine.CM, val)
+			case "nixie":
+				parseNixie(&engine.CM, val)
+			case "cm_deploy_at":
+				parseCMDeployAt(&engine.CM, val)
+			case "jitter_deploy_at":
+				parseJitterDeployAt(&engine.CM, val)
+			case "cm":
+				parseCM(&engine.CM, val)
 			}
 		case "objectives":
 			if key == "objective" {
@@ -207,8 +353,23 @@ func loadClean(path string) (*sim.Engine, error) {
 					engine.Scenario.Objectives = append(engine.Scenario.Objectives, obj)
 				}
 			}
+		case "plot_markers":
+			switch key {
+			case "marker_seq":
+				n, _ := strconv.Atoi(val)
+				engine.SetPlotMarkerSeq(n)
+			case "marker":
+				if m, ok := parsePlotMarker(val); ok {
+					engine.PlotMarkers = append(engine.PlotMarkers, m)
+					engine.SetPlotMarkerSeq(parseTrailingInt(m.ID))
+				}
+			}
 		default:
 			switch key {
+			case "scenario":
+				engine.Scenario.Name = val
+			case "fail_reason":
+				engine.Scenario.FailReason = val
 			case "game_time":
 				engine.Clock.GameTime, _ = strconv.ParseFloat(val, 64)
 			case "time_scale":
@@ -219,6 +380,10 @@ func loadClean(path string) (*sim.Engine, error) {
 		}
 	}
 
+	finalizeLoadedEntities(engine)
+	if engine.Scenario != nil && engine.Scenario.Player != nil {
+		engine.CM.EnsureMagazine(engine.Scenario.Player.ID)
+	}
 	if len(engine.Scenario.Objectives) == 0 {
 		engine.Scenario.Objectives = world.NewTrainingScenario().Objectives
 	}
@@ -228,6 +393,65 @@ func loadClean(path string) (*sim.Engine, error) {
 // LoadClean is an alias for Load.
 func LoadClean(path string) (*sim.Engine, error) {
 	return loadClean(path)
+}
+
+func finalizeLoadedEntities(engine *sim.Engine) {
+	fix := func(e *world.Entity) {
+		if e == nil {
+			return
+		}
+		if e.LengthFt <= 0 {
+			e.LengthFt = defaultLengthFt(e.SignatureID, e.Kind)
+		}
+		if e.Side != world.SideNeutral && !e.Damage.Initialized {
+			e.Damage = world.NewFullHealth()
+		}
+	}
+	fix(engine.Scenario.Player)
+	for _, e := range engine.Scenario.Entities {
+		fix(e)
+	}
+	for _, t := range engine.FireControl.ActiveTorpedoes {
+		if t == nil {
+			continue
+		}
+		engine.FireControl.SetTorpedoSeq(parseTrailingInt(t.ID))
+		// Old saves: once past tube-clear distance, gyro steering already applied.
+		if !t.GyroEnabled() && t.TubeCleared() {
+			t.MarkGyroEnabled(true)
+		}
+	}
+}
+
+func defaultLengthFt(sig string, kind world.EntityKind) float64 {
+	switch sig {
+	case "los_angeles":
+		return 360
+	case "kilo":
+		return 240
+	case "spruance":
+		return 563
+	case "perry":
+		return 445
+	case "merchant":
+		return 520
+	case "tanker":
+		return 900
+	case "fishing":
+		return 140
+	case "mk48", "type53":
+		return 19
+	}
+	switch kind {
+	case world.KindSubmarine:
+		return 300
+	case world.KindSurfaceShip:
+		return 400
+	case world.KindTorpedo:
+		return 19
+	default:
+		return 200
+	}
 }
 
 func applyEntityField(e *world.Entity, key, val string) {
@@ -261,6 +485,8 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.OrderedDepth, _ = strconv.ParseFloat(val, 64)
 	case "ordered_heading":
 		e.OrderedHead, _ = strconv.ParseFloat(val, 64)
+	case "length_ft":
+		e.LengthFt, _ = strconv.ParseFloat(val, 64)
 	case "active_sonar":
 		e.ActiveSonar, _ = strconv.ParseBool(val)
 	case "last_ping_time":
@@ -269,6 +495,38 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.LastPingPower, _ = strconv.ParseFloat(val, 64)
 	case "ai_state":
 		e.AIState = val
+	case "sink_rate_fpm":
+		e.SinkRateFPM, _ = strconv.ParseFloat(val, 64)
+	case "wreck_noise_until":
+		e.WreckNoiseUntil, _ = strconv.ParseFloat(val, 64)
+	case "cook_off_left":
+		e.CookOffLeft, _ = strconv.Atoi(val)
+	case "next_cook_off_at":
+		e.NextCookOffAt, _ = strconv.ParseFloat(val, 64)
+	case "transient_until":
+		e.TransientUntil, _ = strconv.ParseFloat(val, 64)
+	case "transient_freq":
+		e.TransientFreqHz, _ = strconv.ParseFloat(val, 64)
+	case "transient_level":
+		e.TransientLevelDB, _ = strconv.ParseFloat(val, 64)
+	case "damage_init":
+		e.Damage.Initialized, _ = strconv.ParseBool(val)
+	case "damage_repairing":
+		e.Damage.Repairing, _ = strconv.Atoi(val)
+	case "damage_runaway_fpm":
+		e.Damage.DepthRunawayFPM, _ = strconv.ParseFloat(val, 64)
+	case "damage_steer_jam":
+		e.Damage.SteeringJammed, _ = strconv.ParseBool(val)
+	case "damage_steer_deg":
+		e.Damage.SteeringJamDeg, _ = strconv.ParseFloat(val, 64)
+	default:
+		if strings.HasPrefix(key, "damage_eff_") {
+			idx, err := strconv.Atoi(strings.TrimPrefix(key, "damage_eff_"))
+			if err == nil && idx >= 0 && idx < world.SysCount {
+				e.Damage.Eff[idx], _ = strconv.ParseFloat(val, 64)
+				e.Damage.Initialized = true
+			}
+		}
 	}
 }
 
@@ -296,6 +554,39 @@ func parseContact(sonar *acoustics.SonarState, val string) {
 	if len(parts) > 11 {
 		c.ConfirmedClass = parts[11]
 	}
+	if len(parts) > 12 {
+		c.UncBearingDeg, _ = strconv.ParseFloat(parts[12], 64)
+	}
+	if len(parts) > 13 {
+		c.UncRangeYd, _ = strconv.ParseFloat(parts[13], 64)
+	}
+	if len(parts) > 14 {
+		c.LastUpdate, _ = strconv.ParseFloat(parts[14], 64)
+	}
+	if len(parts) > 15 {
+		c.FirstSeen, _ = strconv.ParseFloat(parts[15], 64)
+	}
+	if len(parts) > 16 {
+		c.ListenTime, _ = strconv.ParseFloat(parts[16], 64)
+	}
+	if len(parts) > 17 {
+		c.LastActiveBearingDeg, _ = strconv.ParseFloat(parts[17], 64)
+	}
+	if len(parts) > 18 {
+		c.LastActiveRangeYd, _ = strconv.ParseFloat(parts[18], 64)
+	}
+	if len(parts) > 19 {
+		c.LastActiveFixAt, _ = strconv.ParseFloat(parts[19], 64)
+	}
+	if len(parts) > 20 {
+		c.TMACourseDeg, _ = strconv.ParseFloat(parts[20], 64)
+	}
+	if len(parts) > 21 {
+		c.TMASpeedKts, _ = strconv.ParseFloat(parts[21], 64)
+	}
+	if len(parts) > 22 {
+		c.TMAAccuracy, _ = strconv.ParseFloat(parts[22], 64)
+	}
 	sonar.Contacts = append(sonar.Contacts, c)
 }
 
@@ -322,6 +613,30 @@ func parseTube(fc *weapons.FireControl, val string) {
 	}
 }
 
+func parseEnemyMag(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyMagazine == nil {
+		fc.EnemyMagazine = map[string]int{}
+	}
+	fc.EnemyMagazine[parts[0]] = n
+}
+
+func parseEnemyTubeOpen(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	t, _ := strconv.ParseFloat(parts[1], 64)
+	if fc.EnemyTubeOpenAt == nil {
+		fc.EnemyTubeOpenAt = map[string]float64{}
+	}
+	fc.EnemyTubeOpenAt[parts[0]] = t
+}
+
 func parseTorpedo(fc *weapons.FireControl, val string) {
 	parts := strings.Split(val, "|")
 	if len(parts) < 16 {
@@ -346,6 +661,7 @@ func parseTorpedo(fc *weapons.FireControl, val string) {
 	torp.Mode = weapons.TorpedoMode(mode)
 	torp.Age, _ = strconv.ParseFloat(parts[15], 64)
 	torp.OrderedHead = torp.HeadingDeg
+	torp.LastPingTime = -1
 	if len(parts) > 16 {
 		torp.TubeNumber, _ = strconv.Atoi(parts[16])
 	}
@@ -360,6 +676,8 @@ func parseTorpedo(fc *weapons.FireControl, val string) {
 	}
 	if len(parts) > 19 {
 		torp.LaunchHeadDeg, _ = strconv.ParseFloat(parts[19], 64)
+	} else {
+		torp.LaunchHeadDeg = torp.HeadingDeg
 	}
 	if len(parts) > 20 {
 		torp.GyroCourseDeg, _ = strconv.ParseFloat(parts[20], 64)
@@ -372,8 +690,12 @@ func parseTorpedo(fc *weapons.FireControl, val string) {
 	if len(parts) > 22 {
 		torp.EnableSearchAfterClear, _ = strconv.ParseBool(parts[22])
 	}
-	if torp.LaunchHeadDeg == 0 && torp.ClearDistYd == 0 {
-		torp.LaunchHeadDeg = torp.HeadingDeg
+	if len(parts) > 23 {
+		torp.LastPingTime, _ = strconv.ParseFloat(parts[23], 64)
+	}
+	if len(parts) > 24 {
+		gy, _ := strconv.ParseBool(parts[24])
+		torp.MarkGyroEnabled(gy)
 	}
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
 }
@@ -387,4 +709,93 @@ func parseObjective(val string) (world.Objective, bool) {
 	return world.Objective{
 		ID: parts[0], Description: parts[1], Complete: done, TargetID: parts[3],
 	}, true
+}
+
+func parsePlotMarker(val string) (world.PlotMarker, bool) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 3 || parts[0] == "" {
+		return world.PlotMarker{}, false
+	}
+	x, errX := strconv.ParseFloat(parts[1], 64)
+	y, errY := strconv.ParseFloat(parts[2], 64)
+	if errX != nil || errY != nil {
+		return world.PlotMarker{}, false
+	}
+	return world.PlotMarker{ID: parts[0], X: x, Y: y}, true
+}
+
+func parseCMMag(cs *weapons.CountermeasureSystem, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	cs.SetMagazine(parts[0], n)
+}
+
+func parseJitterMag(cs *weapons.CountermeasureSystem, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	cs.SetJitterMagazine(parts[0], n)
+}
+
+func parseNixie(cs *weapons.CountermeasureSystem, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	on, _ := strconv.ParseBool(parts[1])
+	cs.SetNixie(parts[0], on)
+}
+
+func parseCMDeployAt(cs *weapons.CountermeasureSystem, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	t, _ := strconv.ParseFloat(parts[1], 64)
+	if cs.LastDeployAt == nil {
+		cs.LastDeployAt = map[string]float64{}
+	}
+	cs.LastDeployAt[parts[0]] = t
+}
+
+func parseJitterDeployAt(cs *weapons.CountermeasureSystem, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	t, _ := strconv.ParseFloat(parts[1], 64)
+	if cs.LastJitterAt == nil {
+		cs.LastJitterAt = map[string]float64{}
+	}
+	cs.LastJitterAt[parts[0]] = t
+}
+
+func parseCM(cs *weapons.CountermeasureSystem, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 13 {
+		return
+	}
+	side, _ := strconv.Atoi(parts[2])
+	kind, _ := strconv.Atoi(parts[3])
+	cm := &weapons.Countermeasure{
+		ID: parts[0], ParentID: parts[1],
+		Side: world.Side(side), Kind: weapons.CMKind(kind),
+	}
+	cm.X, _ = strconv.ParseFloat(parts[4], 64)
+	cm.Y, _ = strconv.ParseFloat(parts[5], 64)
+	cm.DepthFt, _ = strconv.ParseFloat(parts[6], 64)
+	cm.HeadingDeg, _ = strconv.ParseFloat(parts[7], 64)
+	cm.SpeedKts, _ = strconv.ParseFloat(parts[8], 64)
+	cm.Alive, _ = strconv.ParseBool(parts[9])
+	cm.Age, _ = strconv.ParseFloat(parts[10], 64)
+	cm.TTL, _ = strconv.ParseFloat(parts[11], 64)
+	cm.NoiseBoostDB, _ = strconv.ParseFloat(parts[12], 64)
+	if cm.Alive {
+		cs.Active = append(cs.Active, cm)
+	}
 }

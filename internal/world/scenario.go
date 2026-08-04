@@ -83,6 +83,10 @@ func NewTrainingScenario() *Scenario {
 	ents := []*Entity{enemySurface, enemySub}
 	ents = append(ents, civilians...)
 
+	InitCombatantDamage(player)
+	InitCombatantDamage(enemySurface)
+	InitCombatantDamage(enemySub)
+
 	return &Scenario{
 		Name:        "Santa Catalina Approaches",
 		Description: "Locate and destroy hostile units near Santa Catalina Island. Do not attack civilian shipping.",

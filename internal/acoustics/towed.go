@@ -1,6 +1,10 @@
 package acoustics
 
-import "math"
+import (
+	"math"
+
+	"github.com/ssn688/sim/internal/world"
+)
 
 // PassiveArrayKind selects which passive array feeds the display and detectors.
 type PassiveArrayKind int
@@ -13,11 +17,16 @@ const (
 const (
 	towedDeploySec  = 15.0
 	towedRetractSec = 10.0
+
+	// TowedCableFullYd is TB-16-class tow-cable length (~2400 ft ≈ 800 yd).
+	TowedCableFullYd = 800.0
+	// Minimum streamed fraction before hydrodynamic shear risk applies.
+	towedShearMinPct = 0.20
 )
 
 // UpdateTowed advances towed-array cable pay-out or recovery.
 func (s *SonarState) UpdateTowed(dt float64) {
-	if s.TowedCableRate == 0 {
+	if s.TowedDamaged || s.TowedCableRate == 0 {
 		return
 	}
 	s.TowedCablePct += s.TowedCableRate * dt
@@ -38,7 +47,7 @@ func (s *SonarState) StopTowed() {
 
 // StartDeploy begins paying out the towed array.
 func (s *SonarState) StartDeploy() {
-	if s.TowedCablePct >= 1 {
+	if s.TowedDamaged || s.TowedCablePct >= 1 {
 		return
 	}
 	s.TowedCableRate = 1.0 / towedDeploySec
@@ -46,7 +55,7 @@ func (s *SonarState) StartDeploy() {
 
 // StartRetract begins recovering the towed array.
 func (s *SonarState) StartRetract() {
-	if s.TowedCablePct <= 0 {
+	if s.TowedDamaged || s.TowedCablePct <= 0 {
 		return
 	}
 	s.TowedCableRate = -1.0 / towedRetractSec
@@ -54,7 +63,7 @@ func (s *SonarState) StartRetract() {
 
 // TowedDeployed reports whether the cable is fully streamed.
 func (s *SonarState) TowedDeployed() bool {
-	return s.TowedCablePct >= 1 && s.TowedCableRate == 0
+	return !s.TowedDamaged && s.TowedCablePct >= 1 && s.TowedCableRate == 0
 }
 
 // TowedStowed reports whether the array is fully housed.
@@ -64,11 +73,36 @@ func (s *SonarState) TowedStowed() bool {
 
 // TowedInMotion reports deploy or retract in progress.
 func (s *SonarState) TowedInMotion() bool {
-	return s.TowedCableRate != 0
+	return !s.TowedDamaged && s.TowedCableRate != 0
+}
+
+// TowedBaselineYd is the horizontal lever arm from ownship to the array center.
+func TowedBaselineYd(cablePct float64) float64 {
+	if cablePct < 0 {
+		cablePct = 0
+	}
+	if cablePct > 1 {
+		cablePct = 1
+	}
+	return TowedCableFullYd * cablePct
+}
+
+// PlaceTowedListener copies ownship into dst and shifts position to the streamed
+// array center (astern along heading by TowedBaselineYd).
+func PlaceTowedListener(dst, ownship *world.Entity, cablePct float64) bool {
+	if dst == nil || ownship == nil || cablePct < 0.05 {
+		return false
+	}
+	*dst = *ownship
+	base := TowedBaselineYd(cablePct)
+	rad := ownship.HeadingDeg * math.Pi / 180
+	dst.X = ownship.X - math.Sin(rad)*base
+	dst.Y = ownship.Y - math.Cos(rad)*base
+	return true
 }
 
 func (s *SonarState) towedEffectiveness() float64 {
-	if s.PassiveArray != PassiveArrayTowed {
+	if s.TowedDamaged || s.PassiveArray != PassiveArrayTowed {
 		return 0
 	}
 	return s.TowedCablePct
@@ -84,6 +118,84 @@ func (s *SonarState) passiveSelfNoiseCutDB() float64 {
 
 func (s *SonarState) passiveBearingSigmaScale() float64 {
 	return 1.0 - s.towedEffectiveness()*0.62
+}
+
+// TowedWarnSpeedKts — above this, UI warns that further speed risks parting the cable.
+// Open sources: acoustic sweet spot ~12 kn; safely streamable toward ~25 kn (Navy Lookout / TAS).
+// Full cable: warn ~20 kn; short scope: higher.
+func TowedWarnSpeedKts(cablePct float64) float64 {
+	if cablePct < towedShearMinPct {
+		return 99
+	}
+	return 20 + (1-cablePct)*6 // 20..~25
+}
+
+// TowedShearSpeedKts — hydrodynamic drag ~v² can part cable / handling gear.
+// Full stream: ~24 kn failure; shorter scope tolerates a few knots more.
+func TowedShearSpeedKts(cablePct float64) float64 {
+	if cablePct < towedShearMinPct {
+		return 99
+	}
+	return 24 + (1-cablePct)*5 // 24..~28
+}
+
+// CheckTowedSpeed applies cable stress. Returns (sheared, warn).
+func (s *SonarState) CheckTowedSpeed(speedKts float64) (sheared, warn bool) {
+	if s == nil || s.TowedDamaged || s.TowedCablePct < towedShearMinPct {
+		return false, false
+	}
+	shear := TowedShearSpeedKts(s.TowedCablePct)
+	warnAt := TowedWarnSpeedKts(s.TowedCablePct)
+	if speedKts >= shear {
+		s.TowedDamaged = true
+		s.TowedCablePct = 0
+		s.TowedCableRate = 0
+		return true, false
+	}
+	if speedKts >= warnAt {
+		return false, true
+	}
+	return false, false
+}
+
+// TriangulationQuality 0..1 from hull↔towed baseline vs range and geometry.
+// Best abeam with a long stream; near zero ahead/astern or with short cable.
+func TriangulationQuality(baselineYd, rangeYd, relBearingDeg float64) float64 {
+	if baselineYd < 80 || rangeYd < 200 {
+		return 0
+	}
+	geom := math.Abs(math.Sin(relBearingDeg * math.Pi / 180))
+	if geom < 0.12 {
+		return 0
+	}
+	// Parallax angle scale: B/R; saturates as baseline becomes a useful fraction of range.
+	parallax := baselineYd / (baselineYd + rangeYd*0.22)
+	q := parallax * geom
+	if q > 1 {
+		q = 1
+	}
+	return q
+}
+
+// ApplyTriangulationBonus shrinks passive track uncertainty when a long towed
+// baseline can be fused with the hull aperture (dual-array TMA).
+func ApplyTriangulationBonus(c *Contact, baselineYd, rangeYd, relBearingDeg float64) {
+	if c == nil {
+		return
+	}
+	q := TriangulationQuality(baselineYd, rangeYd, relBearingDeg)
+	if q < 0.05 {
+		return
+	}
+	// Full cable abeam mid-range: up to ~55% tighter range blob, ~30% bearing.
+	c.UncRangeYd *= 1 - 0.55*q
+	c.UncBearingDeg *= 1 - 0.30*q
+	if c.UncRangeYd < 90 {
+		c.UncRangeYd = 90
+	}
+	if c.UncBearingDeg < 1.2 {
+		c.UncBearingDeg = 1.2
+	}
 }
 
 // PassiveSelfNoisePenaltyDB models loss of passive SNR from ownship speed.
@@ -141,7 +253,7 @@ func PassiveSelfNoiseSeverity(array PassiveArrayKind, speedKts, depthFt, towedPc
 	if maxPen <= 0 {
 		return 0
 	}
-		return math.Min(1, maxPen/8.0)
+	return math.Min(1, maxPen/8.0)
 }
 
 func applyPassiveArrayModifiers(result *DetectionResult, sonar *SonarState) {

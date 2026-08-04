@@ -9,8 +9,9 @@ import (
 )
 
 // UpdateAllAI drives enemy combatants and neutral shipping.
-func UpdateAllAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo) {
-	UpdateEnemyAI(entities, player, gameTime, model, torps)
+func UpdateAllAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, cm *weapons.CountermeasureSystem) {
+	ctx := EvadeContext{CM: cm, Env: model.Env, GameTime: gameTime}
+	UpdateEnemyAI(entities, player, gameTime, model, torps, ctx)
 	UpdateCivilianAI(entities, player, gameTime)
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
+	"github.com/ssn688/sim/internal/world"
 )
 
 const (
@@ -98,7 +99,11 @@ func (b *BearingWaterfallBank) ForArray(array acoustics.PassiveArrayKind) *Beari
 }
 
 func (w *BearingWaterfall) Reset() {
-	w.buf = w.buf[:0]
+	// Keep backing rows for reuse, but do not shrink len to 0 — PushCopy indexes
+	// w.buf[w.pos] and treats a non-nil buf as already allocated.
+	if w.buf != nil {
+		w.buf = w.buf[:cap(w.buf)]
+	}
 	w.pos = 0
 	w.n = 0
 }
@@ -108,8 +113,13 @@ func (w *BearingWaterfall) PushCopy(bearings []float64, heading float64) {
 	if len(bearings) == 0 {
 		return
 	}
-	if w.buf == nil {
+	if w.buf == nil || len(w.buf) == 0 {
 		w.buf = make([]acoustics.BearingWaterfallRow, waterfallMaxRows)
+		w.pos = 0
+		w.n = 0
+	}
+	if w.pos < 0 || w.pos >= len(w.buf) {
+		w.pos = 0
 	}
 	slot := &w.buf[w.pos]
 	if slot.Bearings == nil || len(slot.Bearings) != len(bearings) {
@@ -369,4 +379,19 @@ func (a *App) drawBearingWaterfall(screen *ebiten.Image, sonar *acoustics.SonarS
 	render.DrawText(screen, "000", plotX+plotW/2-10, y+h-4, render.ColorPhosphor, true)
 	render.DrawText(screen, "090", plotX+3*plotW/4-10, y+h-4, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "180", plotX+plotW-18, y+h-4, render.ColorPhosphorDim, true)
+
+	if sonar.PassiveArray == acoustics.PassiveArrayTowed && sonar.TowedDamaged {
+		msg := "TOWED ARRAY DAMAGED — NO DATA"
+		tw := len(msg) * 6
+		render.DrawText(screen, msg, plotX+(plotW-tw)/2, plotY+plotH/2, render.ColorWarn, false)
+	}
+	if a.Engine != nil && a.Engine.Scenario.Player != nil {
+		p := a.Engine.Scenario.Player
+		p.EnsureDamage()
+		if sonar.PassiveArray == acoustics.PassiveArrayHull && p.Damage.Destroyed(world.SysPassiveHull) {
+			msg := "HULL ARRAY DAMAGED — NO DATA"
+			tw := len(msg) * 6
+			render.DrawText(screen, msg, plotX+(plotW-tw)/2, plotY+plotH/2, render.ColorWarn, false)
+		}
+	}
 }

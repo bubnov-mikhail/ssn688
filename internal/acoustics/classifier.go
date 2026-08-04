@@ -54,6 +54,50 @@ func Classify(signal Spectrum, peakSNR, rangeYd float64) Classification {
 	return best
 }
 
+// IsTorpedoProfile reports whether a signature library ID is a torpedo class.
+func IsTorpedoProfile(id string) bool {
+	return id == "mk48" || id == "type53"
+}
+
+// TryAutoClassifyTorpedo confirms TORP when harmonics / match look like a fish.
+// Returns true when this call newly confirmed the contact as a torpedo.
+func TryAutoClassifyTorpedo(c *Contact, class Classification) bool {
+	if c == nil || !IsTorpedoProfile(class.ProfileID) {
+		return false
+	}
+	// Need clear HF blade harmonics and a usable match — not a weak broadband guess.
+	if class.BladeMatch < 0.40 && class.Confidence < 0.58 {
+		return false
+	}
+	if class.Confidence < 0.50 {
+		return false
+	}
+	was := c.ConfirmedClass != "" && c.Kind == world.KindTorpedo
+	c.BestMatchID = class.ProfileID
+	c.BestMatchName = class.ProfileName
+	c.ConfirmedID = class.ProfileID
+	c.ConfirmedClass = "TORP"
+	c.Kind = world.KindTorpedo
+	if c.Confidence < class.Confidence {
+		c.Confidence = class.Confidence
+	}
+	if c.Confidence < 0.72 {
+		c.Confidence = 0.72
+	}
+	return !was
+}
+
+// KindFromMatch returns library Kind for a confident match; unknown otherwise.
+func KindFromMatch(class Classification) world.EntityKind {
+	if class.Confidence < 0.50 {
+		return world.EntityKind(-1)
+	}
+	if p, ok := world.ProfileByID(class.ProfileID); ok {
+		return p.Kind
+	}
+	return world.EntityKind(-1)
+}
+
 func spectralDistance(a, b Spectrum) float64 {
 	var sum float64
 	for i := range a {

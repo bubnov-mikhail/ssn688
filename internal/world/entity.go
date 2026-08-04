@@ -41,6 +41,7 @@ type Entity struct {
 	LastPingTime  float64
 	LastPingPower float64 // 0..1 transmit power of last active ping
 	AIState       string
+	Damage        PlatformDamage
 	// Short-lived transient signature (tube doors, flooding valves, etc).
 	TransientUntil   float64
 	TransientFreqHz  float64
@@ -48,6 +49,9 @@ type Entity struct {
 	// Sinking wreck noise / motion (StatusSinking).
 	SinkRateFPM     float64 // feet per minute downward
 	WreckNoiseUntil float64
+	// Magazine / fuel cook-offs after a kill: secondary underwater flashes.
+	CookOffLeft   int     // remaining secondary detonations
+	NextCookOffAt float64 // GameTime of next cook-off (0 = none scheduled)
 }
 
 func (e *Entity) Alive() bool {
@@ -94,21 +98,51 @@ func (e *Entity) Advance(dt float64) {
 		e.SpeedKts *= math.Max(0, 1-0.15*dt)
 		return
 	}
+	e.EnsureDamage()
+
+	// Propulsion ceiling.
+	maxSpd := e.MaxSpeedKts()
+	if e.OrderedSpeed > maxSpd {
+		e.OrderedSpeed = maxSpd
+	}
+
 	// Cap acceleration by platform class (open-order figures; exact rates classified).
-	maxA := MaxSpeedAccelKtsPerSec(e)
+	maxA := MaxSpeedAccelKtsPerSec(e) * math.Max(0.05, e.Damage.EffOf(SysPropulsion)/100)
 	errSpd := e.OrderedSpeed - e.SpeedKts
 	e.SpeedKts += clamp(errSpd, -maxA*dt, maxA*dt)
+	if e.SpeedKts > maxSpd {
+		e.SpeedKts = maxSpd
+	}
+
 	if e.Kind != KindSurfaceShip {
-		rateFPS := DepthChangeRateFPM(e.SpeedKts) / 60
-		err := e.OrderedDepth - e.DepthFt
-		e.DepthFt += clamp(err, -rateFPS*dt, rateFPS*dt)
+		if e.Damage.Destroyed(SysDepth) && e.Damage.DepthRunawayFPM != 0 {
+			e.DepthFt += e.Damage.DepthRunawayFPM / 60 * dt
+			if e.DepthFt < 0 {
+				e.DepthFt = 0
+			}
+		} else {
+			rateFPS := DepthChangeRateFPM(e.SpeedKts) / 60 * e.DepthRateScale()
+			err := e.OrderedDepth - e.DepthFt
+			e.DepthFt += clamp(err, -rateFPS*dt, rateFPS*dt)
+		}
 	} else {
 		e.DepthFt = 0
 		e.OrderedDepth = 0
 	}
-	diff := shortestAngleDiff(e.HeadingDeg, e.OrderedHead)
-	e.HeadingDeg += clamp(diff*dt*0.25, -dt*3, dt*3)
-	e.HeadingDeg = normalizeAngle(e.HeadingDeg)
+
+	if e.Damage.SteeringJammed || e.Damage.Destroyed(SysSteering) {
+		e.OrderedHead = e.Damage.SteeringJamDeg
+		if !e.Damage.SteeringJammed {
+			e.Damage.SteeringJamDeg = e.HeadingDeg
+			e.Damage.SteeringJammed = true
+			e.OrderedHead = e.HeadingDeg
+		}
+	} else {
+		turnScale := e.TurnRateScale()
+		diff := shortestAngleDiff(e.HeadingDeg, e.OrderedHead)
+		e.HeadingDeg += clamp(diff*dt*0.25*turnScale, -dt*3*turnScale, dt*3*turnScale)
+		e.HeadingDeg = normalizeAngle(e.HeadingDeg)
+	}
 
 	rad := e.HeadingDeg * math.Pi / 180
 	speedYPS := e.SpeedKts * KnotsToYPS
@@ -117,29 +151,26 @@ func (e *Entity) Advance(dt float64) {
 }
 
 // MaxSpeedAccelKtsPerSec is the magnitude limit on |dSpeed/dt| in knots/second.
-// Order-of-magnitude from open naval literature (not classified 688 performance):
-//   SSN: minutes to change speed bands (~0.05–0.12 kts/s)
-//   Surface warship: somewhat quicker; large merchants slower
-//   Torpedo: reaches cruise in ~10–20 s
+// Tuned for responsive maneuvering while still ramping over tens of seconds.
 func MaxSpeedAccelKtsPerSec(e *Entity) float64 {
 	if e == nil {
-		return 0.08
+		return 0.22
 	}
 	switch e.Kind {
 	case KindSubmarine:
-		return 0.08 // ~5 kts/min — several minutes all-stop → flank
+		return 0.24 // ~14 kts/min — ~80 s all-stop → 20 kts
 	case KindTorpedo:
-		return 4.0
+		return 6.0
 	case KindSurfaceShip:
 		if e.LengthFt >= 700 {
-			return 0.035 // large merchant / tanker
+			return 0.12 // large merchant / tanker
 		}
 		if e.LengthFt >= 400 {
-			return 0.06 // destroyer / cruiser class
+			return 0.18 // destroyer / cruiser class
 		}
-		return 0.09 // small craft / fishing
+		return 0.27 // small craft / fishing
 	default:
-		return 0.08
+		return 0.22
 	}
 }
 

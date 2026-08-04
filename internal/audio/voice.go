@@ -111,6 +111,13 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 
 	dup := make([]byte, len(pcm))
 	copy(dup, pcm)
+	// Do not drop a different clip that is still waiting on the play delay —
+	// promote it into the voice queue so both lines are heard.
+	if m.pending != nil && m.pending.id != id {
+		p := m.pending
+		m.pending = nil
+		m.startVoiceLocked(p.id, p.pcm, p.volume, p.subtitle)
+	}
 	m.pending = &pendingClip{
 		id:       id,
 		pcm:      dup,
@@ -195,6 +202,18 @@ func (m *Manager) PlayTorpedoLaunch() {
 	defer m.mu.Unlock()
 	wav := generateSweepWAV(m.sampleRate, 200, 80, 0.5)
 	m.playing = append(m.playing, &playerVoice{data: wav, volume: m.fxVol * m.masterVol})
+}
+
+// StopAll clears queued/playing voices and FX so a session can release cleanly.
+func (m *Manager) StopAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.playing = nil
+	m.queue = nil
+	m.pending = nil
+	m.activeClipID = ""
+	m.subtitle = ""
+	m.subtitleAt = time.Time{}
 }
 
 func (m *Manager) Subtitle() (string, bool) {
@@ -291,6 +310,10 @@ func humanSubtitle(id ClipID) string {
 		return "Contact classified."
 	case ClipWepsImpactConfirmed:
 		return "Weapon impact confirmed."
+	case ClipWepsTorpedoInWater:
+		return "Torpedo in the water."
+	case ClipWepsTorpedoHeadingOwnship:
+		return "Incomming torpedo!"
 	case ClipWepsOuterDoorClosed:
 		return "Outer door closed."
 	case ClipWepsRunDepthSet:

@@ -97,6 +97,11 @@ type Torpedo struct {
 	ClearDistYd            float64
 	EnableSearchAfterClear bool
 	gyroEnabled            bool // true once tube-clear steering has been applied
+
+	// Anti-CM: temporary blacklist of seduced decoys + lock clock for verification.
+	RejectedUntil map[string]float64
+	CMLockID      string
+	CMLockSince   float64
 }
 
 // Detonation describes a warhead event for the sim (blast, deaf, sinking).
@@ -244,6 +249,13 @@ func (fc *FireControl) Shoot(sub *world.Entity, tubeNum int) *Torpedo {
 	if t.State != TubeDoorOpen {
 		return nil
 	}
+	if sub != nil {
+		sub.EnsureDamage()
+		sys := world.TubeSys(t.Number)
+		if sys != world.SysNone && !sub.Damage.Operational(sys) {
+			return nil
+		}
+	}
 	fc.torpedoSeq++
 	t.State = TubeFired
 	t.WireIntact = true
@@ -341,6 +353,28 @@ func (fc *FireControl) HasRecentShotFrom(subID string, maxAge float64) bool {
 		}
 	}
 	return false
+}
+
+func (fc *FireControl) SetTorpedoSeq(n int) {
+	if n > fc.torpedoSeq {
+		fc.torpedoSeq = n
+	}
+}
+
+func (fc *FireControl) TorpedoSeq() int {
+	return fc.torpedoSeq
+}
+
+// MarkGyroEnabled restores post-tube-clear steering state after a save load.
+func (t *Torpedo) MarkGyroEnabled(enabled bool) {
+	if t == nil {
+		return
+	}
+	t.gyroEnabled = enabled
+}
+
+func (t *Torpedo) GyroEnabled() bool {
+	return t != nil && t.gyroEnabled
 }
 
 func (fc *FireControl) TorpedoByID(id string) *Torpedo {
@@ -487,6 +521,22 @@ func (fc *FireControl) WireSteer(torp *Torpedo, deltaHead, deltaDepth float64) {
 	torp.RunDepthFt = clamp(torp.RunDepthFt+deltaDepth, 40, 1500)
 }
 
+// WireSetCourse sets an absolute gyro / ordered course while wire guidance is active.
+// No-op if the fish is in ModeSearch (caller should leave seeker alone).
+func (fc *FireControl) WireSetCourse(torp *Torpedo, courseDeg float64) {
+	if torp == nil || !torp.Alive || torp.WireCut {
+		return
+	}
+	if torp.Mode == ModeSearch || torp.SeekerOn {
+		return
+	}
+	courseDeg = normalizeAngle(courseDeg)
+	torp.GyroCourseDeg = courseDeg
+	if torp.TubeCleared() {
+		torp.OrderedHead = courseDeg
+	}
+}
+
 // TubeCleared reports whether the fish has run far enough to enable gyro turn.
 func (t *Torpedo) TubeCleared() bool {
 	if t == nil {
@@ -543,8 +593,8 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 	t.Age += dt
 	t.DepthFt += (t.RunDepthFt - t.DepthFt) * dt * 0.5
 	if t.CruiseKts > 0 {
-		// ~4 kts/s — order of published Mk48 time-to-speed.
-		const accel = 4.0
+		// Ramp to cruise; ~6 kts/s keeps tube-exit → ordered speed under ~20 s.
+		const accel = 6.0
 		ds := t.CruiseKts - t.SpeedKts
 		t.SpeedKts += clamp(ds, -accel*dt, accel*dt)
 	}
@@ -583,18 +633,30 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 		t.HeadingDeg = normalizeAngle(t.HeadingDeg)
 	}
 
-	// Active search: acquire ANY ship/sub in forward cone (friendly fire possible).
+	// Active search: acquire ships/subs OR soft-kill decoys; anti-CM can reject decoys.
 	if t.Mode == ModeSearch {
 		if t.LastPingTime < 0 || gameTime-t.LastPingTime >= TorpedoActivePingIntervalSec {
 			t.LastPingTime = gameTime
 		}
-		if best := t.acquireInCone(targets, layerAtten); best != nil {
+		if best := t.acquireInCone(targets, layerAtten, gameTime); best != nil {
 			desired := bearing(t.X, t.Y, best.X, best.Y)
 			diff := shortestAngleDiff(t.HeadingDeg, desired)
 			t.HeadingDeg += clamp(diff*dt*0.9, -dt*10, dt*10)
 			t.HeadingDeg = normalizeAngle(t.HeadingDeg)
+			if best.Kind == world.KindCountermeasure {
+				if t.CMLockID != best.ID {
+					t.CMLockID = best.ID
+					t.CMLockSince = gameTime
+				}
+			} else {
+				t.CMLockID = ""
+				t.CMLockSince = 0
+			}
 			t.TargetID = best.ID
 			t.RunDepthFt += (best.DepthFt - t.RunDepthFt) * dt * 0.35
+		} else {
+			t.CMLockID = ""
+			t.CMLockSince = 0
 		}
 	}
 
@@ -637,33 +699,221 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 	return nil
 }
 
-func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFunc) *world.Entity {
+func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFunc, gameTime float64) *world.Entity {
 	var best *world.Entity
-	bestDist := 1e9
+	bestScore := -1.0
+	gullible := t != nil && t.Side == world.SideEnemy
+	verifySec := AntiCMVerifySec
+	if gullible {
+		verifySec = EnemyAntiCMVerifySec
+	}
+
+	// Periodic anti-CM: if locked on a decoy long enough, maybe reject it.
+	if t.CMLockID != "" && t.CMLockSince > 0 && gameTime-t.CMLockSince >= verifySec {
+		t.maybeRejectCM(targets, gameTime)
+	}
+
 	for _, tgt := range targets {
 		if tgt == nil || !tgt.Alive() {
 			continue
 		}
-		if tgt.Kind != world.KindSubmarine && tgt.Kind != world.KindSurfaceShip {
+		isCM := tgt.Kind == world.KindCountermeasure
+		isShip := tgt.Kind == world.KindSubmarine || tgt.Kind == world.KindSurfaceShip
+		if !isCM && !isShip {
 			continue
 		}
+		// Wire-run never seduces on decoys — only ModeSearch (caller).
+		if isCM && t.Mode != ModeSearch {
+			continue
+		}
+		if t.RejectedUntil != nil {
+			if until, ok := t.RejectedUntil[tgt.ID]; ok && gameTime < until {
+				continue
+			}
+		}
 		// Do not lock own launcher while still wire-connected.
-		if tgt.ID == t.ParentSubID && !t.WireCut && t.Mode == ModeWire {
+		if tgt.ID == t.ParentSubID && !t.WireCut {
 			continue
 		}
 		d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
 		maxR, coneHalf := seekAcquireLimits(t.DepthFt, tgt.DepthFt, layerAtten)
-		if d > maxR || d >= bestDist {
+		if isCM {
+			// Decoys are a bit easier to "hear" at the edge of the cone, but not beyond range.
+			maxR *= 1.08
+			coneHalf *= 1.05
+			if gullible {
+				maxR *= 1.12
+				coneHalf *= 1.12
+			}
+		}
+		if d < 1 || d > maxR {
 			continue
 		}
 		brg := bearing(t.X, t.Y, tgt.X, tgt.Y)
 		if math.Abs(shortestAngleDiff(t.HeadingDeg, brg)) > coneHalf {
 			continue
 		}
-		bestDist = d
-		best = tgt
+		// Closer = better; decoys get an attractiveness bonus (soft-kill seduction).
+		score := (maxR - d) / maxR
+		if isCM {
+			if tgt.SignatureID == "jitter" {
+				if gullible {
+					score *= EnemySeekJitterAttractMul
+				} else {
+					score *= SeekJitterAttractMul
+				}
+			} else if gullible {
+				score *= EnemySeekCMAttractMul
+			} else {
+				score *= SeekCMAttractMul
+			}
+			// Hovering ADC looks loud but Doppler-poor — slightly less sticky than Nixie.
+			if tgt.SpeedKts < 2 && tgt.SignatureID != "jitter" {
+				if gullible {
+					score *= 0.98
+				} else {
+					score *= 0.92
+				}
+			}
+		} else {
+			// Prefer real platforms once within half-range (anti-CM bias toward truth).
+			if d < maxR*0.45 {
+				if gullible {
+					score *= EnemyShipCloseBias
+				} else {
+					score *= 1.25
+				}
+			}
+			// Prior lock on this ship sticks a little.
+			if t.TargetID == tgt.ID && t.CMLockID == "" {
+				if gullible {
+					score *= EnemyPriorTargetBias
+				} else {
+					score *= 1.12
+				}
+			}
+			// Broadband jammer in cone muddies ship lock quality.
+			if gullible {
+				score *= EnemyJitterConfuseFactor(targets, t.X, t.Y, t.HeadingDeg, coneHalf, maxR)
+			} else {
+				score *= JitterConfuseFactor(targets, t.X, t.Y, t.HeadingDeg, coneHalf, maxR)
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = tgt
+		}
 	}
 	return best
+}
+
+func (t *Torpedo) maybeRejectCM(targets []*world.Entity, gameTime float64) {
+	if t == nil || t.CMLockID == "" {
+		return
+	}
+	gullible := t.Side == world.SideEnemy
+	verifySec := AntiCMVerifySec
+	rejectHold := AntiCMRejectHoldSec
+	if gullible {
+		verifySec = EnemyAntiCMVerifySec
+		rejectHold = EnemyAntiCMRejectHoldSec
+	}
+	var decoy *world.Entity
+	var realInCone int
+	var decoyDist, closestReal float64
+	decoyDist, closestReal = 1e12, 1e12
+	for _, tgt := range targets {
+		if tgt == nil || !tgt.Alive() {
+			continue
+		}
+		if tgt.ID == t.CMLockID {
+			decoy = tgt
+			decoyDist = math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
+		}
+		if tgt.Kind != world.KindSubmarine && tgt.Kind != world.KindSurfaceShip {
+			continue
+		}
+		if tgt.ID == t.ParentSubID && !t.WireCut {
+			continue
+		}
+		d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
+		if d > SeekAcquireRangeYd {
+			continue
+		}
+		brg := bearing(t.X, t.Y, tgt.X, tgt.Y)
+		if math.Abs(shortestAngleDiff(t.HeadingDeg, brg)) <= SeekConeHalfAngleDeg {
+			realInCone++
+			if d < closestReal {
+				closestReal = d
+			}
+		}
+	}
+	if decoy == nil || decoy.Kind != world.KindCountermeasure {
+		t.CMLockID = ""
+		t.CMLockSince = 0
+		return
+	}
+	reject := false
+	if gullible {
+		// Hostile fish: stay seduced unless the real hull is clearly closer, or lock is very old.
+		lockAge := gameTime - t.CMLockSince
+		if realInCone > 0 && closestReal < decoyDist*0.55 {
+			reject = true
+		}
+		if decoy.SignatureID == "adc" && decoy.SpeedKts < 1.2 && lockAge >= verifySec*1.6 {
+			reject = true
+		}
+		if decoy.SignatureID == "nixie" && realInCone == 0 {
+			reject = false
+			if lockAge >= verifySec*2.8 {
+				reject = true
+			}
+		}
+		if decoy.SignatureID == "jitter" {
+			// Jitter keeps confusing; only dump after a long hold with a much closer hull.
+			if realInCone > 0 && closestReal < decoyDist*0.4 && lockAge >= verifySec*1.3 {
+				reject = true
+			} else if lockAge >= verifySec*2.0 {
+				reject = true
+			} else {
+				reject = false
+			}
+		}
+		if !reject && lockAge >= verifySec*2.4 {
+			reject = true
+		}
+	} else {
+		// Player Mk48: sharper anti-CM discrimination.
+		if decoy.SpeedKts < 2.5 {
+			reject = true
+		}
+		if realInCone > 0 {
+			reject = true
+		}
+		if decoy.SignatureID == "nixie" && realInCone == 0 {
+			reject = false
+			if gameTime-t.CMLockSince >= verifySec*2.2 {
+				reject = true
+			}
+		}
+		if decoy.SignatureID == "jitter" && realInCone > 0 {
+			reject = true
+		}
+	}
+	if !reject {
+		// Keep verifying later.
+		t.CMLockSince = gameTime - verifySec*0.35
+		return
+	}
+	if t.RejectedUntil == nil {
+		t.RejectedUntil = map[string]float64{}
+	}
+	t.RejectedUntil[decoy.ID] = gameTime + rejectHold
+	t.CMLockID = ""
+	t.CMLockSince = 0
+	if t.TargetID == decoy.ID {
+		t.TargetID = ""
+	}
 }
 
 // seekAcquireLimits shrinks seeker range/cone when acoustic layers separate fish and target.
@@ -731,20 +981,25 @@ func clamp(v, lo, hi float64) float64 {
 	return v
 }
 
-// TubeStateName is a UI helper.
-func TubeStateName(s TubeState) string {
-	switch s {
+// TubeAmmoStatus is the WEPS tube load line: weapon type, with ", wired" while
+// guidance wire from that tube is still intact.
+func TubeAmmoStatus(t Tube, reloadRemainSec float64) string {
+	switch t.State {
 	case TubeEmpty:
 		return "EMPTY"
-	case TubeLoaded:
-		return "LOADED"
-	case TubeDoorOpen:
-		return "DOOR OPEN"
-	case TubeFired:
-		return "FIRED"
 	case TubeReloading:
+		if reloadRemainSec > 0 {
+			return fmt.Sprintf("RELOADING %ds", int(reloadRemainSec+0.5))
+		}
 		return "RELOADING"
 	default:
-		return "?"
+		name := t.TorpedoType
+		if name == "" {
+			name = "Mk48"
+		}
+		if t.State == TubeFired && t.WireIntact {
+			return name + ", wired"
+		}
+		return name
 	}
 }

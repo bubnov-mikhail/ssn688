@@ -44,8 +44,9 @@ go build -o ssn688 .
 | `M` | Тактическая карта |
 | `Space` | Пауза |
 | `+` / `-` | Ускорение / замедление времени |
-| `Ctrl+S` | Быстрое сохранение |
-| `Esc` | Меню / снять паузу |
+| `Ctrl+S` / кнопка `SAVE` | Быстрое сохранение |
+| `EXIT` (шапка) | Выход в главное меню, освобождение сессии |
+| `Esc` | Пауза / снять паузу |
 
 ### Пассивный сонар
 | Клавиша | Действие |
@@ -54,6 +55,8 @@ go build -o ssn688 .
 | `B` | Hull / towed array |
 | `N` | Broadband / HF listen band |
 | `U` / `Y` / `H` | Deploy / retract / hold towed |
+
+TB-16 (~800 yd cable): TOWED waterfall uses array position (bearing parallax vs HULL). Long baseline shrinks passive range/bearing uncertainty (abeam best). Streamed cable: warn ~20 kn, shear ~24 kn (shorter scope tolerates more); parted array shows **DAMAGED — NO DATA** on TOWED.
 
 ### Активный сонар
 - `A` — standby / online · `F` — одиночный импульс (и в standby)
@@ -73,13 +76,12 @@ go build -o ssn688 .
 | `←` / `→` | Провод: курс ±10° |
 | `W` | Обрыв провода |
 | `X` | Self-destruct (пока провод жив) |
+| WEPS UI | **COUNTERMEASURES**: счётчики DECOY / JITTER и кнопки запуска |
 
 ### Маневрирование
 - `↑` / `↓` — скорость · `Q` / `E` — курс · `PgUp` / `PgDn` — глубина
 
-## Сценарий
-
-Игрок уже в море у Catalina. Нужно обнаружить и уничтожить:
+Decoy (ADC) и jitter (jammer) слышны на пассивном водопаде и соблазняют/путают seeker врага; на PLOT, WEPS-карте и активном PPI не отображаются.
 1. Надводный боевой корабль противника
 2. Подводную лодку противника
 
@@ -102,7 +104,7 @@ internal/
   render/     — отрисовка консолей
   save/       — текстовые сохранения
   sim/        — игровой тик
-  weapons/    — Mk48, провод, seeker
+  weapons/    — Mk48, провод, seeker, decoy/jitter CM
   world/      — сущности, сценарий, батиметрия, подписи
   ui/         — экраны и ввод
 assets/       — menu_bg.jpg, bathy.bin (embed)

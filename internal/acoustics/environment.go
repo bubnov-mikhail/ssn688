@@ -221,6 +221,20 @@ func CavitationDepthFt(speedKts float64) float64 {
 
 // CavitationSeverity returns 0..1 how much the platform is cavitating.
 func CavitationSeverity(depthFt, speedKts float64) float64 {
+	// Surface / near-surface platforms: depth≈0 would otherwise always read as
+	// "fully cavitating" under the submarine margin curve. Use speed instead.
+	if depthFt < 25 {
+		switch {
+		case speedKts < 8:
+			return 0
+		case speedKts < 14:
+			return (speedKts - 8) / 12 // 0..0.5 cruise freighters
+		case speedKts < 22:
+			return 0.5 + (speedKts-14)/16 // 0.5..1 warship sprint
+		default:
+			return 1
+		}
+	}
 	margin := depthFt - CavitationDepthFt(speedKts)
 	if margin >= 30 {
 		return 0

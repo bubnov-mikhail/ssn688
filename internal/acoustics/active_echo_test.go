@@ -1,6 +1,7 @@
 package acoustics
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ssn688/sim/internal/world"
@@ -121,5 +122,26 @@ func TestProcessActiveEchoesWaitsForReturn(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected active contact after echo return time")
+	}
+}
+
+func TestContactTMAEstimatesCourseAndSpeed(t *testing.T) {
+	c := &Contact{}
+	origin := &world.Entity{X: 0, Y: 0}
+	speedKts := 24.0
+	courseDeg := 90.0
+	stepSec := 60.0
+	for i := 0; i < 4; i++ {
+		distYd := float64(i) * stepSec * speedKts * world.KnotsToYPS
+		updateContactTMA(c, sampleTMAPosition(origin, courseDeg, 3000+distYd, float64(i)*stepSec+10, 0.98))
+	}
+	if !ContactTMAAccurate(c) {
+		t.Fatalf("expected accurate TMA, got acc=%.2f spd=%.2f cse=%.1f", c.TMAAccuracy, c.TMASpeedKts, c.TMACourseDeg)
+	}
+	if math.Abs(c.TMASpeedKts-speedKts) > 1.0 {
+		t.Fatalf("speed=%.2f want %.2f", c.TMASpeedKts, speedKts)
+	}
+	if math.Abs(normalizeBearingDiff(c.TMACourseDeg-courseDeg)) > 5 {
+		t.Fatalf("course=%.1f want %.1f", c.TMACourseDeg, courseDeg)
 	}
 }

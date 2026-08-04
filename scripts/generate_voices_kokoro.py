@@ -50,6 +50,8 @@ LINES: list[tuple[str, str, str]] = [
     ("sonar", "layer_survey_complete.wav", "Layer survey complete."),
     ("sonar", "contact_classified.wav", "Contact classified."),
     ("weps", "impact_confirmed.wav", "Weapon impact confirmed."),
+    ("weps", "torpedo_in_water.wav", "Torpedo in the water."),
+    ("weps", "torpedo_heading_ownship.wav", "Incomming torpedo!"),
     ("weps", "outer_door_closed.wav", "Outer door closed."),
     ("weps", "run_depth_set.wav", "Run depth set."),
     ("weps", "speed_high.wav", "Torpedo speed high."),

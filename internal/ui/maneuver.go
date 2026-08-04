@@ -248,7 +248,18 @@ func (a *App) updateManeuverUI(player *world.Entity) {
 func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 	switch id {
 	case "spd_up":
-		player.OrderedSpeed = math.Min(30, player.OrderedSpeed+1)
+		next := math.Min(30, player.OrderedSpeed+1)
+		sonar := &a.Engine.Sonar
+		if !sonar.TowedDamaged && sonar.TowedCablePct >= 0.20 {
+			warnAt := acoustics.TowedWarnSpeedKts(sonar.TowedCablePct)
+			shearAt := acoustics.TowedShearSpeedKts(sonar.TowedCablePct)
+			if next >= shearAt || player.SpeedKts >= warnAt {
+				a.StatusMessage = fmt.Sprintf(
+					"WARNING: towed cable stress — shear risk above %.0f kn (now %.0f ordered).",
+					shearAt, next)
+			}
+		}
+		player.OrderedSpeed = next
 	case "spd_down":
 		player.OrderedSpeed = math.Max(0, player.OrderedSpeed-1)
 	case "spd_stop":
@@ -404,6 +415,22 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 	cav := acoustics.CavitationSeverity(p.DepthFt, p.SpeedKts)
 	if cav > 0.15 {
 		render.DrawText(screen, fmt.Sprintf("CAVITATION RISK %.0f%%", cav*100), 60, 644, render.ColorWarn, false)
+	}
+
+	p.EnsureDamage()
+	warnY := 666
+	if p.Damage.Destroyed(world.SysSteering) {
+		render.DrawText(screen, "STEERING DAMAGED — RUDDER JAMMED", 60, warnY, render.ColorDanger, true)
+		warnY += 16
+	}
+	if p.Damage.Destroyed(world.SysDepth) {
+		render.DrawText(screen, "DEPTH CONTROL DAMAGED — UNCONTROLLED TRIM", 60, warnY, render.ColorDanger, true)
+		warnY += 16
+	}
+	if p.Damage.Destroyed(world.SysPropulsion) {
+		render.DrawText(screen, "PROPULSION DESTROYED — NO THRUST", 60, warnY, render.ColorDanger, true)
+	} else if !p.Damage.Operational(world.SysPropulsion) {
+		render.DrawText(screen, fmt.Sprintf("PROPULSION DEGRADED — MAX %.0f KTS", p.MaxSpeedKts()), 60, warnY, render.ColorWarn, true)
 	}
 
 	a.drawBTProgress(screen, env, gt)

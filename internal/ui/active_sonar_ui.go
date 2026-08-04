@@ -15,27 +15,28 @@ import (
 )
 
 const (
-	activePanelX           = 20
-	activePanelY           = 50
-	activePanelW           = 900
-	activeSideX            = 940
-	activeSideY            = 50
-	activeSideW            = 340
-	activeControlsX        = 960
-	activeControlsY        = 90
-	activeSliderW          = 200
-	activeSliderH          = 10
-	activeSliderLabelW     = 90
-	activeSliderTrackX     = activeControlsX + activeSliderLabelW
-	activeSliderRowGap     = 28
-	activePingSliderY      = activeControlsY + 88
-	activePowerSliderY     = activeControlsY + 88 + activeSliderRowGap
-	activeRangeScaleY      = activePowerSliderY + activeSliderRowGap + 14
-	activeListY            = 318
-	activePlotX            = 40
-	activePlotY            = 152
-	activePlotW            = 860
-	activePlotH            = 528
+	activePanelX            = 20
+	activePanelY            = 50
+	activePanelW            = 900
+	activeSideX             = 940
+	activeSideY             = 50
+	activeSideW             = 340
+	activeControlsX         = 960
+	activeControlsY         = 90
+	activeSliderW           = 200
+	activeSliderH           = 10
+	activeSliderLabelW      = 90
+	activeSliderTrackX      = activeControlsX + activeSliderLabelW
+	activeSliderRowGap      = 28
+	activePingSliderY       = activeControlsY + 88
+	activePowerSliderY      = activeControlsY + 88 + activeSliderRowGap
+	activeRangeScaleY       = activePowerSliderY + activeSliderRowGap + 14
+	activeListY             = 318
+	activeListVisibleRows   = 18
+	activePlotX             = 40
+	activePlotY             = 152
+	activePlotW             = 860
+	activePlotH             = 528
 	activeEchoMarkerFadeSec = acoustics.ActiveFixHoldSec // dissolve time; matches tactical active-fix hold
 	activeFlashCrossMin     = 5.0
 	activeFlashCrossMax     = 11.0
@@ -185,6 +186,8 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 	buttons := a.activeControlButtons(sonar)
 	mx, my := ebiten.CursorPosition()
 	a.updateSonarTooltips(buttons, mx, my)
+	listW := activeSideW - 40
+	scrollContactTableWheel(mx, my, activeControlsX, activeListY+passiveListRow, listW, activeListVisibleRows*passiveListRow, len(sonar.Contacts), activeListVisibleRows, &a.contactTableScroll.active)
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		for _, b := range buttons {
@@ -215,9 +218,10 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 		if a.activePlotClick(sonar, mx, my) {
 			return
 		}
+		a.contactTableScroll.active = clampContactTableScroll(a.contactTableScroll.active, len(sonar.Contacts), activeListVisibleRows)
+		start, end := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.active, activeListVisibleRows)
 		y := activeListY + passiveListRow
-		listW := activeSideW - 40
-		for i := range sonar.Contacts {
+		for i := start; i < end; i++ {
 			if mx >= activeControlsX && mx < activeControlsX+listW && my >= y && my < y+passiveListRow {
 				a.selectContact(sonar, &sonar.Contacts[i])
 				return
@@ -457,14 +461,16 @@ func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarSta
 func (a *App) drawActiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	x, y0, w := activeControlsX, activeListY, activeSideW-40
 	mx, my := ebiten.CursorPosition()
-	render.FillRect(screen, x, y0, w, passiveListRow*max(1, len(sonar.Contacts)+1)+14, render.ColorPanelInset)
+	render.FillRect(screen, x, y0, w, passiveListRow*(activeListVisibleRows+1)+14, render.ColorPanelInset)
 	render.DrawText(screen, "CONTACT", x+8, y0+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG", x+72, y0+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RNG", x+118, y0+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "BRG°", x+72, y0+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "RNG kyd", x+118, y0+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "CLASS", x+176, y0+16, render.ColorPhosphorDim, true)
 
+	a.contactTableScroll.active = clampContactTableScroll(a.contactTableScroll.active, len(sonar.Contacts), activeListVisibleRows)
+	start, end := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.active, activeListVisibleRows)
 	y := y0 + passiveListRow
-	for i := range sonar.Contacts {
+	for i := start; i < end; i++ {
 		c := &sonar.Contacts[i]
 		selected := c.SourceEntityID == a.selectedContactID
 		hover := mx >= x && mx < x+w && my >= y && my < y+passiveListRow
@@ -481,11 +487,12 @@ func (a *App) drawActiveContactTable(screen *ebiten.Image, sonar *acoustics.Sona
 			clr = render.ColorAmber
 		}
 		render.DrawText(screen, c.ID, x+8, y+16, clr, true)
-		render.DrawText(screen, fmt.Sprintf("%03.0f", c.BearingDeg), x+72, y+16, clr, true)
+		render.DrawText(screen, contactBearingLabel(c), x+72, y+16, clr, true)
 		render.DrawText(screen, contactRangeLabel(c), x+118, y+16, clr, true)
 		render.DrawText(screen, contactClassLabel(c), x+176, y+16, clr, true)
 		y += passiveListRow
 	}
+	drawContactTableScrollbar(screen, x+w+4, y0+passiveListRow, activeListVisibleRows*passiveListRow, len(sonar.Contacts), activeListVisibleRows, a.contactTableScroll.active)
 }
 
 func (a *App) activeVisualTime() float64 {

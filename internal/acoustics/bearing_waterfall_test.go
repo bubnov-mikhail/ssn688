@@ -142,6 +142,93 @@ func TestContactSpreadIsGradual(t *testing.T) {
 	}
 }
 
+func TestWaterfallListenBandSuppressesOffBandTargets(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
+	sonar := NewSonarState()
+
+	torp := &world.Entity{
+		ID: "mk48-1", SignatureID: "mk48", Kind: world.KindTorpedo, Status: world.StatusActive,
+		Y: 2200, DepthFt: 200, SpeedKts: 50, HeadingDeg: 180,
+	}
+	ship := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	ship.Y = 2200
+
+	emitters := []*world.Entity{player, torp}
+	sonar.ListenBand = ListenBroadband
+	bbTorp := waterfallGlobalPeak(model, player, emitters, &sonar)
+	sonar.ListenBand = ListenHF
+	hfTorp := waterfallGlobalPeak(model, player, emitters, &sonar)
+	if bbTorp >= 6 || hfTorp <= bbTorp+3 {
+		t.Fatalf("broadband should suppress torpedo trace: bb=%.1f hf=%.1f", bbTorp, hfTorp)
+	}
+
+	emitters = []*world.Entity{player, ship}
+	sonar.ListenBand = ListenBroadband
+	bbShip := waterfallGlobalPeak(model, player, emitters, &sonar)
+	sonar.ListenBand = ListenHF
+	hfShip := waterfallGlobalPeak(model, player, emitters, &sonar)
+	if hfShip >= 6 || bbShip <= hfShip+3 {
+		t.Fatalf("HF band should suppress ship trace: bb=%.1f hf=%.1f", bbShip, hfShip)
+	}
+}
+
+func waterfallGlobalPeak(model Model, player *world.Entity, emitters []*world.Entity, sonar *SonarState) float64 {
+	row := BearingWaterfallSlice(model, player, emitters, sonar, PassiveArrayHull, 0)
+	peak := 0.0
+	for _, v := range row.Bearings {
+		if v > peak {
+			peak = v
+		}
+	}
+	return peak
+}
+
+func TestTorpedoPingOnlyWhenFacingListener(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
+	torp := &world.Entity{
+		ID: "mk48-1", SignatureID: "mk48", Kind: world.KindTorpedo, Status: world.StatusActive,
+		X: 6000, Y: 0, DepthFt: 200, SpeedKts: 50, LastPingTime: 10,
+	}
+	sonar := NewSonarState()
+	emitters := []*world.Entity{player, torp}
+
+	torp.HeadingDeg = 270 // west — torpedo at +X points toward player at origin
+	facing := BearingWaterfallSlice(model, player, emitters, &sonar, PassiveArrayHull, 10.2)
+	torp.HeadingDeg = 90 // east — away from listener
+	away := BearingWaterfallSlice(model, player, emitters, &sonar, PassiveArrayHull, 10.2)
+
+	bin90 := BearingWaterfallBins / 4
+	if facing.Bearings[bin90] < 20 {
+		t.Fatalf("torpedo ping should flash when facing listener, bin90=%.1f", facing.Bearings[bin90])
+	}
+	if away.Bearings[bin90] > facing.Bearings[bin90]*0.35 {
+		t.Fatalf("torpedo ping should be weak when not facing listener: facing90=%.1f away90=%.1f", facing.Bearings[bin90], away.Bearings[bin90])
+	}
+}
+
+func TestShipPingVisibleInBothListenBands(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
+	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy.X = 6000
+	enemy.Y = 0
+	enemy.LastPingTime = 10
+	sonar := NewSonarState()
+	emitters := []*world.Entity{player, enemy}
+
+	sonar.ListenBand = ListenBroadband
+	bb := BearingWaterfallSlice(model, player, emitters, &sonar, PassiveArrayHull, 10.2)
+	sonar.ListenBand = ListenHF
+	hf := BearingWaterfallSlice(model, player, emitters, &sonar, PassiveArrayHull, 10.2)
+
+	bin90 := BearingWaterfallBins / 4
+	if bb.Bearings[bin90] < 15 || hf.Bearings[bin90] < 15 {
+		t.Fatalf("ship ping should be visible in both bands: bb90=%.1f hf90=%.1f", bb.Bearings[bin90], hf.Bearings[bin90])
+	}
+}
+
 func TestEnemyActivePingAppearsOnWaterfall(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
