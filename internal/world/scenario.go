@@ -15,6 +15,8 @@ type Scenario struct {
 	Objectives  []Objective
 	FailReason  string
 	Bathy       *Bathymetry
+	// RestrictedZones reserved for future missions (player entry → DEFCON 3).
+	RestrictedZones []RestrictedZone
 }
 
 type Objective struct {
@@ -39,23 +41,28 @@ func NewTrainingScenario() *Scenario {
 	placeOnWater(rng, player, 0, 2500, nil, &bathy)
 	clampSubToBottom(player, &bathy)
 
-	enemySurface := &Entity{
-		ID: "enemy_surface", Name: "Hostile DD", Kind: KindSurfaceShip, Side: SideEnemy,
-		Status: StatusActive, SignatureID: "spruance",
-		DepthFt: 0, SpeedKts: 14, OrderedSpeed: 14, OrderedDepth: 0,
-		LengthFt: 563, AIState: "SEARCH",
-	}
-	placeOnWater(rng, enemySurface, 4500, 9000, []*Entity{player}, &bathy)
+	placed := []*Entity{player}
 
-	enemySub := &Entity{
-		ID: "enemy_sub", Name: "Hostile SS", Kind: KindSubmarine, Side: SideEnemy,
-		Status: StatusActive, SignatureID: "kilo",
-		DepthFt: 120 + rng.Float64()*80, SpeedKts: 6, OrderedSpeed: 6,
-		LengthFt: 240, AIState: "PATROL",
+	// Weakest surface + weakest sub only — keeps the starter mission readable.
+	enemyGrisha := &Entity{
+		ID: "enemy_grisha", Name: "Hostile Corvette", Kind: KindSurfaceShip, Side: SideEnemy,
+		Status: StatusActive, SignatureID: "grisha",
+		DepthFt: 0, SpeedKts: 16, OrderedSpeed: 16, OrderedDepth: 0,
+		LengthFt: 235, AIState: "SEARCH", Defcon: DefconHostile,
 	}
-	enemySub.OrderedDepth = enemySub.DepthFt
-	placeOnWater(rng, enemySub, 4000, 8000, []*Entity{player, enemySurface}, &bathy)
-	clampSubToBottom(enemySub, &bathy)
+	placeAwayFrom(rng, enemyGrisha, player, YardsPerNM, 4*YardsPerNM, nil, &bathy)
+	placed = append(placed, enemyGrisha)
+
+	enemyFoxtrot := &Entity{
+		ID: "enemy_foxtrot", Name: "Hostile SS Foxtrot", Kind: KindSubmarine, Side: SideEnemy,
+		Status: StatusActive, SignatureID: "foxtrot",
+		DepthFt: 100 + rng.Float64()*60, SpeedKts: 5, OrderedSpeed: 5,
+		LengthFt: 300, AIState: "PATROL", Defcon: DefconHostile,
+	}
+	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
+	placeAwayFrom(rng, enemyFoxtrot, player, 4500, 9000, placed[1:], &bathy)
+	clampSubToBottom(enemyFoxtrot, &bathy)
+	placed = append(placed, enemyFoxtrot)
 
 	civilians := []*Entity{
 		{
@@ -74,18 +81,19 @@ func NewTrainingScenario() *Scenario {
 			DepthFt: 0, SpeedKts: 7, OrderedSpeed: 7, LengthFt: 140, AIState: "TRANSIT",
 		},
 	}
-	placed := []*Entity{player, enemySurface, enemySub}
 	for _, c := range civilians {
 		placeOnWater(rng, c, 2500, 9000, placed, &bathy)
 		placed = append(placed, c)
 	}
 
-	ents := []*Entity{enemySurface, enemySub}
+	hostiles := []*Entity{enemyGrisha, enemyFoxtrot}
+	ents := append([]*Entity{}, hostiles...)
 	ents = append(ents, civilians...)
 
 	InitCombatantDamage(player)
-	InitCombatantDamage(enemySurface)
-	InitCombatantDamage(enemySub)
+	for _, h := range hostiles {
+		InitCombatantDamage(h)
+	}
 
 	return &Scenario{
 		Name:        "Santa Catalina Approaches",
@@ -94,8 +102,8 @@ func NewTrainingScenario() *Scenario {
 		Entities:    ents,
 		Bathy:       &DefaultBathy,
 		Objectives: []Objective{
-			{ID: "obj_surface", Description: "Destroy hostile surface combatant", TargetID: "enemy_surface"},
-			{ID: "obj_sub", Description: "Destroy hostile submarine", TargetID: "enemy_sub"},
+			{ID: "obj_grisha", Description: "Destroy hostile Grisha corvette", TargetID: "enemy_grisha"},
+			{ID: "obj_foxtrot", Description: "Destroy hostile Foxtrot SS", TargetID: "enemy_foxtrot"},
 		},
 	}
 }
@@ -116,23 +124,41 @@ func clampSubToBottom(e *Entity, bathy *Bathymetry) {
 }
 
 func placeOnWater(rng *rand.Rand, e *Entity, minR, maxR float64, others []*Entity, bathy *Bathymetry) {
+	origin := &Entity{X: 0, Y: 0}
+	placeAwayFrom(rng, e, origin, minR, maxR, others, bathy)
+}
+
+// placeAwayFrom positions e on navigable water at range [minR, maxR] from ref.
+func placeAwayFrom(rng *rand.Rand, e, ref *Entity, minR, maxR float64, others []*Entity, bathy *Bathymetry) {
+	if ref == nil {
+		ref = &Entity{}
+	}
+	if maxR < minR {
+		maxR = minR
+	}
+	minSepOthers := 1800.0
 	for attempt := 0; attempt < 80; attempt++ {
 		ang := rng.Float64() * 2 * math.Pi
 		r := minR + rng.Float64()*(maxR-minR)
 		if minR <= 0 && maxR > 0 && attempt < 20 {
-			// Prefer near-origin for ownship first attempts.
 			r = rng.Float64() * maxR
 		}
-		e.X = math.Sin(ang) * r
-		e.Y = math.Cos(ang) * r
+		e.X = ref.X + math.Sin(ang)*r
+		e.Y = ref.Y + math.Cos(ang)*r
 		e.HeadingDeg = rng.Float64() * 360
 		e.OrderedHead = e.HeadingDeg
 		if bathy != nil && bathy.Valid() && !bathy.NavigableFor(e.X, e.Y, e.Kind, e.DepthFt) {
 			continue
 		}
+		if minR > 0 && ref.RangeYardsTo(e) < minR-1 {
+			continue
+		}
 		ok := true
 		for _, o := range others {
-			if o.RangeYardsTo(e) < 1800 {
+			if o == nil {
+				continue
+			}
+			if o.RangeYardsTo(e) < minSepOthers {
 				ok = false
 				break
 			}
@@ -141,23 +167,25 @@ func placeOnWater(rng *rand.Rand, e *Entity, minR, maxR float64, others []*Entit
 			return
 		}
 	}
-	// Last resort: walk a spiral from origin looking for water.
+	// Last resort: ring around ref at minR+.
 	if bathy != nil && bathy.Valid() {
-		minX, minY, maxX, maxY := bathy.BoundsYards()
-		maxR := math.Min(maxX-minX, maxY-minY) * 0.45
-		if maxR < 12000 {
-			maxR = 12000
-		}
-		for r := 500.0; r < maxR; r += 400 {
+		for r := minR; r < maxR+8000; r += 400 {
+			if r < 500 {
+				r = 500
+			}
 			for k := 0; k < 16; k++ {
 				ang := float64(k) * (2 * math.Pi / 16)
-				e.X = math.Sin(ang) * r
-				e.Y = math.Cos(ang) * r
-				if bathy.NavigableFor(e.X, e.Y, e.Kind, e.DepthFt) {
-					e.HeadingDeg = rng.Float64() * 360
-					e.OrderedHead = e.HeadingDeg
-					return
+				e.X = ref.X + math.Sin(ang)*r
+				e.Y = ref.Y + math.Cos(ang)*r
+				if !bathy.NavigableFor(e.X, e.Y, e.Kind, e.DepthFt) {
+					continue
 				}
+				if minR > 0 && ref.RangeYardsTo(e) < minR {
+					continue
+				}
+				e.HeadingDeg = rng.Float64() * 360
+				e.OrderedHead = e.HeadingDeg
+				return
 			}
 		}
 	}

@@ -95,6 +95,31 @@ func (d *PlatformDamage) Destroyed(sys int) bool {
 	return d.EffOf(sys) <= RepairThresholdPct
 }
 
+// FirstNewCriticalSystem returns the first system that crossed into Destroyed
+// since beforeCrit (index by Sys*). Returns SysNone if none.
+func FirstNewCriticalSystem(beforeCrit [SysCount]bool, d *PlatformDamage) int {
+	if d == nil {
+		return SysNone
+	}
+	for sys := 0; sys < SysCount; sys++ {
+		if !beforeCrit[sys] && d.Destroyed(sys) {
+			return sys
+		}
+	}
+	return SysNone
+}
+
+// SnapshotCritical marks which systems are currently Destroyed.
+func SnapshotCritical(d *PlatformDamage) (out [SysCount]bool) {
+	if d == nil {
+		return out
+	}
+	for sys := 0; sys < SysCount; sys++ {
+		out[sys] = d.Destroyed(sys)
+	}
+	return out
+}
+
 func SystemName(sys int) string {
 	switch sys {
 	case SysPassiveHull:
@@ -196,8 +221,9 @@ func TubeSys(tubeNum int) int {
 	return SysTube1 + (tubeNum - 1)
 }
 
-// ApplyTorpedoHit rolls random subsystem casualties. Returns true if the platform is killed.
-func ApplyTorpedoHit(e *Entity, rng *rand.Rand) (fatal bool, events []string) {
+// ApplyTorpedoHit applies heavy (Mk48 / 53-65) or light (UMGT-1 / SET-40) fish damage.
+// Heavy warheads always breach hull hard — small combatants die to one good hit.
+func ApplyTorpedoHit(e *Entity, rng *rand.Rand, lightWarhead bool) (fatal bool, events []string) {
 	if e == nil || !e.Alive() {
 		return false, nil
 	}
@@ -207,9 +233,20 @@ func ApplyTorpedoHit(e *Entity, rng *rand.Rand) (fatal bool, events []string) {
 	e.EnsureDamage()
 	d := &e.Damage
 
-	// Candidate systems by platform class.
+	hullLoss := torpedoHullLoss(e, rng, lightWarhead)
+	beforeHull := d.Eff[SysHull]
+	d.Eff[SysHull] = math.Max(0, beforeHull-hullLoss)
+	tag := "Mk48"
+	if lightWarhead {
+		tag = "LW torpedo"
+	}
+	events = append(events, fmt.Sprintf("%s: hull %.0f%% → %.0f%% (%s)", e.Name, beforeHull, d.Eff[SysHull], tag))
+
 	cands := hitCandidates(e.Kind)
-	nHits := 3 + rng.Intn(4) // 3–6 systems touched
+	nHits := 2 + rng.Intn(3) // 2–4 subsystems
+	if lightWarhead {
+		nHits = 1 + rng.Intn(3)
+	}
 	if nHits > len(cands) {
 		nHits = len(cands)
 	}
@@ -217,14 +254,12 @@ func ApplyTorpedoHit(e *Entity, rng *rand.Rand) (fatal bool, events []string) {
 
 	for i := 0; i < nHits; i++ {
 		sys := cands[i]
-		loss := 25.0 + rng.Float64()*75.0 // lose 25–100 points of efficiency
-		// Hull hits tend to be serious but not always lethal on first fish.
 		if sys == SysHull {
-			if rng.Float64() < 0.12 {
-				loss = 100
-			} else {
-				loss = 15.0 + rng.Float64()*55.0
-			}
+			continue // already applied primary hull damage
+		}
+		loss := 30.0 + rng.Float64()*55.0
+		if lightWarhead {
+			loss = 20.0 + rng.Float64()*40.0
 		}
 		before := d.Eff[sys]
 		d.Eff[sys] = math.Max(0, before-loss)
@@ -235,18 +270,132 @@ func ApplyTorpedoHit(e *Entity, rng *rand.Rand) (fatal bool, events []string) {
 		applySystemSideEffects(e, sys, before, after, rng)
 	}
 
-	// Always nudge hull a little on any hit (shock).
-	if d.Eff[SysHull] > 0 {
-		shock := 5.0 + rng.Float64()*15.0
-		before := d.Eff[SysHull]
-		d.Eff[SysHull] = math.Max(0, before-shock)
-		if d.Eff[SysHull] < before {
-			events = append(events, fmt.Sprintf("%s: hull shock %.0f%% → %.0f%%", e.Name, before, d.Eff[SysHull]))
+	if d.Eff[SysHull] <= RepairThresholdPct {
+		d.Eff[SysHull] = 0
+		events = append(events, fmt.Sprintf("%s: HULL FATAL — flooding uncontrolled", e.Name))
+		return true, events
+	}
+	return false, events
+}
+
+// torpedoHullLoss is the primary kill roll for a fish warhead.
+func torpedoHullLoss(e *Entity, rng *rand.Rand, light bool) float64 {
+	if light {
+		// Lightweight ASW fish: punish but rarely one-shot a 688.
+		base := 22.0 + rng.Float64()*18.0 // ~22–40%
+		if e.Kind == KindSurfaceShip {
+			base = 28.0 + rng.Float64()*22.0
 		}
+		return base
+	}
+	switch e.SignatureID {
+	case "grisha", "fishing":
+		// Corvette / small hull: under-keel Mk48 is decisive.
+		return 85.0 + rng.Float64()*20.0 // ~85–105%
+	case "krivak", "merchant":
+		return 58.0 + rng.Float64()*22.0 // ~58–80% → usually 1–2 hits
+	case "udaloy", "kresta2", "tanker":
+		return 48.0 + rng.Float64()*18.0 // ~48–66% → typically 2 hits
+	case "foxtrot":
+		return 75.0 + rng.Float64()*30.0 // older diesel — fragile
+	case "kilo":
+		return 58.0 + rng.Float64()*28.0
+	case "victor_iii", "los_angeles":
+		return 48.0 + rng.Float64()*22.0 // peer SSN: often 2 hits
+	default:
+		if e.Kind == KindSurfaceShip {
+			return 55.0 + rng.Float64()*25.0
+		}
+		return 52.0 + rng.Float64()*28.0
+	}
+}
+
+// ApplyHarpoonHit applies anti-ship warhead damage (1–3 hits kill a destroyer).
+func ApplyHarpoonHit(e *Entity, rng *rand.Rand) (fatal bool, events []string) {
+	if e == nil || !e.Alive() {
+		return false, nil
+	}
+	if rng == nil {
+		rng = rand.New(rand.NewSource(1))
+	}
+	e.EnsureDamage()
+	d := &e.Damage
+
+	hullLoss := 38.0 + rng.Float64()*14.0 // ~38–52% per hit
+	if e.Kind == KindSurfaceShip {
+		hullLoss = 42.0 + rng.Float64()*12.0
+	}
+	before := d.Eff[SysHull]
+	d.Eff[SysHull] = math.Max(0, before-hullLoss)
+	events = append(events, fmt.Sprintf("%s: hull %.0f%% → %.0f%% (Harpoon)", e.Name, before, d.Eff[SysHull]))
+
+	cands := hitCandidates(e.Kind)
+	nHits := 2 + rng.Intn(3)
+	if nHits > len(cands) {
+		nHits = len(cands)
+	}
+	rng.Shuffle(len(cands), func(i, j int) { cands[i], cands[j] = cands[j], cands[i] })
+	for i := 0; i < nHits; i++ {
+		sys := cands[i]
+		if sys == SysHull {
+			continue
+		}
+		loss := 30.0 + rng.Float64()*50.0
+		b := d.Eff[sys]
+		d.Eff[sys] = math.Max(0, b-loss)
+		if d.Eff[sys] < b {
+			events = append(events, fmt.Sprintf("%s: %s %.0f%% → %.0f%%", e.Name, SystemName(sys), b, d.Eff[sys]))
+		}
+		applySystemSideEffects(e, sys, b, d.Eff[sys], rng)
 	}
 
-	if d.Eff[SysHull] <= 0 {
-		events = append(events, fmt.Sprintf("%s: HULL FATAL — flooding uncontrolled", e.Name))
+	if d.Eff[SysHull] <= RepairThresholdPct {
+		d.Eff[SysHull] = 0
+		events = append(events, fmt.Sprintf("%s: HULL FATAL — Harpoon kill", e.Name))
+		return true, events
+	}
+	return false, events
+}
+
+// ApplyDebrisHit applies light fragment damage from a close-in missile intercept.
+func ApplyDebrisHit(e *Entity, rng *rand.Rand) (fatal bool, events []string) {
+	if e == nil || !e.Alive() {
+		return false, nil
+	}
+	if rng == nil {
+		rng = rand.New(rand.NewSource(1))
+	}
+	e.EnsureDamage()
+	d := &e.Damage
+
+	hullLoss := 8.0 + rng.Float64()*14.0 // ~8–22%
+	before := d.Eff[SysHull]
+	d.Eff[SysHull] = math.Max(0, before-hullLoss)
+	events = append(events, fmt.Sprintf("%s: hull %.0f%% → %.0f%% (missile debris)", e.Name, before, d.Eff[SysHull]))
+
+	cands := hitCandidates(e.Kind)
+	nHits := 1 + rng.Intn(2)
+	if nHits > len(cands) {
+		nHits = len(cands)
+	}
+	rng.Shuffle(len(cands), func(i, j int) { cands[i], cands[j] = cands[j], cands[i] })
+	for i := 0; i < nHits; i++ {
+		sys := cands[i]
+		if sys == SysHull {
+			continue
+		}
+		loss := 15.0 + rng.Float64()*30.0
+		b := d.Eff[sys]
+		d.Eff[sys] = math.Max(0, b-loss)
+		if d.Eff[sys] < b {
+			events = append(events, fmt.Sprintf("%s: %s %.0f%% → %.0f%%", e.Name, SystemName(sys), b, d.Eff[sys]))
+		}
+		applySystemSideEffects(e, sys, b, d.Eff[sys], rng)
+	}
+
+	if d.Eff[SysHull] <= RepairThresholdPct {
+		d.Eff[SysHull] = 0
+		events = append(events, fmt.Sprintf("%s: HULL FATAL — debris", e.Name))
 		return true, events
 	}
 	return false, events
@@ -303,11 +452,34 @@ func applySystemSideEffects(e *Entity, sys int, before, after float64, rng *rand
 	}
 }
 
-// MaxSpeedKts returns ordered-speed ceiling from propulsion damage.
+// MaxSpeedKts returns ordered-speed ceiling from propulsion damage + hull class.
 func (e *Entity) MaxSpeedKts() float64 {
 	base := 30.0
-	if e.Kind == KindSurfaceShip {
-		base = 28
+	switch e.SignatureID {
+	case "los_angeles":
+		base = 32
+	case "victor_iii":
+		base = 30
+	case "kilo":
+		base = 17
+	case "foxtrot":
+		base = 15
+	case "udaloy", "kresta2":
+		base = 32
+	case "krivak":
+		base = 30
+	case "grisha":
+		base = 34
+	case "merchant":
+		base = 16
+	case "tanker":
+		base = 14
+	case "fishing":
+		base = 12
+	default:
+		if e.Kind == KindSurfaceShip {
+			base = 28
+		}
 	}
 	eff := e.Damage.EffOf(SysPropulsion)
 	return base * eff / 100

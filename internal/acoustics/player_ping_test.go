@@ -35,7 +35,7 @@ func TestCanDetectPlayerPassiveUsesPingBonus(t *testing.T) {
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 180, 22)
 	player.LastPingTime = 50
 	player.LastPingPower = 1
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 12)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 12)
 	enemy.X = 9000
 
 	travel := enemy.RangeYardsTo(player) / SoundSpeedYdPerSec

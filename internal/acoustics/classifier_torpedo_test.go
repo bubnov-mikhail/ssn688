@@ -8,7 +8,7 @@ import (
 
 func TestTryAutoClassifyTorpedo(t *testing.T) {
 	c := &Contact{ID: "C01", Confidence: 0.4}
-	class := Classification{ProfileID: "type53", ProfileName: "Type 53 Torpedo", Confidence: 0.62, BladeMatch: 0.55}
+	class := Classification{ProfileID: "type53", ProfileName: "53-65 Torpedo", Confidence: 0.62, BladeMatch: 0.55}
 	if !TryAutoClassifyTorpedo(c, class) {
 		t.Fatal("expected new TORP classify")
 	}

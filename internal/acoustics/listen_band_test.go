@@ -13,7 +13,7 @@ func TestListenBandFavorsTorpedoOnHF(t *testing.T) {
 		ID: "mk48-1", SignatureID: "mk48", Kind: world.KindTorpedo, Status: world.StatusActive,
 		Y: 2500, DepthFt: 200, SpeedKts: 50, HeadingDeg: 0,
 	}
-	ship := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	ship := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	ship.Y = 2500
 
 	rTorp := model.Detect(listener, torp, ModePassive, 0)

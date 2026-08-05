@@ -25,7 +25,7 @@ func TestWaterfallFlowNoiseAtHighSpeed(t *testing.T) {
 func TestWaterfallPeakDecreasesWithRange(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 180, 8)
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	sonar := NewSonarState()
 	emitters := []*world.Entity{player, enemy}
 
@@ -55,7 +55,7 @@ func waterfallPeak(model Model, player *world.Entity, emitters []*world.Entity, 
 func TestBearingWaterfallSliceDetectsNearbyTarget(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	enemy.X = 4200
 	enemy.Y = 3200
 	sonar := NewSonarState()
@@ -84,7 +84,7 @@ func TestHeadingToWaterfallX(t *testing.T) {
 func TestHullAndTowedWaterfallDiffer(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	enemy.X = 4200
 	enemy.Y = 3200
 	sonar := NewSonarState()
@@ -151,7 +151,7 @@ func TestWaterfallListenBandSuppressesOffBandTargets(t *testing.T) {
 		ID: "mk48-1", SignatureID: "mk48", Kind: world.KindTorpedo, Status: world.StatusActive,
 		Y: 2200, DepthFt: 200, SpeedKts: 50, HeadingDeg: 180,
 	}
-	ship := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	ship := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	ship.Y = 2200
 
 	emitters := []*world.Entity{player, torp}
@@ -211,7 +211,7 @@ func TestTorpedoPingOnlyWhenFacingListener(t *testing.T) {
 func TestShipPingVisibleInBothListenBands(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	enemy.X = 6000
 	enemy.Y = 0
 	enemy.LastPingTime = 10
@@ -232,7 +232,7 @@ func TestShipPingVisibleInBothListenBands(t *testing.T) {
 func TestEnemyActivePingAppearsOnWaterfall(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 320, 8)
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	enemy.X = 6000
 	enemy.Y = 0
 	enemy.LastPingTime = 10

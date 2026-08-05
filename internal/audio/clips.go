@@ -20,6 +20,9 @@ const (
 	ClipCaptMissionBrief   ClipID = "capt/mission_brief"
 	ClipCaptHoldSimulation ClipID = "capt/hold_simulation"
 	ClipCaptSaveComplete   ClipID = "capt/save_complete"
+	ClipCaptOwnshipHit     ClipID = "capt/ownship_hit"
+	ClipCaptCriticalDamage ClipID = "capt/critical_damage"
+	ClipCaptOwnshipLost    ClipID = "capt/ownship_lost"
 
 	ClipSonarPassiveOn           ClipID = "sonar/passive_on"
 	ClipSonarPassiveOff          ClipID = "sonar/passive_off"

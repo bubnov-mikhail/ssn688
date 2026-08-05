@@ -14,7 +14,7 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
-const saveFormat = 5
+const saveFormat = 10
 
 // Save writes the simulation state to a plain-text file.
 func Save(path string, engine *sim.Engine) error {
@@ -84,24 +84,74 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "speed_setting=%s\n", engine.FireControl.SpeedSetting)
 	fmt.Fprintf(w, "seeker_enabled=%t\n", engine.FireControl.SeekerEnabled)
 	fmt.Fprintf(w, "magazine_left=%d\n", engine.FireControl.MagazineLeft)
+	fmt.Fprintf(w, "harpoon_mag_left=%d\n", engine.FireControl.HarpoonMagLeft)
+	fmt.Fprintf(w, "harpoon_radar_beam=%s\n", engine.FireControl.HarpoonRadarBeam)
+	fmt.Fprintf(w, "harpoon_radar_range=%s\n", engine.FireControl.HarpoonRadarRange)
+	fmt.Fprintf(w, "harpoon_destruct_range=%s\n", engine.FireControl.HarpoonDestructRange)
 	fmt.Fprintf(w, "torpedo_seq=%d\n", engine.FireControl.TorpedoSeq())
 	for id, n := range engine.FireControl.EnemyMagazine {
 		fmt.Fprintf(w, "enemy_mag=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemyRastrub {
+		fmt.Fprintf(w, "enemy_rastrub=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemyShipTube {
+		fmt.Fprintf(w, "enemy_ship_tube=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemyRBU {
+		fmt.Fprintf(w, "enemy_rbu=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemySAM {
+		fmt.Fprintf(w, "enemy_sam=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemyCIWS {
+		fmt.Fprintf(w, "enemy_ciws=%s|%d\n", id, n)
+	}
+	for id, t := range engine.FireControl.EnemyPDEngageAt {
+		fmt.Fprintf(w, "enemy_pd_engage=%s|%.3f\n", id, t)
 	}
 	for id, t := range engine.FireControl.EnemyTubeOpenAt {
 		fmt.Fprintf(w, "enemy_tube_open=%s|%.3f\n", id, t)
 	}
 	for _, t := range engine.FireControl.Tubes {
-		fmt.Fprintf(w, "tube=%d|%d|%s|%t|%s|%.3f\n", t.Number, t.State, t.TorpedoType, t.WireIntact, t.TorpedoID, t.ReloadEnds)
+		fmt.Fprintf(w, "tube=%d|%d|%s|%t|%s|%.3f|%s|%s|%s\n",
+			t.Number, t.State, t.TorpedoType, t.WireIntact, t.TorpedoID, t.ReloadEnds,
+			t.TargetContactID, t.ReloadOrdnance, t.LastOrdnance)
 	}
 	for _, torp := range engine.FireControl.ActiveTorpedoes {
-		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%t\n",
+		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%t|%d\n",
 			torp.ID, torp.ParentSubID, torp.TargetID, torp.Side,
 			torp.X, torp.Y, torp.DepthFt, torp.HeadingDeg, torp.SpeedKts, torp.RunDepthFt,
 			torp.SeekerOn, torp.WireCut, torp.Armed, torp.Alive, torp.Mode, torp.Age,
 			torp.TubeNumber, torp.OrderedHead, torp.CruiseKts,
 			torp.LaunchHeadDeg, torp.GyroCourseDeg, torp.ClearDistYd, torp.EnableSearchAfterClear,
-			torp.LastPingTime, torp.GyroEnabled())
+			torp.LastPingTime, torp.GyroEnabled(), torp.Class)
+	}
+	for _, a := range engine.FireControl.ActiveRastrub {
+		if a == nil || !a.Alive {
+			continue
+		}
+		fmt.Fprintf(w, "rastrub=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%s\n",
+			a.ID, a.ParentID, a.TargetID, a.Side,
+			a.X0, a.Y0, a.X1, a.Y1, a.LaunchAt, a.FlightSec, a.RunDepthFt, a.ParentSig)
+	}
+	for _, a := range engine.FireControl.ActiveRBU {
+		if a == nil || !a.Alive {
+			continue
+		}
+		fmt.Fprintf(w, "rbu=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f\n",
+			a.ID, a.ParentID, a.TargetID, a.Side,
+			a.X0, a.Y0, a.X1, a.Y1, a.LaunchAt, a.FlightSec)
+	}
+	for _, h := range engine.FireControl.ActiveHarpoons {
+		if h == nil || !h.Alive {
+			continue
+		}
+		fmt.Fprintf(w, "harpoon=%s|%s|%s|%d|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%t|%t|%.3f|%.3f|%.3f|%.3f|%.3f|%t\n",
+			h.ID, h.ParentSubID, h.TargetContactID, h.Side, h.TubeNumber,
+			h.LaunchX, h.LaunchY, h.X, h.Y, h.HeadingDeg, h.SpeedKts, h.DistanceYd, int(h.Phase),
+			h.RadarOn, h.Alive, h.BeamHalfDeg, h.RadarRangeYd, h.DestructRangeYd,
+			h.UnderwaterLeft, h.Age, h.VisibleOnWEPS)
 	}
 
 	fmt.Fprintf(w, "\n[cm]\n")
@@ -175,6 +225,7 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "last_ping_time=%.3f\n", e.LastPingTime)
 	fmt.Fprintf(w, "last_ping_power=%.3f\n", e.LastPingPower)
 	fmt.Fprintf(w, "ai_state=%s\n", e.AIState)
+	fmt.Fprintf(w, "defcon=%d\n", e.Defcon)
 	fmt.Fprintf(w, "sink_rate_fpm=%.3f\n", e.SinkRateFPM)
 	fmt.Fprintf(w, "wreck_noise_until=%.3f\n", e.WreckNoiseUntil)
 	fmt.Fprintf(w, "cook_off_left=%d\n", e.CookOffLeft)
@@ -209,7 +260,16 @@ func loadClean(path string) (*sim.Engine, error) {
 	engine.Scenario.Entities = nil
 	engine.Sonar.Contacts = nil
 	engine.FireControl.ActiveTorpedoes = nil
+	engine.FireControl.ActiveHarpoons = nil
+	engine.FireControl.ActiveRastrub = nil
+	engine.FireControl.ActiveRBU = nil
 	engine.FireControl.EnemyMagazine = map[string]int{}
+	engine.FireControl.EnemyRastrub = map[string]int{}
+	engine.FireControl.EnemyShipTube = map[string]int{}
+	engine.FireControl.EnemyRBU = map[string]int{}
+	engine.FireControl.EnemySAM = map[string]int{}
+	engine.FireControl.EnemyCIWS = map[string]int{}
+	engine.FireControl.EnemyPDEngageAt = map[string]float64{}
 	engine.FireControl.EnemyTubeOpenAt = map[string]float64{}
 	engine.CM = weapons.NewCountermeasureSystem()
 	engine.CM.Active = nil
@@ -316,17 +376,43 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.FireControl.SeekerEnabled, _ = strconv.ParseBool(val)
 			case "magazine_left":
 				engine.FireControl.MagazineLeft, _ = strconv.Atoi(val)
+			case "harpoon_mag_left":
+				engine.FireControl.HarpoonMagLeft, _ = strconv.Atoi(val)
+			case "harpoon_radar_beam":
+				engine.FireControl.HarpoonRadarBeam = val
+			case "harpoon_radar_range":
+				engine.FireControl.HarpoonRadarRange = val
+			case "harpoon_destruct_range":
+				engine.FireControl.HarpoonDestructRange = val
 			case "torpedo_seq":
 				n, _ := strconv.Atoi(val)
 				engine.FireControl.SetTorpedoSeq(n)
 			case "enemy_mag":
 				parseEnemyMag(&engine.FireControl, val)
+			case "enemy_rastrub", "enemy_asroc": // enemy_asroc: legacy
+				parseEnemyRastrub(&engine.FireControl, val)
+			case "enemy_ship_tube", "enemy_mk32": // enemy_mk32: legacy
+				parseEnemyShipTube(&engine.FireControl, val)
+			case "enemy_rbu":
+				parseEnemyRBU(&engine.FireControl, val)
+			case "enemy_sam":
+				parseEnemySAM(&engine.FireControl, val)
+			case "enemy_ciws":
+				parseEnemyCIWS(&engine.FireControl, val)
+			case "enemy_pd_engage":
+				parseEnemyPDEngage(&engine.FireControl, val)
 			case "enemy_tube_open":
 				parseEnemyTubeOpen(&engine.FireControl, val)
 			case "tube":
 				parseTube(&engine.FireControl, val)
 			case "torpedo":
 				parseTorpedo(&engine.FireControl, val)
+			case "rastrub", "asroc": // asroc: legacy
+				parseRastrub(&engine.FireControl, val)
+			case "rbu":
+				parseRBU(&engine.FireControl, val)
+			case "harpoon":
+				parseHarpoon(&engine.FireControl, val)
 			}
 		case "cm":
 			switch key {
@@ -421,6 +507,30 @@ func finalizeLoadedEntities(engine *sim.Engine) {
 			t.MarkGyroEnabled(true)
 		}
 	}
+	for _, a := range engine.FireControl.ActiveRastrub {
+		if a == nil {
+			continue
+		}
+		engine.FireControl.SetTorpedoSeq(parseTrailingInt(a.ID))
+	}
+	for _, a := range engine.FireControl.ActiveRBU {
+		if a == nil {
+			continue
+		}
+		engine.FireControl.SetTorpedoSeq(parseTrailingInt(a.ID))
+	}
+	for _, h := range engine.FireControl.ActiveHarpoons {
+		if h == nil {
+			continue
+		}
+		engine.FireControl.SetTorpedoSeq(parseTrailingInt(h.ID))
+	}
+	if engine.FireControl.HarpoonRadarBeam == "" {
+		engine.FireControl.HarpoonMagLeft = weapons.PlayerHarpoonMagazine
+		engine.FireControl.HarpoonRadarBeam = weapons.HarpoonBeamWide
+		engine.FireControl.HarpoonRadarRange = weapons.HarpoonSRCHMedium
+		engine.FireControl.HarpoonDestructRange = weapons.HarpoonDSTRLong
+	}
 }
 
 func defaultLengthFt(sig string, kind world.EntityKind) float64 {
@@ -429,17 +539,25 @@ func defaultLengthFt(sig string, kind world.EntityKind) float64 {
 		return 360
 	case "kilo":
 		return 240
-	case "spruance":
-		return 563
-	case "perry":
-		return 445
+	case "victor_iii":
+		return 335
+	case "foxtrot":
+		return 300
+	case "udaloy":
+		return 535
+	case "krivak":
+		return 405
+	case "kresta2":
+		return 520
+	case "grisha":
+		return 235
 	case "merchant":
 		return 520
 	case "tanker":
 		return 900
 	case "fishing":
 		return 140
-	case "mk48", "type53":
+	case "mk48", "type53", "umgt1", "set40", "mk46":
 		return 19
 	}
 	switch kind {
@@ -495,6 +613,8 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.LastPingPower, _ = strconv.ParseFloat(val, 64)
 	case "ai_state":
 		e.AIState = val
+	case "defcon":
+		e.Defcon, _ = strconv.Atoi(val)
 	case "sink_rate_fpm":
 		e.SinkRateFPM, _ = strconv.ParseFloat(val, 64)
 	case "wreck_noise_until":
@@ -609,6 +729,15 @@ func parseTube(fc *weapons.FireControl, val string) {
 		if len(parts) > 5 {
 			t.ReloadEnds, _ = strconv.ParseFloat(parts[5], 64)
 		}
+		if len(parts) > 6 {
+			t.TargetContactID = parts[6]
+		}
+		if len(parts) > 7 {
+			t.ReloadOrdnance = parts[7]
+		}
+		if len(parts) > 8 {
+			t.LastOrdnance = parts[8]
+		}
 		fc.Tubes[num-1] = t
 	}
 }
@@ -623,6 +752,78 @@ func parseEnemyMag(fc *weapons.FireControl, val string) {
 		fc.EnemyMagazine = map[string]int{}
 	}
 	fc.EnemyMagazine[parts[0]] = n
+}
+
+func parseEnemyRastrub(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyRastrub == nil {
+		fc.EnemyRastrub = map[string]int{}
+	}
+	fc.EnemyRastrub[parts[0]] = n
+}
+
+func parseEnemyShipTube(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyShipTube == nil {
+		fc.EnemyShipTube = map[string]int{}
+	}
+	fc.EnemyShipTube[parts[0]] = n
+}
+
+func parseEnemyRBU(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyRBU == nil {
+		fc.EnemyRBU = map[string]int{}
+	}
+	fc.EnemyRBU[parts[0]] = n
+}
+
+func parseEnemySAM(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemySAM == nil {
+		fc.EnemySAM = map[string]int{}
+	}
+	fc.EnemySAM[parts[0]] = n
+}
+
+func parseEnemyCIWS(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyCIWS == nil {
+		fc.EnemyCIWS = map[string]int{}
+	}
+	fc.EnemyCIWS[parts[0]] = n
+}
+
+func parseEnemyPDEngage(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	t, _ := strconv.ParseFloat(parts[1], 64)
+	if fc.EnemyPDEngageAt == nil {
+		fc.EnemyPDEngageAt = map[string]float64{}
+	}
+	fc.EnemyPDEngageAt[parts[0]] = t
 }
 
 func parseEnemyTubeOpen(fc *weapons.FireControl, val string) {
@@ -697,7 +898,92 @@ func parseTorpedo(fc *weapons.FireControl, val string) {
 		gy, _ := strconv.ParseBool(parts[24])
 		torp.MarkGyroEnabled(gy)
 	}
+	if len(parts) > 25 {
+		cl, _ := strconv.Atoi(parts[25])
+		torp.Class = weapons.WeaponClass(cl)
+	}
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
+}
+
+func parseRastrub(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 11 {
+		return
+	}
+	side, _ := strconv.Atoi(parts[3])
+	a := &weapons.RastrubFlight{
+		ID: parts[0], ParentID: parts[1], TargetID: parts[2],
+		Side:  world.Side(side),
+		Alive: true,
+	}
+	a.X0, _ = strconv.ParseFloat(parts[4], 64)
+	a.Y0, _ = strconv.ParseFloat(parts[5], 64)
+	a.X1, _ = strconv.ParseFloat(parts[6], 64)
+	a.Y1, _ = strconv.ParseFloat(parts[7], 64)
+	a.LaunchAt, _ = strconv.ParseFloat(parts[8], 64)
+	a.FlightSec, _ = strconv.ParseFloat(parts[9], 64)
+	a.RunDepthFt, _ = strconv.ParseFloat(parts[10], 64)
+	if len(parts) > 11 {
+		a.ParentSig = parts[11]
+	}
+	fc.ActiveRastrub = append(fc.ActiveRastrub, a)
+	fc.SetTorpedoSeq(parseTrailingInt(a.ID))
+}
+
+func parseRBU(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 10 {
+		return
+	}
+	side, _ := strconv.Atoi(parts[3])
+	a := &weapons.RBUSalvo{
+		ID: parts[0], ParentID: parts[1], TargetID: parts[2],
+		Side:  world.Side(side),
+		Alive: true,
+	}
+	a.X0, _ = strconv.ParseFloat(parts[4], 64)
+	a.Y0, _ = strconv.ParseFloat(parts[5], 64)
+	a.X1, _ = strconv.ParseFloat(parts[6], 64)
+	a.Y1, _ = strconv.ParseFloat(parts[7], 64)
+	a.LaunchAt, _ = strconv.ParseFloat(parts[8], 64)
+	a.FlightSec, _ = strconv.ParseFloat(parts[9], 64)
+	fc.ActiveRBU = append(fc.ActiveRBU, a)
+	fc.SetTorpedoSeq(parseTrailingInt(a.ID))
+}
+
+func parseHarpoon(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 20 {
+		return
+	}
+	side, _ := strconv.Atoi(parts[3])
+	tubeNum, _ := strconv.Atoi(parts[4])
+	phase, _ := strconv.Atoi(parts[12])
+	h := &weapons.HarpoonMissile{
+		ID: parts[0], ParentSubID: parts[1], TargetContactID: parts[2],
+		Side: world.Side(side), TubeNumber: tubeNum,
+		Alive: true, VisibleOnWEPS: true,
+		Phase: weapons.HarpoonPhase(phase),
+	}
+	h.LaunchX, _ = strconv.ParseFloat(parts[5], 64)
+	h.LaunchY, _ = strconv.ParseFloat(parts[6], 64)
+	h.X, _ = strconv.ParseFloat(parts[7], 64)
+	h.Y, _ = strconv.ParseFloat(parts[8], 64)
+	h.HeadingDeg, _ = strconv.ParseFloat(parts[9], 64)
+	h.SpeedKts, _ = strconv.ParseFloat(parts[10], 64)
+	h.DistanceYd, _ = strconv.ParseFloat(parts[11], 64)
+	h.RadarOn, _ = strconv.ParseBool(parts[13])
+	h.Alive, _ = strconv.ParseBool(parts[14])
+	h.BeamHalfDeg, _ = strconv.ParseFloat(parts[15], 64)
+	h.RadarRangeYd, _ = strconv.ParseFloat(parts[16], 64)
+	h.DestructRangeYd, _ = strconv.ParseFloat(parts[17], 64)
+	h.UnderwaterLeft, _ = strconv.ParseFloat(parts[18], 64)
+	h.Age, _ = strconv.ParseFloat(parts[19], 64)
+	if len(parts) > 20 {
+		h.VisibleOnWEPS, _ = strconv.ParseBool(parts[20])
+	}
+	fc.ActiveHarpoons = append(fc.ActiveHarpoons, h)
+	fc.SetTorpedoSeq(parseTrailingInt(h.ID))
 }
 
 func parseObjective(val string) (world.Objective, bool) {

@@ -30,9 +30,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	var enemySub, enemyShip *world.Entity
 	for _, e := range eng.Scenario.Entities {
 		switch e.ID {
-		case "enemy_sub":
+		case "enemy_foxtrot":
 			enemySub = e
-		case "enemy_surface":
+		case "enemy_grisha":
 			enemyShip = e
 		}
 	}
@@ -49,7 +49,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	enemySub.ActiveSonar = true
 	enemySub.LastPingTime = 88.5
 	enemySub.LastPingPower = 0.6
-	enemySub.LengthFt = 240
+	enemySub.LengthFt = 300
 
 	enemyShip.X, enemyShip.Y = -3000, 5000
 	enemyShip.HeadingDeg = 45
@@ -60,7 +60,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	enemyShip.SinkRateFPM = 35
 	enemyShip.WreckNoiseUntil = 500
 	enemyShip.AIState = "SEARCH"
-	enemyShip.LengthFt = 563
+	enemyShip.LengthFt = 235
 
 	eng.Clock.GameTime = 120.25
 	eng.Clock.TimeScale = 2
@@ -74,9 +74,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	eng.Sonar.TowedCablePct = 0.65
 	eng.Sonar.Contacts = []acoustics.Contact{{
 		ID: "C1", BearingDeg: 33, EstimatedRangeYd: 4200, SNR: 12,
-		BestMatchID: "kilo", BestMatchName: "Kilo SS", Confidence: 0.7,
-		SourceEntityID: "enemy_sub", DetectedBy: "passive", Kind: world.KindSubmarine,
-		ConfirmedID: "kilo", ConfirmedClass: "SSK",
+		BestMatchID: "foxtrot", BestMatchName: "Foxtrot SS", Confidence: 0.7,
+		SourceEntityID: "enemy_foxtrot", DetectedBy: "passive", Kind: world.KindSubmarine,
+		ConfirmedID: "foxtrot", ConfirmedClass: "Pr.641",
 		UncBearingDeg: 4, UncRangeYd: 800, LastUpdate: 120, FirstSeen: 40, ListenTime: 80,
 		LastActiveBearingDeg: 34, LastActiveRangeYd: 4100, LastActiveFixAt: 110,
 		TMACourseDeg: 78, TMASpeedKts: 16, TMAAccuracy: 0.82,
@@ -88,7 +88,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	eng.FireControl.RunDepthFt = 250
 	eng.FireControl.SpeedSetting = "LOW"
 	eng.FireControl.SeekerEnabled = true
-	eng.FireControl.EnemyMagazine["enemy_sub"] = 9
+	eng.FireControl.EnemyMagazine["enemy_foxtrot"] = 9
 	eng.FireControl.SetTorpedoSeq(7)
 	eng.FireControl.Tubes[0].State = weapons.TubeFired
 	eng.FireControl.Tubes[0].TorpedoID = "MK48-7"
@@ -104,7 +104,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	}
 	fish.MarkGyroEnabled(true)
 	hostile := &weapons.Torpedo{
-		ID: "ETORP-3", ParentSubID: "enemy_sub", TargetID: "player", Side: world.SideEnemy,
+		ID: "ETORP-3", ParentSubID: "enemy_foxtrot", TargetID: "player", Side: world.SideEnemy,
 		X: 4400, Y: 2100, DepthFt: 180, HeadingDeg: 200, OrderedHead: 210,
 		SpeedKts: 40, CruiseKts: 48, RunDepthFt: 300,
 		SeekerOn: false, Armed: true, Alive: true, Mode: weapons.ModeWire,
@@ -140,7 +140,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	assertNear(t, "player.OrdSpd", gp.OrderedSpeed, player.OrderedSpeed)
 	assertNear(t, "player.Len", gp.LengthFt, 360)
 
-	gs := findEnt(got, "enemy_sub")
+	gs := findEnt(got, "enemy_foxtrot")
 	assertNear(t, "sub.X", gs.X, enemySub.X)
 	assertNear(t, "sub.Y", gs.Y, enemySub.Y)
 	assertNear(t, "sub.Head", gs.HeadingDeg, enemySub.HeadingDeg)
@@ -152,16 +152,16 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		t.Fatalf("sub AI/sonar: %s active=%v", gs.AIState, gs.ActiveSonar)
 	}
 	assertNear(t, "sub.Ping", gs.LastPingTime, 88.5)
-	assertNear(t, "sub.Len", gs.LengthFt, 240)
+	assertNear(t, "sub.Len", gs.LengthFt, 300)
 
-	gship := findEnt(got, "enemy_surface")
+	gship := findEnt(got, "enemy_grisha")
 	if gship.Status != world.StatusSinking {
 		t.Fatalf("ship status %v", gship.Status)
 	}
 	assertNear(t, "ship.X", gship.X, enemyShip.X)
 	assertNear(t, "ship.Sink", gship.SinkRateFPM, 35)
 	assertNear(t, "ship.Wreck", gship.WreckNoiseUntil, 500)
-	assertNear(t, "ship.Len", gship.LengthFt, 563)
+	assertNear(t, "ship.Len", gship.LengthFt, 235)
 
 	if !got.Acoustics.Env.LayerSurveyKnown {
 		t.Fatal("layer survey known lost")
@@ -170,7 +170,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		t.Fatalf("listen band %v", got.Sonar.ListenBand)
 	}
 	assertNear(t, "sonar.ping", got.Sonar.LastPingTime, 100.5)
-	if len(got.Sonar.Contacts) != 1 || got.Sonar.Contacts[0].SourceEntityID != "enemy_sub" {
+	if len(got.Sonar.Contacts) != 1 || got.Sonar.Contacts[0].SourceEntityID != "enemy_foxtrot" {
 		t.Fatalf("contacts %#v", got.Sonar.Contacts)
 	}
 	assertNear(t, "contact.activeFix", got.Sonar.Contacts[0].LastActiveFixAt, 110)
@@ -178,7 +178,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	assertNear(t, "contact.tmaSpeed", got.Sonar.Contacts[0].TMASpeedKts, 16)
 	assertNear(t, "contact.tmaAccuracy", got.Sonar.Contacts[0].TMAAccuracy, 0.82)
 
-	if got.FireControl.MagazineLeft != 17 || got.FireControl.EnemyMagazine["enemy_sub"] != 9 {
+	if got.FireControl.MagazineLeft != 17 || got.FireControl.EnemyMagazine["enemy_foxtrot"] != 9 {
 		t.Fatalf("magazines player=%d enemy=%v", got.FireControl.MagazineLeft, got.FireControl.EnemyMagazine)
 	}
 	if got.FireControl.TorpedoSeq() < 7 {
@@ -257,11 +257,11 @@ last_ping_power=0.000
 ai_state=
 
 [entity:enemy_surface]
-name=Hostile DD
+name=Hostile DDG
 kind=1
 side=1
 status=0
-signature=spruance
+signature=udaloy
 x=1000.000
 y=2000.000
 depth_ft=0.000
@@ -286,8 +286,8 @@ objective=obj_surface|Destroy hostile surface combatant|false|enemy_surface
 		t.Fatal(err)
 	}
 	ship := findEnt(got, "enemy_surface")
-	if ship.LengthFt != 563 {
-		t.Fatalf("expected spruance length fallback, got %.1f", ship.LengthFt)
+	if ship.LengthFt != 535 {
+		t.Fatalf("expected udaloy length fallback, got %.1f", ship.LengthFt)
 	}
 	assertNear(t, "legacy.x", got.Scenario.Player.X, 100)
 }

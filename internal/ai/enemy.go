@@ -29,12 +29,19 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 	}
 	ship.EnsureDamage()
 
+	// DEFCON 0 — patrol only; ignore player.
+	if ship.Defcon < world.DefconAware {
+		surfacePatrol(ship, gameTime)
+		ship.ActiveSonar = false
+		return
+	}
+
 	rangeYd := ship.RangeYardsTo(player)
 	bearing := ship.BearingDegTo(player)
 	heardPing := acoustics.HeardPlayerPing(model.Env, ship, player, gameTime)
 
 	canActive := ship.Damage.Operational(world.SysActive)
-	if canActive && gameTime-ship.LastPingTime > 8 {
+	if ship.CanDefconPing() && canActive && gameTime-ship.LastPingTime > 8 {
 		ship.ActiveSonar = true
 		ship.LastPingTime = gameTime
 		ship.AIState = "PINGING"
@@ -49,26 +56,118 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 		detected = model.CanDetectPlayerPassive(ship, player, gameTime)
 	}
 
-	if heardPing || detected || rangeYd < 5000 {
-		ship.AIState = "INTERCEPT"
+	// DEFCON 1 — may ping / hold contact; no intercept geometry.
+	if !ship.CanDefconManeuver() {
 		if heardPing && !detected {
 			ship.AIState = "PING_ALERT"
-		}
-		if !ship.Damage.Destroyed(world.SysSteering) {
-			ship.OrderedHead = bearing
-		}
-		maxSpd := ship.MaxSpeedKts()
-		if rangeYd > 4000 {
-			ship.OrderedSpeed = math.Min(22, maxSpd)
-			if heardPing {
-				ship.OrderedSpeed = math.Min(24, maxSpd)
-			}
+		} else if detected {
+			ship.AIState = "TRACKING"
 		} else {
-			ship.OrderedSpeed = math.Min(12, maxSpd)
+			surfacePatrol(ship, gameTime)
 		}
 		return
 	}
 
+	// ASW surface doctrine by class: Rastrub standoff (Udaloy/Kresta) or close RBU/tubes (Grisha).
+	hasRastrub := weapons.SurfaceHasRastrub(ship.SignatureID)
+	const rastrubIdealYd = 5500.0
+	const grishaIdealYd = 1400.0
+	engageHorizon := weapons.RastrubMaxRangeYd
+	if !hasRastrub {
+		engageHorizon = weapons.RBUMaxRangeYd + 800
+	}
+	if heardPing || detected || rangeYd < engageHorizon {
+		if heardPing && !detected {
+			ship.AIState = "PING_ALERT"
+		}
+		maxSpd := ship.MaxSpeedKts()
+		steerOK := !ship.Damage.Destroyed(world.SysSteering)
+
+		if !hasRastrub {
+			// Grisha: close for RBU / ship tubes — no Metel standoff.
+			switch {
+			case rangeYd > weapons.RBUMaxRangeYd:
+				ship.AIState = "CLOSING"
+				if steerOK {
+					ship.OrderedHead = bearing
+				}
+				ship.OrderedSpeed = math.Min(28, maxSpd)
+			case rangeYd >= weapons.RBUMinRangeYd:
+				ship.AIState = "RBU"
+				if steerOK {
+					switch {
+					case rangeYd < grishaIdealYd-400:
+						ship.OrderedHead = normalizeHead(bearing + 180)
+					case rangeYd > grishaIdealYd+400:
+						ship.OrderedHead = bearing
+					default:
+						ship.OrderedHead = normalizeHead(bearing + 70)
+					}
+				}
+				ship.OrderedSpeed = math.Min(18, maxSpd)
+			case rangeYd >= weapons.ShipTubeMinRangeYd:
+				ship.AIState = "SHIP_TUBE"
+				if steerOK {
+					ship.OrderedHead = bearing
+				}
+				ship.OrderedSpeed = math.Min(14, maxSpd)
+			default:
+				ship.AIState = "INTERCEPT"
+				if steerOK {
+					ship.OrderedHead = normalizeHead(bearing + 150)
+				}
+				ship.OrderedSpeed = math.Min(16, maxSpd)
+			}
+			return
+		}
+
+		switch {
+		case rangeYd > weapons.RastrubMaxRangeYd:
+			ship.AIState = "CLOSING"
+			if steerOK {
+				ship.OrderedHead = bearing
+			}
+			ship.OrderedSpeed = math.Min(24, maxSpd)
+
+		case rangeYd >= weapons.RastrubMinRangeYd:
+			ship.AIState = "RASTRUB"
+			if steerOK {
+				switch {
+				case rangeYd < rastrubIdealYd-900:
+					ship.OrderedHead = normalizeHead(bearing + 180)
+				case rangeYd > rastrubIdealYd+900:
+					ship.OrderedHead = bearing
+				default:
+					ship.OrderedHead = normalizeHead(bearing + 85)
+				}
+			}
+			ship.OrderedSpeed = math.Min(16, maxSpd)
+			if heardPing {
+				ship.OrderedSpeed = math.Min(18, maxSpd)
+			}
+
+		case rangeYd >= weapons.ShipTubeMinRangeYd:
+			ship.AIState = "SHIP_TUBE"
+			if steerOK {
+				ship.OrderedHead = bearing
+			}
+			ship.OrderedSpeed = math.Min(12, maxSpd)
+
+		default:
+			// Inside ship-tube min — open a little while keeping sonar contact.
+			ship.AIState = "INTERCEPT"
+			if steerOK {
+				ship.OrderedHead = normalizeHead(bearing + 150)
+			}
+			ship.OrderedSpeed = math.Min(14, maxSpd)
+		}
+		return
+	}
+
+	surfacePatrol(ship, gameTime)
+}
+
+func surfacePatrol(ship *world.Entity, gameTime float64) {
 	leg := int(gameTime/60) % 4
 	if !ship.Damage.Destroyed(world.SysSteering) {
 		switch leg {
@@ -92,6 +191,12 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 	}
 	sub.EnsureDamage()
 
+	if sub.Defcon < world.DefconAware {
+		subPatrol(sub, gameTime)
+		sub.ActiveSonar = false
+		return
+	}
+
 	rangeYd := sub.RangeYardsTo(player)
 	bearing := sub.BearingDegTo(player)
 	heardPing := acoustics.HeardPlayerPing(model.Env, sub, player, gameTime)
@@ -105,12 +210,12 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 		active = model.Detect(sub, player, acoustics.ModeActive, 0.6)
 	}
 
-	if passiveDetected || active.Detected {
+	if sub.CanDefconManeuver() && (passiveDetected || active.Detected) {
 		applySubShadowTactics(sub, player, gameTime, rangeYd, bearing)
 		return
 	}
 
-	if heardPing {
+	if sub.CanDefconManeuver() && heardPing {
 		sub.AIState = "EVADE"
 		if !sub.Damage.Destroyed(world.SysSteering) {
 			sub.OrderedHead = normalizeHead(bearing + 180)
@@ -125,7 +230,7 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 		return
 	}
 
-	if sub.Damage.Operational(world.SysActive) && int(gameTime/90)%3 == 0 && rangeYd > 12000 {
+	if sub.CanDefconPing() && sub.Damage.Operational(world.SysActive) && int(gameTime/90)%3 == 0 && rangeYd > 12000 {
 		sub.ActiveSonar = true
 		sub.LastPingTime = gameTime
 		sub.AIState = "ACTIVE_SEARCH"
@@ -133,9 +238,23 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 		sub.ActiveSonar = false
 	}
 
-	sub.OrderedSpeed = math.Min(6, sub.MaxSpeedKts())
+	subPatrol(sub, gameTime)
+}
+
+func subPatrol(sub *world.Entity, gameTime float64) {
+	patrol := 6.0
+	switch sub.SignatureID {
+	case "foxtrot":
+		patrol = 5.0
+	case "victor_iii":
+		patrol = 8.0
+	}
+	sub.OrderedSpeed = math.Min(patrol, sub.MaxSpeedKts())
 	if !sub.Damage.Destroyed(world.SysDepth) {
 		sub.OrderedDepth = 160
+		if sub.SignatureID == "victor_iii" {
+			sub.OrderedDepth = 220
+		}
 	}
 	if !sub.Damage.Destroyed(world.SysSteering) {
 		leg := int(gameTime/45) % 3
@@ -191,8 +310,15 @@ func applySubShadowTactics(sub, player *world.Entity, gameTime, rangeYd, bearing
 		if !sub.Damage.Destroyed(world.SysSteering) {
 			sub.OrderedHead = brgToStation
 		}
-		// Quiet approach — don't sprint in.
-		sub.OrderedSpeed = math.Min(9, maxSpd)
+	// Quiet approach — don't sprint in (Victor may close a bit hotter).
+		closeSpd := 9.0
+		if sub.SignatureID == "victor_iii" {
+			closeSpd = 12.0
+		}
+		if sub.SignatureID == "foxtrot" {
+			closeSpd = 7.0
+		}
+		sub.OrderedSpeed = math.Min(closeSpd, maxSpd)
 		return
 	}
 
@@ -220,7 +346,7 @@ func applySubShadowTactics(sub, player *world.Entity, gameTime, rangeYd, bearing
 	// Torpedo opportunity: standoff fire envelope + not pointed at a collision course.
 	rel := math.Abs(sub.RelativeBearingDeg(player))
 	goodGeom := rangeYd >= subFireMinYd && rangeYd <= subFireMaxYd && rel >= 20 && rel <= 160
-	if goodGeom {
+	if goodGeom && sub.CanDefconAttack() {
 		sub.AIState = "ATTACK"
 		if int(gameTime*10)%90 == 0 {
 			sub.AIState = "FIRING"

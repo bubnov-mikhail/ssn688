@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/render"
+	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -91,6 +92,11 @@ func (a *App) drawDebugMap(screen *ebiten.Image) {
 
 	for _, e := range a.Engine.Scenario.Entities {
 		a.drawDebugEntityAt(screen, ox, oy, e.X-player.X, e.Y-player.Y, e.HeadingDeg, e.SpeedKts, debugEntityColor(e), e.Alive(), a.debugEntityLabel(e))
+		if e.Side == world.SideEnemy && e.Alive() {
+			sx := ox + (e.X-player.X)*scale
+			sy := oy - (e.Y-player.Y)*scale
+			render.DrawText(screen, fmt.Sprintf("%d", e.Defcon), int(sx)-6, int(sy)+16, render.ColorAmber, true)
+		}
 	}
 
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
@@ -102,6 +108,27 @@ func (a *App) drawDebugMap(screen *ebiten.Image) {
 			clr = render.ColorActive
 		}
 		a.drawDebugEntityAt(screen, ox, oy, t.X-player.X, t.Y-player.Y, t.HeadingDeg, t.SpeedKts, clr, true, "MK48")
+	}
+
+	for _, h := range a.Engine.FireControl.ActiveHarpoons {
+		if h == nil || !h.Alive {
+			continue
+		}
+		clr := color.RGBA{255, 140, 40, 255}
+		if h.Side != world.SidePlayer {
+			clr = render.ColorDebugAttack
+		}
+		label := "HSM"
+		switch {
+		case h.Phase == weapons.HarpoonUnderwater:
+			label = "HSM UW"
+			clr = color.RGBA{200, 110, 40, 220}
+		case h.LockedTargetID != "":
+			label = "HSM LCK"
+		case h.RadarOn:
+			label = "HSM RDR"
+		}
+		a.drawDebugEntityAt(screen, ox, oy, h.X-player.X, h.Y-player.Y, h.HeadingDeg, h.SpeedKts, clr, true, label)
 	}
 
 	a.drawDebugZoomButtons(screen)

@@ -66,7 +66,7 @@ func TestTowedLeverArmBearingOffset(t *testing.T) {
 	}
 	// Target abeam to starboard — max parallax from aft array.
 	target := &world.Entity{
-		ID: "dd", SignatureID: "spruance", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		ID: "dd", SignatureID: "udaloy", Kind: world.KindSurfaceShip, Status: world.StatusActive,
 		X: 4000, Y: 0, DepthFt: 0, SpeedKts: 12,
 	}
 	emitters := []*world.Entity{player, target}
@@ -136,7 +136,7 @@ func TestSpectrumAtBearingRespectsStowedTowedArray(t *testing.T) {
 		DepthFt: 240, SpeedKts: 5, HeadingDeg: 0, OrderedHead: 0,
 	}
 	emitter := &world.Entity{
-		ID: "target", SignatureID: "spruance", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		ID: "target", SignatureID: "udaloy", Kind: world.KindSurfaceShip, Status: world.StatusActive,
 		Y: 5000, SpeedKts: 14,
 	}
 	emitters := []*world.Entity{listener, emitter}

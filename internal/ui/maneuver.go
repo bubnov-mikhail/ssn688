@@ -27,12 +27,14 @@ func (b uiButton) contains(mx, my int) bool {
 }
 
 const (
-	depthGaugeX   = 880
-	depthGaugeW   = 100
-	depthTop      = 190
-	depthH        = 380
-	depthMaxFt    = 800.0
-	depthMinOrder = 60.0
+	depthGaugeX      = 880
+	depthGaugeW      = 100
+	depthTop         = 190
+	depthH           = 380
+	depthMaxFt       = 800.0
+	depthMinOrder    = 60.0
+	depthSurfaceFt   = 0.0
+	depthPeriscopeFt = depthMinOrder // ~60 ft — periscope depth
 )
 
 var colorDepthActual = color.RGBA{160, 160, 160, 255}
@@ -53,8 +55,10 @@ func maneuverButtons() []uiButton {
 			{ID: "hdg_stbd", Label: "STBD ►", Tooltip: "Come right 5 degrees", Y: 520, H: 40},
 			{ID: "hdg_stbd10", Label: "►►", Tooltip: "Come right 10 degrees", Y: 520, H: 40},
 			{ID: "dep_shallow", Label: "▲", Tooltip: "Rise 20 feet (shallower)", X: 980, Y: 200, H: 44},
-			{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: 980, Y: 520, H: 44},
+			{ID: "dep_surface", Label: "SURFACE", Tooltip: "Surface — order zero depth", X: 980, Y: 248, H: 30},
+			{ID: "dep_periscope", Label: "PERISCOPE", Tooltip: "Periscope depth — order 60 feet", X: 980, Y: 282, H: 30},
 			{ID: "dep_hold", Label: "HOLD", Tooltip: "Hold present depth", X: 980, Y: 360, H: 44},
+			{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: 980, Y: 520, H: 44},
 			{ID: "bt_cast", Label: "BT CAST", Tooltip: "Launch SSXBT — survey thermocline (~15 s sim time)", X: 780, Y: 665, H: 36},
 		}
 		for i := range buttons {
@@ -66,6 +70,23 @@ func maneuverButtons() []uiButton {
 			case "hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10":
 				buttons[i].X = x
 				x += buttons[i].W + 6
+			}
+		}
+		depColX := 980
+		depColW := 44
+		for _, b := range buttons {
+			switch b.ID {
+			case "dep_shallow", "dep_hold", "dep_deep", "dep_surface", "dep_periscope":
+				if b.W > depColW {
+					depColW = b.W
+				}
+			}
+		}
+		for i := range buttons {
+			switch buttons[i].ID {
+			case "dep_shallow", "dep_hold", "dep_deep", "dep_surface", "dep_periscope":
+				buttons[i].X = depColX
+				buttons[i].W = depColW
 			}
 		}
 		cachedManeuverButtons.btns = buttons
@@ -295,6 +316,11 @@ func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 	case "dep_hold":
 		player.OrderedDepth = player.DepthFt
 		a.Audio.PlayClip(audio.ClipDiveHoldDepth, fmt.Sprintf("Hold depth %d feet.", int(player.OrderedDepth)))
+	case "dep_surface":
+		player.OrderedDepth = depthSurfaceFt
+		a.Audio.PlayClip(audio.ClipDiveMakeDepth, "Surface the ship.")
+	case "dep_periscope":
+		a.orderMakeDepth(player, depthPeriscopeFt)
 	case "bt_cast":
 		env := &a.Engine.Acoustics.Env
 		gt := a.Engine.Clock.GameTime

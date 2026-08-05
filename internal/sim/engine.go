@@ -166,12 +166,39 @@ func (e *Engine) tick(dt float64) {
 	e.finalizeSunkWrecks(t)
 	e.checkCatastrophicDamage(t)
 
+	ai.UpdateDefcon(ai.DefconContext{
+		Entities: e.Scenario.Entities,
+		Player:   player,
+		Zones:    e.Scenario.RestrictedZones,
+		Torps:    e.FireControl.ActiveTorpedoes,
+		Harpoons: e.FireControl.ActiveHarpoons,
+		Model:    e.Acoustics,
+		GameTime: t,
+		Dt:       dt,
+	})
 	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM)
 	e.guideEnemyTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
+	e.tryEnemySurfaceWeapons(player, t)
 
 	e.FireControl.UpdateTubes(t)
 	e.CM.Advance(dt, t, e.AllEntities())
+
+	shipTargets := e.SeekerTargets()
+	for _, fish := range e.FireControl.AdvanceRastrub(t) {
+		if fish != nil {
+			e.Events = append(e.Events, "Torpedo launch detected (hostile)")
+		}
+	}
+	for _, det := range e.FireControl.AdvanceRBU(t, e.AllEntities()) {
+		e.handleDetonation(det, t)
+	}
+	for _, det := range e.FireControl.AdvanceHarpoons(dt, t, shipTargets, e.cookOffRng()) {
+		e.handleDetonation(det, t)
+	}
+	if e.Sonar.LastBlastAt > 0 {
+		e.FireControl.CheckHarpoonBlastHeard(t, e.Sonar.LastBlastX, e.Sonar.LastBlastY, e.Sonar.LastBlastAt)
+	}
 
 	emitters := e.AcousticEmitters()
 	e.Sonar.UpdateTowed(dt)
@@ -196,7 +223,6 @@ func (e *Engine) tick(dt float64) {
 	acoustics.FireActivePing(e.Acoustics, player, emitters, &e.Sonar, t)
 	acoustics.ProcessActiveEchoes(e.Acoustics, player, emitters, &e.Sonar, t)
 
-	shipTargets := e.SeekerTargets()
 	alive := e.FireControl.ActiveTorpedoes[:0]
 	for _, torp := range e.FireControl.ActiveTorpedoes {
 		if torp == nil || !torp.Alive {
@@ -304,8 +330,47 @@ func (e *Engine) EmitTubeTransient(src *world.Entity, gameTime float64, opening 
 	acoustics.AddPassiveTransient(&e.Sonar, bearing, peak, 4.0, kind, freq, gameTime)
 }
 
+// EmitHarpoonLaunch applies the loud underwater booster signature of a Sub-Harpoon shot.
+func (e *Engine) EmitHarpoonLaunch(src *world.Entity, gameTime float64) {
+	if e == nil || src == nil {
+		return
+	}
+	const (
+		harpoonLaunchFreqHz = 280.0
+		harpoonLaunchDB     = 42.0
+		harpoonLaunchDurSec = 6.0
+	)
+	src.TransientUntil = gameTime + harpoonLaunchDurSec
+	src.TransientFreqHz = harpoonLaunchFreqHz
+	src.TransientLevelDB = harpoonLaunchDB
+	ai.NotifyHarpoonLaunchAcoustic(e.Scenario.Entities, e.Acoustics.Env, src, gameTime)
+	if e.Scenario.Player != nil {
+		acoustics.AddPassiveTransient(&e.Sonar, src.HeadingDeg, 20, 5.5, "harpoon_launch", harpoonLaunchFreqHz, gameTime)
+	}
+}
+
 func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	if det == nil {
+		return
+	}
+	if det.Intercepted {
+		msg := "Point defense intercepted inbound missile"
+		if det.Debris && det.Hit != nil {
+			msg = "Point defense intercepted missile — debris hazard near " + det.Hit.Name
+		}
+		e.Events = append(e.Events, msg)
+		if det.Debris && det.Hit != nil && det.Hit.Alive() {
+			fatal, msgs := world.ApplyDebrisHit(det.Hit, e.cookOffRng())
+			for _, m := range msgs {
+				e.Events = append(e.Events, m)
+			}
+			e.syncDamageSideEffects(det.Hit)
+			if fatal {
+				e.beginSinking(det.Hit, gameTime)
+				e.FireControl.OnPlatformLost(det.Hit.ID)
+				e.Events = append(e.Events, "Target destroyed: "+det.Hit.Name)
+			}
+		}
 		return
 	}
 	if det.SelfKill {
@@ -315,8 +380,24 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	player := e.Scenario.Player
 	acoustics.ApplyDetonationDeaf(&e.Sonar, player, det.X, det.Y, gameTime, det.Hit)
 	e.emitBlastTransient(player, det, gameTime)
+	ai.NotifyDefconDetonation(e.Scenario.Entities, e.Acoustics.Env, det, gameTime)
 	if det.Hit != nil && det.Hit.Alive() {
-		fatal, msgs := world.ApplyTorpedoHit(det.Hit, e.cookOffRng())
+		playerHit := player != nil && det.Hit.ID == player.ID
+		var beforeCrit [world.SysCount]bool
+		if playerHit {
+			det.Hit.EnsureDamage()
+			beforeCrit = world.SnapshotCritical(&det.Hit.Damage)
+		}
+		var fatal bool
+		var msgs []string
+		switch {
+		case det.Harpoon:
+			fatal, msgs = world.ApplyHarpoonHit(det.Hit, e.cookOffRng())
+		case det.RBU:
+			fatal, msgs = world.ApplyDebrisHit(det.Hit, e.cookOffRng())
+		default:
+			fatal, msgs = world.ApplyTorpedoHit(det.Hit, e.cookOffRng(), det.LightWarhead)
+		}
 		for _, m := range msgs {
 			e.Events = append(e.Events, m)
 		}
@@ -324,13 +405,16 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 		if fatal {
 			e.beginSinking(det.Hit, gameTime)
 			e.FireControl.OnPlatformLost(det.Hit.ID)
-			if player != nil && det.Hit.ID == player.ID {
+			if playerHit {
 				e.Events = append(e.Events, "PLAYER SUBMARINE FATAL DAMAGE — SINKING")
 			} else {
 				e.Events = append(e.Events, "Target destroyed: "+det.Hit.Name)
 			}
-		} else if player != nil && det.Hit.ID == player.ID {
+		} else if playerHit {
 			e.Events = append(e.Events, "OWN SHIP HIT — systems damaged")
+			if sys := world.FirstNewCriticalSystem(beforeCrit, &det.Hit.Damage); sys != world.SysNone {
+				e.Events = append(e.Events, "OWN SHIP CRITICAL — "+world.SystemName(sys))
+			}
 		} else {
 			e.Events = append(e.Events, "Target hit: "+det.Hit.Name+" — damaged")
 		}
@@ -516,6 +600,9 @@ func (e *Engine) guideEnemyTorpedoes(player *world.Entity, gameTime float64) {
 		if torp == nil || !torp.Alive || torp.Side != world.SideEnemy {
 			continue
 		}
+		if torp.Class == weapons.ClassUMGT1 {
+			continue // lightweight ASW fish: no wire mid-course
+		}
 		if torp.WireCut || torp.Mode != weapons.ModeWire {
 			continue
 		}
@@ -578,7 +665,7 @@ func (e *Engine) AllEntities() []*world.Entity {
 	return e.entityScratch
 }
 
-// AcousticEmitters is AllEntities plus live torpedoes and countermeasures.
+// AcousticEmitters is AllEntities plus live torpedoes, harpoon egress, and countermeasures.
 func (e *Engine) AcousticEmitters() []*world.Entity {
 	ents := e.AllEntities()
 	n := 0
@@ -587,16 +674,23 @@ func (e *Engine) AcousticEmitters() []*world.Entity {
 			n++
 		}
 	}
-	if n == 0 {
+	hN := 0
+	for _, h := range e.FireControl.ActiveHarpoons {
+		if h != nil && h.Alive && h.Phase == weapons.HarpoonUnderwater {
+			hN++
+		}
+	}
+	total := n + hN
+	if total == 0 {
 		ents = e.CM.AcousticEntities(ents)
 		return ents
 	}
-	if cap(e.torpedoEntityPool) < n {
-		e.torpedoEntityPool = make([]world.Entity, n)
-		e.torpedoEntityPtrs = make([]*world.Entity, n)
+	if cap(e.torpedoEntityPool) < total {
+		e.torpedoEntityPool = make([]world.Entity, total)
+		e.torpedoEntityPtrs = make([]*world.Entity, total)
 	} else {
-		e.torpedoEntityPool = e.torpedoEntityPool[:n]
-		e.torpedoEntityPtrs = e.torpedoEntityPtrs[:n]
+		e.torpedoEntityPool = e.torpedoEntityPool[:total]
+		e.torpedoEntityPtrs = e.torpedoEntityPtrs[:total]
 	}
 	i := 0
 	for _, t := range e.FireControl.ActiveTorpedoes {
@@ -606,6 +700,16 @@ func (e *Engine) AcousticEmitters() []*world.Entity {
 		e.torpedoEntityPtrs[i] = t.AcousticEntity(&e.torpedoEntityPool[i])
 		ents = append(ents, e.torpedoEntityPtrs[i])
 		i++
+	}
+	for _, h := range e.FireControl.ActiveHarpoons {
+		if h == nil || !h.Alive || h.Phase != weapons.HarpoonUnderwater {
+			continue
+		}
+		if ptr := h.AcousticEntity(&e.torpedoEntityPool[i]); ptr != nil {
+			e.torpedoEntityPtrs[i] = ptr
+			ents = append(ents, e.torpedoEntityPtrs[i])
+			i++
+		}
 	}
 	ents = e.CM.AcousticEntities(ents)
 	e.entityScratch = ents
@@ -623,6 +727,9 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 	}
 	for _, ent := range e.Scenario.Entities {
 		if ent == nil || !ent.Alive() || ent.Side != world.SideEnemy || ent.Kind != world.KindSubmarine {
+			continue
+		}
+		if !ent.CanDefconAttack() {
 			continue
 		}
 		if ent.AIState != "FIRING" && ent.AIState != "ATTACK" {
@@ -672,6 +779,75 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 		e.FireControl.EnemyTubeOpenAt[ent.ID] = gameTime
 		e.EmitTubeTransient(ent, gameTime, true)
 		ent.AIState = "FIRING"
+	}
+}
+
+// tryEnemySurfaceWeapons employs class loadouts: Rastrub/tubes or Grisha RBU/tubes.
+func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) {
+	if player == nil || !player.Alive() {
+		return
+	}
+	for _, ent := range e.Scenario.Entities {
+		if ent == nil || !ent.Alive() || ent.Side != world.SideEnemy || ent.Kind != world.KindSurfaceShip {
+			continue
+		}
+		if !ent.CanDefconAttack() {
+			continue
+		}
+		switch ent.AIState {
+		case "RASTRUB", "RBU", "SHIP_TUBE", "INTERCEPT", "PING_ALERT":
+		default:
+			continue
+		}
+		ent.EnsureDamage()
+		canLaunch := false
+		for tn := 1; tn <= 4; tn++ {
+			if ent.Damage.Operational(world.TubeSys(tn)) {
+				canLaunch = true
+				break
+			}
+		}
+		if !canLaunch {
+			continue
+		}
+		if e.FireControl.HasRecentSurfaceASW(ent.ID, 48) {
+			continue
+		}
+		rangeYd := ent.RangeYardsTo(player)
+
+		// Close band: ship torpedo tubes.
+		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
+			if int(gameTime*10)%38 != 0 {
+				continue
+			}
+			if e.FireControl.LaunchShipTube(ent, player) != nil {
+				e.Events = append(e.Events, "Torpedo launch detected (hostile)")
+			}
+			continue
+		}
+
+		// Grisha: RBU pattern inside rocket envelope.
+		if weapons.SurfaceHasRBU(ent.SignatureID) &&
+			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd {
+			if int(gameTime*10)%44 != 0 {
+				continue
+			}
+			if e.FireControl.LaunchRBU(ent, player, gameTime) != nil {
+				e.Events = append(e.Events, "RBU barrage detected")
+			}
+			continue
+		}
+
+		// Standoff: Rastrub rocket → splash lightweight ASW fish.
+		if weapons.SurfaceHasRastrub(ent.SignatureID) &&
+			rangeYd >= weapons.RastrubMinRangeYd && rangeYd <= weapons.RastrubMaxRangeYd {
+			if int(gameTime*10)%52 != 0 {
+				continue
+			}
+			if e.FireControl.LaunchRastrub(ent, player, gameTime) != nil {
+				e.Events = append(e.Events, "Rastrub launch detected")
+			}
+		}
 	}
 }
 

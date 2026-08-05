@@ -27,7 +27,10 @@ const (
 	tacticalOuterYd        = 12000.0 // bearing-only contacts sit on this ring
 	tacticalCourseDragPx   = 10
 	tacticalSmoothStaleSec = 8.0 // reset average if contact absent this long
+	tacticalRulerTickYd    = 3000.0
 )
+
+var tacticalRulerColor = color.RGBA{255, 255, 255, 230}
 
 var contactTMALineColor = color.RGBA{88, 88, 88, 210}
 var torpedoThreatBlinkColor = color.RGBA{255, 80, 60, 255}
@@ -69,6 +72,8 @@ type tacticalState struct {
 	bathyImg           *ebiten.Image
 	bathyPix           []byte
 	bathyKey           bathyViewKey
+	rulerActive        bool
+	rulerX0, rulerY0   float64
 }
 
 func (a *App) ensureTactical() {
@@ -125,6 +130,19 @@ func (a *App) updateTacticalUI() {
 		}
 	}
 
+	// Hold R over map — range/bearing ruler from first press point to cursor.
+	if inpututil.IsKeyJustReleased(ebiten.KeyR) {
+		a.tactical.rulerActive = false
+	}
+	if inMap && inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		wx, wy := a.tacticalScreenToWorld(mx, my)
+		a.tactical.rulerX0, a.tactical.rulerY0 = wx, wy
+		a.tactical.rulerActive = true
+		a.tactical.courseArmed = false
+		a.tactical.courseDragging = false
+	}
+	rulerHeld := a.tactical.rulerActive && ebiten.IsKeyPressed(ebiten.KeyR)
+
 	// Middle mouse (wheel click) — pan. RMB also pans.
 	panHeld := (ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight)) && inMap
 	if panHeld {
@@ -145,8 +163,8 @@ func (a *App) updateTacticalUI() {
 		a.tactical.panDragging = false
 	}
 
-	// LMB: click selects contact/marker; drag orders course.
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && inMap && !a.tactical.panDragging {
+	// LMB: click selects contact/marker; drag orders course (not while ruler held).
+	if !rulerHeld && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && inMap && !a.tactical.panDragging {
 		a.tactical.courseArmed = true
 		a.tactical.courseDragging = false
 		a.tactical.coursePressMX, a.tactical.coursePressMY = mx, my
@@ -154,7 +172,7 @@ func (a *App) updateTacticalUI() {
 		a.tactical.courseDeg = bearingDeg(player.X, player.Y, wx, wy)
 	}
 
-	if a.tactical.courseArmed && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if !rulerHeld && a.tactical.courseArmed && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		dx := mx - a.tactical.coursePressMX
 		dy := my - a.tactical.coursePressMY
 		if dx*dx+dy*dy >= tacticalCourseDragPx*tacticalCourseDragPx {
@@ -166,7 +184,7 @@ func (a *App) updateTacticalUI() {
 		}
 	}
 
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && (a.tactical.courseArmed || a.tactical.courseDragging) {
+	if !rulerHeld && inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && (a.tactical.courseArmed || a.tactical.courseDragging) {
 		if a.tactical.courseDragging {
 			player.OrderedHead = a.tactical.courseDeg
 			msg := fmt.Sprintf("Ordered course %.0f degrees.", a.tactical.courseDeg)
@@ -515,7 +533,7 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
 	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
 	render.DrawText(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28, render.ColorPlateLabel, true)
-	render.DrawText(screen, "LMB: select   LMB drag: course   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPhosphorDim, true)
 
 	for _, b := range a.tacticalButtons() {
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, a.uiHoverID == b.ID, a.uiPressedID == b.ID)
@@ -586,6 +604,18 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 
 	a.drawTacticalPlotMarkers(screen)
 
+	for _, aroc := range a.Engine.FireControl.ActiveRastrub {
+		if aroc == nil || !aroc.Alive {
+			continue
+		}
+		ax, ay := aroc.Pos(a.Engine.Clock.GameTime)
+		sx, sy := a.tacticalWorldToScreen(ax, ay)
+		// In-flight Rastrub: small amber diamond toward splash.
+		render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, render.ColorAmber)
+		sx1, sy1 := a.tacticalWorldToScreen(aroc.X1, aroc.Y1)
+		render.DrawLine(screen, sx, sy, sx1, sy1, color.RGBA{255, 180, 40, 90})
+	}
+
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
 		if t == nil || !t.Alive || t.Side != world.SidePlayer {
 			continue
@@ -608,6 +638,8 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 		render.DrawText(screen, fmt.Sprintf("CSE %.0f", a.tactical.courseDeg), int(px)+14, int(py)+18, render.ColorAmber, true)
 	}
 
+	a.drawTacticalRuler(screen)
+
 	kyd := 2000.0
 	bar := kyd * a.tactical.zoom
 	bx := mapX + 16
@@ -615,6 +647,45 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 	render.DrawLine(screen, float64(bx), float64(by), float64(bx)+bar, float64(by), render.ColorPhosphor)
 	render.DrawText(screen, "2 KYD", bx, by-4, render.ColorPhosphorDim, true)
 	a.drawTacticalNavCoords(screen, bx, by+14, mapX, mapY, mapW, mapH, player)
+}
+
+func (a *App) drawTacticalRuler(screen *ebiten.Image) {
+	if !a.tactical.rulerActive || !ebiten.IsKeyPressed(ebiten.KeyR) {
+		return
+	}
+	mx, my := ebiten.CursorPosition()
+	wx1, wy1 := a.tacticalScreenToWorld(mx, my)
+	x0, y0 := a.tactical.rulerX0, a.tactical.rulerY0
+	distYd := math.Hypot(wx1-x0, wy1-y0)
+	brg := bearingDeg(x0, y0, wx1, wy1)
+
+	sx0, sy0 := a.tacticalWorldToScreen(x0, y0)
+	sx1, sy1 := a.tacticalWorldToScreen(wx1, wy1)
+
+	radPx := distYd * a.tactical.zoom
+	if radPx > 2 {
+		drawCircle(screen, sx0, sy0, radPx, tacticalRulerColor)
+	}
+	render.DrawLine(screen, sx0, sy0, sx1, sy1, tacticalRulerColor)
+
+	if distYd > 1 {
+		dx := sx1 - sx0
+		dy := sy1 - sy0
+		segLen := math.Hypot(dx, dy)
+		if segLen > 1 {
+			px := -dy / segLen
+			py := dx / segLen
+			const tickHalf = 5.0
+			for d := tacticalRulerTickYd; d < distYd; d += tacticalRulerTickYd {
+				f := d / distYd
+				tx, ty := sx0+dx*f, sy0+dy*f
+				render.DrawLine(screen, tx-px*tickHalf, ty-py*tickHalf, tx+px*tickHalf, ty+py*tickHalf, tacticalRulerColor)
+			}
+		}
+	}
+
+	label := fmt.Sprintf("%.0f yd / %.0f°", distYd, brg)
+	render.DrawText(screen, label, mx+10, my-6, tacticalRulerColor, true)
 }
 
 func (a *App) drawTacticalNavCoords(screen *ebiten.Image, x, y, mapX, mapY, mapW, mapH int, player *world.Entity) {

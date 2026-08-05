@@ -54,6 +54,14 @@ func DrawBevelButton(screen *ebiten.Image, x, y, w, h int, label string, hovered
 	DrawButtonText(screen, label, tx, ty, clr)
 }
 
+// DrawBevelButtonDisabled draws a non-interactive button face.
+func DrawBevelButtonDisabled(screen *ebiten.Image, x, y, w, h int, label string) {
+	FillRect(screen, x, y, w, h, ColorBevelDark)
+	FillRect(screen, x+2, y+2, w-4, h-4, ColorPanelInset)
+	tw := ButtonLabelWidth(label)
+	DrawButtonText(screen, label, x+(w-tw)/2, y+h/2+4, ColorDim)
+}
+
 // DrawTooltip shows a help bubble near the cursor.
 func DrawTooltip(screen *ebiten.Image, mx, my int, text string) {
 	if text == "" {

@@ -53,12 +53,15 @@ const (
 )
 
 type Tube struct {
-	Number      int
-	State       TubeState
-	TorpedoType string
-	WireIntact  bool
-	TorpedoID   string  // fish launched from this tube (wire link)
-	ReloadEnds  float64 // GameTime when reload finishes; 0 = idle
+	Number          int
+	State           TubeState
+	TorpedoType     string
+	WireIntact      bool
+	TorpedoID       string  // fish launched from this tube (wire link)
+	ReloadEnds      float64 // GameTime when reload finishes; 0 = idle
+	ReloadOrdnance  string  // type being loaded during TubeReloading
+	LastOrdnance    string  // type in tube before last reload cycle (default after fire)
+	TargetContactID string  // sonar contact ID (e.g. S3) assigned on WEPS
 }
 
 type TorpedoMode int
@@ -102,15 +105,23 @@ type Torpedo struct {
 	RejectedUntil map[string]float64
 	CMLockID      string
 	CMLockSince   float64
+
+	Class       WeaponClass // heavy vs UMGT-1 lightweight
+	AcousticSig string      // optional override (e.g. set40 vs umgt1)
 }
 
 // Detonation describes a warhead event for the sim (blast, deaf, sinking).
 type Detonation struct {
-	X, Y      float64
-	DepthFt   float64
-	Hit       *world.Entity // may be nil if scuttled without contact
-	SelfKill  bool          // intentional self-destruct — no blast/deaf
-	ShooterID string
+	X, Y        float64
+	DepthFt     float64
+	Hit         *world.Entity // may be nil if scuttled without contact
+	SelfKill    bool          // intentional self-destruct — no blast/deaf
+	Harpoon     bool          // anti-ship missile warhead (surface)
+	Intercepted bool          // SAM/CIWS killed the missile
+	Debris      bool          // close-in intercept — fragment damage to Hit
+	RBU         bool          // RBU pattern splash — light ASW shock damage
+	LightWarhead bool         // UMGT-1 / SET-40 — reduced hull damage vs heavy fish
+	ShooterID   string
 }
 
 // FireControl manages 688-style torpedo firing.
@@ -121,29 +132,52 @@ type FireControl struct {
 	RunDepthFt       float64
 	SpeedSetting     string // "LOW", "HIGH"
 	SeekerEnabled    bool
-	MagazineLeft     int
-	EnemyMagazine    map[string]int
+	MagazineLeft     int // Mk48 rounds in weapons space (not in tubes)
+	HarpoonMagLeft   int
+	HarpoonRadarBeam    string // WIDE / NARROW
+	HarpoonRadarRange   string // MIN / SHORT / MEDIUM / LONG
+	HarpoonDestructRange string // MEDIUM / LONG / MAX
+	EnemyMagazine    map[string]int // hostile sub heavy fish
+	EnemyRastrub     map[string]int // URPK-5 Rastrub ASW rockets
+	EnemyShipTube    map[string]int // ship torpedo tubes (UMGT-1 / SET-40)
+	EnemyRBU         map[string]int // RBU-6000 salvos (Grisha)
+	EnemySAM         map[string]int     // Kinzhal / Osa-M rounds
+	EnemyCIWS        map[string]int     // AK-630 burst magazine
+	EnemyPDEngageAt  map[string]float64 // last point-defense engagement time
 	EnemyTubeOpenAt  map[string]float64
 	ActiveTorpedoes  []*Torpedo
+	ActiveHarpoons   []*HarpoonMissile
+	ActiveRastrub    []*RastrubFlight
+	ActiveRBU        []*RBUSalvo
 	torpedoSeq       int
 }
 
 func NewFireControl() FireControl {
 	fc := FireControl{
-		SelectedTube:  1,
-		GyroAngleDeg:  0,
-		RunDepthFt:    400,
-		SpeedSetting:  "HIGH",
-		SeekerEnabled: false,
-		MagazineLeft:  PlayerMagazineCapacity - 4, // 4 already in tubes
-		EnemyMagazine: map[string]int{},
-		EnemyTubeOpenAt: map[string]float64{},
+		SelectedTube:         1,
+		GyroAngleDeg:         0,
+		RunDepthFt:           400,
+		SpeedSetting:         "HIGH",
+		SeekerEnabled:        false,
+		MagazineLeft:         PlayerMagazineCapacity - 4, // 4 Mk48 already in tubes
+		HarpoonMagLeft:       PlayerHarpoonMagazine,
+		HarpoonRadarBeam:     HarpoonBeamWide,
+		HarpoonRadarRange:    HarpoonSRCHMedium,
+		HarpoonDestructRange: HarpoonDSTRLong,
+		EnemyMagazine:        map[string]int{},
+		EnemyRastrub:         map[string]int{},
+		EnemyShipTube:        map[string]int{},
+		EnemyRBU:             map[string]int{},
+		EnemySAM:             map[string]int{},
+		EnemyCIWS:            map[string]int{},
+		EnemyPDEngageAt:      map[string]float64{},
+		EnemyTubeOpenAt:      map[string]float64{},
 	}
 	for i := range fc.Tubes {
 		fc.Tubes[i] = Tube{
 			Number:      i + 1,
 			State:       TubeLoaded,
-			TorpedoType: "Mk48",
+			TorpedoType: OrdnanceMk48,
 		}
 	}
 	return fc
@@ -164,6 +198,14 @@ func (fc *FireControl) TubeByNumber(n int) *Tube {
 		return nil
 	}
 	return &fc.Tubes[n-1]
+}
+
+// SetTubeTargetContact assigns a sonar contact ID to a tube's target (WEPS).
+func (fc *FireControl) SetTubeTargetContact(tubeNum int, contactID string) {
+	t := fc.TubeByNumber(tubeNum)
+	if t != nil {
+		t.TargetContactID = contactID
+	}
 }
 
 // OpenOuterDoor opens the selected (or numbered) tube. Cannot open while reloading.
@@ -207,19 +249,109 @@ func (fc *FireControl) CloseOuterDoor(tubeNum int, gameTime float64) bool {
 	}
 }
 
-func (fc *FireControl) beginReload(t *Tube, gameTime float64) {
-	if fc.MagazineLeft <= 0 {
+func (fc *FireControl) ordnanceMagLeft(ordnance string) int {
+	switch normalizeOrdnance(ordnance) {
+	case OrdnanceHarpoon:
+		return fc.HarpoonMagLeft
+	default:
+		return fc.MagazineLeft
+	}
+}
+
+func (fc *FireControl) returnOrdnanceToMag(ordnance string) {
+	switch normalizeOrdnance(ordnance) {
+	case OrdnanceHarpoon:
+		fc.HarpoonMagLeft++
+	default:
+		fc.MagazineLeft++
+	}
+}
+
+func (fc *FireControl) consumeOrdnance(ordnance string) bool {
+	switch normalizeOrdnance(ordnance) {
+	case OrdnanceHarpoon:
+		if fc.HarpoonMagLeft <= 0 {
+			return false
+		}
+		fc.HarpoonMagLeft--
+		return true
+	default:
+		if fc.MagazineLeft <= 0 {
+			return false
+		}
+		fc.MagazineLeft--
+		return true
+	}
+}
+
+func (fc *FireControl) startOrdnanceReload(t *Tube, ordnance string, gameTime float64) {
+	ordnance = normalizeOrdnance(ordnance)
+	if !fc.consumeOrdnance(ordnance) {
 		t.State = TubeEmpty
 		t.ReloadEnds = 0
 		t.TorpedoType = ""
+		t.ReloadOrdnance = ""
 		return
 	}
-	fc.MagazineLeft--
 	t.State = TubeReloading
 	t.ReloadEnds = gameTime + TubeReloadSec
-	t.TorpedoType = "Mk48"
+	t.ReloadOrdnance = ordnance
+	t.TorpedoType = ""
 	t.WireIntact = false
 	t.TorpedoID = ""
+}
+
+// RequestOrdnanceReload starts or retargets a tube reload. Returns false if blocked or no-op.
+func (fc *FireControl) RequestOrdnanceReload(tubeNum int, ordnance string, gameTime float64) bool {
+	t := fc.TubeByNumber(tubeNum)
+	if t == nil {
+		return false
+	}
+	if t.State == TubeDoorOpen || t.State == TubeFired {
+		return false
+	}
+	ordnance = normalizeOrdnance(ordnance)
+
+	switch t.State {
+	case TubeLoaded:
+		cur := normalizeOrdnance(t.TorpedoType)
+		if cur == ordnance {
+			return false
+		}
+		t.LastOrdnance = cur
+		fc.returnOrdnanceToMag(cur)
+		fc.startOrdnanceReload(t, ordnance, gameTime)
+		return true
+	case TubeReloading:
+		if normalizeOrdnance(t.ReloadOrdnance) == ordnance {
+			return false
+		}
+		fc.returnOrdnanceToMag(t.ReloadOrdnance)
+		fc.startOrdnanceReload(t, ordnance, gameTime)
+		return true
+	case TubeEmpty:
+		if fc.ordnanceMagLeft(ordnance) <= 0 {
+			return false
+		}
+		if t.TorpedoType != "" {
+			t.LastOrdnance = normalizeOrdnance(t.TorpedoType)
+		} else if t.LastOrdnance == "" {
+			t.LastOrdnance = OrdnanceMk48
+		}
+		fc.startOrdnanceReload(t, ordnance, gameTime)
+		return true
+	default:
+		return false
+	}
+}
+
+func (fc *FireControl) beginReload(t *Tube, gameTime float64) {
+	reloadType := normalizeOrdnance(t.TorpedoType)
+	if reloadType == "" {
+		reloadType = OrdnanceMk48
+	}
+	t.LastOrdnance = reloadType
+	fc.startOrdnanceReload(t, reloadType, gameTime)
 }
 
 // UpdateTubes advances reload timers.
@@ -228,6 +360,11 @@ func (fc *FireControl) UpdateTubes(gameTime float64) {
 		t := &fc.Tubes[i]
 		if t.State == TubeReloading && t.ReloadEnds > 0 && gameTime >= t.ReloadEnds {
 			t.State = TubeLoaded
+			t.TorpedoType = normalizeOrdnance(t.ReloadOrdnance)
+			if t.TorpedoType == "" {
+				t.TorpedoType = OrdnanceMk48
+			}
+			t.ReloadOrdnance = ""
 			t.ReloadEnds = 0
 		}
 	}
@@ -247,6 +384,9 @@ func (fc *FireControl) Shoot(sub *world.Entity, tubeNum int) *Torpedo {
 		t = fc.Selected()
 	}
 	if t.State != TubeDoorOpen {
+		return nil
+	}
+	if normalizeOrdnance(t.TorpedoType) != OrdnanceMk48 {
 		return nil
 	}
 	if sub != nil {
@@ -300,7 +440,7 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 	if sub == nil || !sub.Alive() || target == nil {
 		return nil
 	}
-	left := fc.enemyAmmo(sub.ID)
+	left := fc.enemyAmmo(sub)
 	if left <= 0 {
 		return nil
 	}
@@ -322,7 +462,7 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 		LaunchHeadDeg:          ownHead,
 		GyroCourseDeg:          brg,
 		SpeedKts:               18,
-		CruiseKts:              48,
+		CruiseKts:              HostileTorpedoCruiseKts(sub.SignatureID),
 		RunDepthFt:             math.Max(80, target.DepthFt),
 		SeekerOn:               false,
 		Armed:                  true,
@@ -335,15 +475,19 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 	return torp
 }
 
-func (fc *FireControl) enemyAmmo(subID string) int {
+func (fc *FireControl) enemyAmmo(sub *world.Entity) int {
+	if sub == nil {
+		return 0
+	}
 	if fc.EnemyMagazine == nil {
 		fc.EnemyMagazine = map[string]int{}
 	}
-	if v, ok := fc.EnemyMagazine[subID]; ok {
+	if v, ok := fc.EnemyMagazine[sub.ID]; ok {
 		return v
 	}
-	fc.EnemyMagazine[subID] = EnemySubMagazine
-	return EnemySubMagazine
+	n := EnemySubMagazineFor(sub.SignatureID)
+	fc.EnemyMagazine[sub.ID] = n
+	return n
 }
 
 func (fc *FireControl) HasRecentShotFrom(subID string, maxAge float64) bool {
@@ -542,7 +686,11 @@ func (t *Torpedo) TubeCleared() bool {
 	if t == nil {
 		return true
 	}
-	return t.ClearDistYd >= TubeClearYd
+	need := TubeClearYd
+	if t.Class == ClassUMGT1 {
+		need = UMGT1TubeClearYd
+	}
+	return t.ClearDistYd >= need
 }
 
 func (t *Torpedo) enableGyroAfterClear() {
@@ -563,7 +711,12 @@ func (t *Torpedo) AcousticEntity(dst *world.Entity) *world.Entity {
 		return nil
 	}
 	sig := "mk48"
-	if t.Side == world.SideEnemy {
+	switch {
+	case t.AcousticSig != "":
+		sig = t.AcousticSig
+	case t.Class == ClassUMGT1:
+		sig = "umgt1"
+	case t.Side == world.SideEnemy:
 		sig = "type53"
 	}
 	*dst = world.Entity{
@@ -667,6 +820,10 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 
 	// Influence fuse only while actively searching (not wire-run / transit).
 	if t.Armed && t.Age > 2 && t.Mode == ModeSearch {
+		proxYd := ProximityKillYd
+		if t.Class == ClassUMGT1 {
+			proxYd = UMGT1ProximityYd
+		}
 		for _, tgt := range targets {
 			if tgt == nil || !tgt.Alive() {
 				continue
@@ -674,8 +831,11 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 			if tgt.Kind != world.KindSubmarine && tgt.Kind != world.KindSurfaceShip {
 				continue
 			}
+			if tgt.Side == t.Side {
+				continue
+			}
 			d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
-			if d > ProximityKillYd {
+			if d > proxYd {
 				continue
 			}
 			depthDiff := math.Abs(tgt.DepthFt - t.DepthFt)
@@ -689,11 +849,16 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 				return &Detonation{
 					X: t.X, Y: t.Y, DepthFt: t.DepthFt,
 					Hit: tgt, ShooterID: t.ParentSubID,
+					LightWarhead: t.Class == ClassUMGT1,
 				}
 			}
 		}
 	}
-	if t.Age > 600 {
+	maxAge := 600.0
+	if t.Class == ClassUMGT1 {
+		maxAge = UMGT1MaxAgeSec
+	}
+	if t.Age > maxAge {
 		t.Alive = false
 	}
 	return nil
@@ -736,7 +901,7 @@ func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFu
 			continue
 		}
 		d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
-		maxR, coneHalf := seekAcquireLimits(t.DepthFt, tgt.DepthFt, layerAtten)
+		maxR, coneHalf := t.seekAcquireLimits(tgt.DepthFt, layerAtten)
 		if isCM {
 			// Decoys are a bit easier to "hear" at the edge of the cone, but not beyond range.
 			maxR *= 1.08
@@ -918,8 +1083,28 @@ func (t *Torpedo) maybeRejectCM(targets []*world.Entity, gameTime float64) {
 
 // seekAcquireLimits shrinks seeker range/cone when acoustic layers separate fish and target.
 func seekAcquireLimits(torpDepthFt, tgtDepthFt float64, layerAtten LayerAttenFunc) (maxRangeYd, coneHalfDeg float64) {
+	return seekAcquireLimitsFor(ClassHeavy, torpDepthFt, tgtDepthFt, layerAtten)
+}
+
+func (t *Torpedo) seekAcquireLimits(tgtDepthFt float64, layerAtten LayerAttenFunc) (maxRangeYd, coneHalfDeg float64) {
+	class := ClassHeavy
+	if t != nil {
+		class = t.Class
+	}
+	depth := 0.0
+	if t != nil {
+		depth = t.DepthFt
+	}
+	return seekAcquireLimitsFor(class, depth, tgtDepthFt, layerAtten)
+}
+
+func seekAcquireLimitsFor(class WeaponClass, torpDepthFt, tgtDepthFt float64, layerAtten LayerAttenFunc) (maxRangeYd, coneHalfDeg float64) {
 	maxRangeYd = SeekAcquireRangeYd
 	coneHalfDeg = SeekConeHalfAngleDeg
+	if class == ClassUMGT1 {
+		maxRangeYd = UMGT1SeekRangeYd
+		coneHalfDeg = 40
+	}
 	if layerAtten == nil {
 		return maxRangeYd, coneHalfDeg
 	}
@@ -932,13 +1117,13 @@ func seekAcquireLimits(torpDepthFt, tgtDepthFt float64, layerAtten LayerAttenFun
 	if factor < SeekLayerMinRangeFactor {
 		factor = SeekLayerMinRangeFactor
 	}
-	maxRangeYd = SeekAcquireRangeYd * factor
+	maxRangeYd *= factor
 	// Narrow the effective cone through the layer (multipath / refraction).
 	coneScale := 1 - 0.35*math.Min(1, loss/22)
 	if coneScale < 0.55 {
 		coneScale = 0.55
 	}
-	coneHalfDeg = SeekConeHalfAngleDeg * coneScale
+	coneHalfDeg *= coneScale
 	return maxRangeYd, coneHalfDeg
 }
 
@@ -989,7 +1174,11 @@ func TubeAmmoStatus(t Tube, reloadRemainSec float64) string {
 		return "EMPTY"
 	case TubeReloading:
 		if reloadRemainSec > 0 {
-			return fmt.Sprintf("RELOADING %ds", int(reloadRemainSec+0.5))
+			name := t.ReloadOrdnance
+			if name == "" {
+				name = "?"
+			}
+			return fmt.Sprintf("RELOAD %s %ds", name, int(reloadRemainSec+0.5))
 		}
 		return "RELOADING"
 	default:

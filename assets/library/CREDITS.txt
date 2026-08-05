@@ -1,0 +1,38 @@
+LIBRARY photos (resized for embed). Sources: Wikimedia Commons.
+
+los_angeles.jpg
+  File:USS Scranton (SSN-756).jpg — U.S. Navy photo, public domain (USGov).
+
+udaloy.jpg
+  File:Soviet Udaloy class destroyer Admiral Vinogradov (1990).JPEG — U.S. DoD photo, public domain.
+
+krivak.jpg
+  File:Kirvak I class frigate.jpg — U.S. DoD photo, public domain.
+
+kresta2.jpg
+  File:MarshalTimoshenko1986.jpg — U.S. DoD photo, public domain.
+
+grisha.jpg
+  File:Aerial starboard quarter view of the Russian Navy Northern Fleet Grisha III class corvette underway - DPLA - 50ac7e36c44c245a6fa75f74a219a1d8.jpeg
+  U.S. DoD / DPLA, public domain.
+
+kilo.jpg
+  File:An elevated starboard bow view of a Soviet Kilo class patrol submarine underway - DPLA - f6fe48fa47c933871b49b0735ae55579.jpeg
+  U.S. DoD / DPLA, public domain.
+
+foxtrot.jpg
+  File:A port bow view of a Soviet-built Cuban Foxtrot class patrol submarine underway.jpg — U.S. DoD photo, public domain.
+
+victor_iii.jpg
+  File:Victor III class submarine.jpg — U.S. Navy / DoD photo, public domain.
+
+merchant.jpg
+  File:US Navy 110324-N-FX485-046 The Military Sealift Command dry cargo and ammunition ship USNS Carl Brashear (T-AKE 7) is underway alongside the aircra.jpg
+  U.S. Navy photo, public domain (stand-in freighter silhouette).
+
+tanker.jpg
+  File:SS Middleton during Operation Earnest Will DN-SN-88-10144.jpg — U.S. DoD photo, public domain.
+
+fishing.jpg
+  File:Trawler Port en Bessin.jpg — © Jebulon, CC BY-SA 3.0 (copyleft).
+  https://commons.wikimedia.org/wiki/File:Trawler_Port_en_Bessin.jpg

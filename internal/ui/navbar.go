@@ -30,7 +30,7 @@ func (a *App) navItems() []navItem {
 		{ScreenPassive, render.IconPassive, "PASSIVE", "Passive sonar — towed array display", "F1"},
 		{ScreenActive, render.IconActive, "ACTIVE", "Active sonar — transmit and receive", "F2"},
 		{ScreenSpectrum, render.IconSpectrum, "SPECTRUM", "Spectrum analyzer — classify by frequency", "F3"},
-		{ScreenLibrary, render.IconLibrary, "LIBRARY", "Signature library — noise profile catalog", "F4"},
+		{ScreenLibrary, render.IconLibrary, "LIBRARY", "Threat library — platforms, weapons, tactics", "F4"},
 		{ScreenFireControl, render.IconWeapons, "WEPS", "Fire control — torpedo tubes and launch", "F5"},
 		{ScreenManeuver, render.IconManeuver, "HELM", "Maneuvering room — speed, course, depth", "F6"},
 		{ScreenDamage, render.IconDamage, "DC", "Damage control — systems status and repair", "F7"},

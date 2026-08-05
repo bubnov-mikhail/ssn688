@@ -41,6 +41,7 @@ type Entity struct {
 	LastPingTime  float64
 	LastPingPower float64 // 0..1 transmit power of last active ping
 	AIState       string
+	Defcon        int // enemy alert 0–3; see world/defcon.go
 	Damage        PlatformDamage
 	// Short-lived transient signature (tube doors, flooding valves, etc).
 	TransientUntil   float64

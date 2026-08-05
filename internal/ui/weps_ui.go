@@ -33,7 +33,7 @@ const (
 	wepsTubeY0   = 124
 	wepsTubeRowH = 36
 
-	// Combined NEXT SHOT PREP / WIRE GUIDE panel.
+	// Combined NEXT SHOT PREP / WIRE GUIDE / HARPOON PREP panel.
 	wepsCtrlY = 276
 	wepsCtrlH = 58
 
@@ -50,13 +50,13 @@ type wepsCtrlMode int
 const (
 	wepsCtrlInactive wepsCtrlMode = iota
 	wepsCtrlPrep
+	wepsCtrlHarpoonPrep
 	wepsCtrlWire
 )
 
 func (a *App) wepsTubeButtons(tube int, y int) []sonarUIButton {
 	const btnH = 24
 	btnY := y + 4 - btnH/2
-	x := wepsLeftX + 200
 	doorLabel := "OPEN"
 	doorTip := "Open outer door"
 	fc := &a.Engine.FireControl
@@ -67,10 +67,26 @@ func (a *App) wepsTubeButtons(tube int, y int) []sonarUIButton {
 			doorTip = "Close outer door"
 		}
 	}
-	return layoutButtonRow(x, btnY, btnH, 4, []buttonSpec{
+	specs := []buttonSpec{
 		{fmt.Sprintf("tube_%d_door", tube), doorLabel, doorTip},
 		{fmt.Sprintf("tube_%d_fire", tube), "FIRE", "Launch (door must be open)"},
-	})
+	}
+	x := wepsTubeActionsX(specs, 4)
+	return layoutButtonRow(x, btnY, btnH, 4, specs)
+}
+
+// wepsTubeActionsX right-aligns OPEN/FIRE within the left WEPS column.
+func wepsTubeActionsX(specs []buttonSpec, gap int) int {
+	blockRight := wepsLeftX + wepsLeftW - 6
+	totalW := 0
+	for i, s := range specs {
+		if i > 0 {
+			totalW += gap
+		}
+		totalW += render.ButtonWidth(s.label, 14)
+	}
+	const padR = 10
+	return blockRight - padR - totalW
 }
 
 func (a *App) wepsTubePickButton(tube int, y int) sonarUIButton {
@@ -97,8 +113,20 @@ func (a *App) wepsControlMode(fc *weapons.FireControl) (wepsCtrlMode, *weapons.T
 		}
 	}
 	st := fc.Tubes[fc.SelectedTube-1].State
+	tube := &fc.Tubes[fc.SelectedTube-1]
+	if st == weapons.TubeFired {
+		if fc.HarpoonByTube(fc.SelectedTube) != nil {
+			return wepsCtrlInactive, nil
+		}
+	}
 	if st == weapons.TubeLoaded || st == weapons.TubeDoorOpen {
+		if weapons.NormalizeOrdnance(tube.TorpedoType) == weapons.OrdnanceHarpoon {
+			return wepsCtrlHarpoonPrep, nil
+		}
 		return wepsCtrlPrep, nil
+	}
+	if st == weapons.TubeReloading && weapons.NormalizeOrdnance(tube.ReloadOrdnance) == weapons.OrdnanceHarpoon {
+		return wepsCtrlHarpoonPrep, nil
 	}
 	return wepsCtrlInactive, nil
 }
@@ -279,6 +307,7 @@ func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
 	gt := a.Engine.Clock.GameTime
 	sonar := &a.Engine.Sonar
 	a.validateSelectedContact(sonar)
+	a.validateTubeContactTargets(sonar)
 	mx, my := ebiten.CursorPosition()
 	scrollContactTableWheel(mx, my, wepsLeftX, wepsTargetsY+40, wepsLeftW-16, wepsVisibleContactRows()*wepsTargetsRow, len(sonar.Contacts), wepsVisibleContactRows(), &a.contactTableScroll.weps)
 
@@ -290,7 +319,13 @@ func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
 	}
 	mode, _ := a.wepsControlMode(fc)
 	ctrlActive := mode != wepsCtrlInactive
-	ctrlBtns := a.wepsCtrlButtons(fc)
+	var ctrlBtns []sonarUIButton
+	if mode == wepsCtrlHarpoonPrep {
+		ctrlBtns = a.wepsHarpoonCtrlButtons(fc)
+	} else if ctrlActive {
+		ctrlBtns = a.wepsCtrlButtons(fc)
+	}
+	all = append(all, a.wepsCollectOrdnanceButtons(fc)...)
 	if ctrlActive {
 		all = append(all, ctrlBtns...)
 	}
@@ -303,8 +338,38 @@ func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
 	a.updateSonarTooltips(all, mx, my)
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		// Open ordnance popup steals clicks from panels underneath.
+		if a.wepsOrdnanceMenuTube != 0 {
+			y := wepsTubeY0 + (a.wepsOrdnanceMenuTube-1)*wepsTubeRowH
+			menuBtns := a.wepsOrdnanceMenuButtons(a.wepsOrdnanceMenuTube, y)
+			pick := a.wepsOrdnancePickButton(a.wepsOrdnanceMenuTube, y)
+			for _, b := range menuBtns {
+				if b.contains(mx, my) {
+					if a.wepsOrdnanceAction(b.ID, fc, gt) {
+						a.uiPressedID = b.ID
+						a.uiPressedAt = time.Now()
+						return
+					}
+				}
+			}
+			onPopup := pick.contains(mx, my)
+			for _, b := range menuBtns {
+				if b.contains(mx, my) {
+					onPopup = true
+					break
+				}
+			}
+			if !onPopup {
+				a.wepsOrdnanceMenuTube = 0
+			}
+		}
 		for _, b := range all {
 			if b.contains(mx, my) {
+				if a.wepsOrdnanceAction(b.ID, fc, gt) {
+					a.uiPressedID = b.ID
+					a.uiPressedAt = time.Now()
+					return
+				}
 				a.wepsButtonAction(b.ID, fc, player, gt)
 				a.uiPressedID = b.ID
 				a.uiPressedAt = time.Now()
@@ -313,8 +378,7 @@ func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
 		}
 		if idx := a.wepsTargetRowAt(mx, my, sonar); idx >= 0 {
 			c := &sonar.Contacts[idx]
-			a.selectContact(sonar, c)
-			a.wepsApplyContactToPrep(fc, player, c)
+			a.wepsAssignTubeTarget(fc, player, sonar, c)
 			a.wepsFitSelectedContact()
 			return
 		}
@@ -324,16 +388,16 @@ func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit1) {
-		fc.SelectTube(1)
+		a.wepsSelectTube(fc, 1, player)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit2) {
-		fc.SelectTube(2)
+		a.wepsSelectTube(fc, 2, player)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit3) {
-		fc.SelectTube(3)
+		a.wepsSelectTube(fc, 3, player)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
-		fc.SelectTube(4)
+		a.wepsSelectTube(fc, 4, player)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyO) {
 		a.wepsButtonAction(fmt.Sprintf("tube_%d_door", fc.SelectedTube), fc, player, gt)
@@ -392,7 +456,7 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 		action := rest[us+1:]
 		switch action {
 		case "pick":
-			fc.SelectTube(tube)
+			a.wepsSelectTube(fc, tube, player)
 		case "door":
 			st := weapons.TubeEmpty
 			if tube >= 1 && tube <= 4 {
@@ -422,23 +486,33 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 				a.Audio.PlayClip(audio.ClipWepsOuterDoorClosed, "")
 			}
 		case "fire":
-			fc.SelectTube(tube)
-			player.EnsureDamage()
-			sys := world.TubeSys(tube)
-			if sys != world.SysNone && !player.Damage.Operational(sys) {
-				a.StatusMessage = fmt.Sprintf("Tube %d damaged — cannot fire.", tube)
-			} else if torp := fc.Shoot(player, tube); torp != nil {
-				a.Audio.PlayTorpedoLaunch()
-				a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
-					fmt.Sprintf("Torpedo away, tube %d.", tube))
-			} else {
-				a.StatusMessage = "Cannot fire — open outer door first."
-			}
+			a.wepsFireTube(fc, player, tube, gameTime)
+		}
+	case id == "harp_beam":
+		if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
+			fc.CycleHarpoonBeam()
+		}
+	case id == "harp_srch":
+		if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
+			fc.CycleHarpoonRadarRange()
+		}
+	case id == "harp_dstr":
+		if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
+			fc.CycleHarpoonDestructRange()
 		}
 	case id == "gyro_m", id == "gyro_p", id == "dep_m", id == "dep_p",
 		id == "spd", id == "spd_low", id == "spd_high", id == "seek":
 		mode, fish := a.wepsControlMode(fc)
 		if mode == wepsCtrlInactive {
+			return
+		}
+		if mode == wepsCtrlHarpoonPrep {
+			switch id {
+			case "gyro_m":
+				fc.GyroAngleDeg = normalizeGyroDeg(fc.GyroAngleDeg - 5)
+			case "gyro_p":
+				fc.GyroAngleDeg = normalizeGyroDeg(fc.GyroAngleDeg + 5)
+			}
 			return
 		}
 		if mode == wepsCtrlWire {
@@ -557,20 +631,21 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	sonar := &a.Engine.Sonar
 	gt := a.Engine.Clock.GameTime
 	render.DrawConsolePanel(screen, wepsPanelX, wepsPanelY, wepsPanelW, wepsPanelH)
-	render.DrawText(screen, "FIRE CONTROL — MK48 ADCAP", wepsLeftX, 78, render.ColorPlateLabel, true)
-	render.DrawText(screen, fmt.Sprintf("MAGAZINE: %d Mk48 remaining", fc.MagazineLeft), wepsLeftX, 100, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "FIRE CONTROL — WEAPONS", wepsLeftX, 78, render.ColorPlateLabel, true)
+	render.DrawText(screen, fmt.Sprintf("MAGAZINE: %d Mk48  ·  %d Harpoon", fc.MagazineLeft, fc.HarpoonMagLeft), wepsLeftX, 100, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	for i := range fc.Tubes {
 		t := fc.Tubes[i]
 		y := wepsTubeY0 + i*wepsTubeRowH
 		titleBtn := a.wepsTubePickButton(t.Number, y)
-		status := weapons.TubeAmmoStatus(t, fc.ReloadRemaining(t, gt))
+		ordBtn := a.wepsOrdnancePickButton(t.Number, y)
+		statusExtra := wepsTubeRowStatusExtra(t, fc.ReloadRemaining(t, gt))
 		if player := a.Engine.Scenario.Player; player != nil {
 			player.EnsureDamage()
 			sys := world.TubeSys(t.Number)
 			if sys != world.SysNone && !player.Damage.Operational(sys) {
-				status = fmt.Sprintf("DAMAGED (%.0f%%)", player.Damage.EffOf(sys))
+				statusExtra = fmt.Sprintf("DAMAGED (%.0f%%)", player.Damage.EffOf(sys))
 			}
 		}
 		if t.Number == fc.SelectedTube {
@@ -581,7 +656,18 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 			clr = render.ColorHighlight
 		}
 		render.DrawText(screen, titleBtn.Label, titleBtn.X, y+4, clr, true)
-		render.DrawText(screen, status, wepsLeftX+82, y+4, render.ColorDim, true)
+		a.drawWepsButton(screen, ordBtn, mx, my, fc)
+		line := statusExtra
+		if t.TargetContactID != "" {
+			if line != "" {
+				line += " · "
+			}
+			line += t.TargetContactID
+		}
+		if line != "" {
+			statusX := ordBtn.X + ordBtn.W + 8
+			render.DrawText(screen, line, statusX, y+4, render.ColorDim, true)
+		}
 		for _, b := range a.wepsTubeButtons(t.Number, y) {
 			a.drawWepsButton(screen, b, mx, my, fc)
 		}
@@ -590,6 +676,7 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	a.drawWepsControlPanel(screen, fc, mx, my)
 
 	fish := fc.TorpedoForTube(fc.SelectedTube)
+	harp := fc.HarpoonByTube(fc.SelectedTube)
 
 	a.drawWepsGroup(screen, wepsLeftX-6, wepsCMY, wepsLeftW, wepsCMH, "COUNTERMEASURES")
 	decoyN, jitterN := 0, 0
@@ -602,26 +689,43 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	}
 
 	a.drawWepsContactTable(screen, sonar)
-	a.drawWepsMap(screen, sonar, fish)
+	a.drawWepsMap(screen, sonar, fish, harp)
+
+	// Popups last so they sit above panels (tube-4 ordnance opens over fire settings).
+	a.drawWepsOrdnanceMenus(screen, fc, mx, my)
 
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	render.DrawText(screen, "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  [D] depth  [S] speed  [H] seek  [W] cut  [X] S/D",
-		wepsLeftX, wepsPanelY+wepsPanelH-16, render.ColorDim, true)
+	help := "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  [D] depth  [S] speed  [H] seek  [W] cut  [X] S/D"
+	if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
+		help = "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  — BEAM / SRCH / DSTR set seeker profile"
+	}
+	render.DrawText(screen, help, wepsLeftX, wepsPanelY+wepsPanelH-16, render.ColorDim, true)
 }
 
 func (a *App) drawWepsControlPanel(screen *ebiten.Image, fc *weapons.FireControl, mx, my int) {
 	mode, fish := a.wepsControlMode(fc)
 	title := "NEXT SHOT PREP"
-	if mode == wepsCtrlWire {
+	switch mode {
+	case wepsCtrlWire:
 		title = "WIRE GUIDE"
+	case wepsCtrlHarpoonPrep:
+		title = "HARPOON PREP"
 	}
 	a.drawWepsGroup(screen, wepsLeftX-6, wepsCtrlY, wepsLeftW, wepsCtrlH, title)
 	a.drawWepsSpinLabels(screen, fc, mode, fish)
 	enabled := mode != wepsCtrlInactive
-	for _, b := range a.wepsCtrlButtons(fc) {
-		// CUT / S/D only appear in wire mode; other controls dim when tube is empty.
+	var ctrlBtns []sonarUIButton
+	switch mode {
+	case wepsCtrlHarpoonPrep:
+		ctrlBtns = a.wepsHarpoonCtrlButtons(fc)
+	case wepsCtrlInactive:
+		ctrlBtns = nil
+	default:
+		ctrlBtns = a.wepsCtrlButtons(fc)
+	}
+	for _, b := range ctrlBtns {
 		btnOn := enabled
 		if b.ID == "wire_cut" || b.ID == "wire_sd" {
 			btnOn = mode == wepsCtrlWire
@@ -641,6 +745,9 @@ func (a *App) drawWepsSpinLabels(screen *ebiten.Image, fc *weapons.FireControl, 
 	case wepsCtrlPrep:
 		gyroTxt = fmt.Sprintf("GYRO %03.0f°", fc.GyroAngleDeg)
 		depTxt = fmt.Sprintf("DEP %d", int(fc.RunDepthFt))
+	case wepsCtrlHarpoonPrep:
+		gyroTxt = fmt.Sprintf("GYRO %03.0f°", fc.GyroAngleDeg)
+		depTxt = ""
 	case wepsCtrlWire:
 		if fish != nil {
 			gyroTxt = fmt.Sprintf("GYRO %03.0f°", fish.GyroCourseDeg)
@@ -652,7 +759,9 @@ func (a *App) drawWepsSpinLabels(screen *ebiten.Image, fc *weapons.FireControl, 
 		clr = render.ColorDim
 	}
 	render.DrawText(screen, gyroTxt, gyroMid-len(gyroTxt)*3, spinY+16, clr, true)
-	render.DrawText(screen, depTxt, depMid-len(depTxt)*3, spinY+16, clr, true)
+	if depTxt != "" {
+		render.DrawText(screen, depTxt, depMid-len(depTxt)*3, spinY+16, clr, true)
+	}
 }
 
 func (a *App) drawWepsGroup(screen *ebiten.Image, x, y, w, h int, title string) {
@@ -733,6 +842,71 @@ func normalizeGyroDeg(deg float64) float64 {
 	return deg
 }
 
+func contactBySonarID(sonar *acoustics.SonarState, contactID string) *acoustics.Contact {
+	if sonar == nil || contactID == "" {
+		return nil
+	}
+	for i := range sonar.Contacts {
+		if sonar.Contacts[i].ID == contactID {
+			return &sonar.Contacts[i]
+		}
+	}
+	return nil
+}
+
+func (a *App) validateTubeContactTargets(sonar *acoustics.SonarState) {
+	if a.Engine == nil || sonar == nil {
+		return
+	}
+	for i := range a.Engine.FireControl.Tubes {
+		id := a.Engine.FireControl.Tubes[i].TargetContactID
+		if id == "" {
+			continue
+		}
+		if contactBySonarID(sonar, id) == nil {
+			a.Engine.FireControl.Tubes[i].TargetContactID = ""
+		}
+	}
+}
+
+// wepsSelectTube picks a tube and syncs the contact table to its assigned target (WEPS only).
+func (a *App) wepsSelectTube(fc *weapons.FireControl, tube int, player *world.Entity) {
+	if fc == nil {
+		return
+	}
+	fc.SelectTube(tube)
+	if a.Engine == nil || a.CurrentScreen != ScreenFireControl {
+		return
+	}
+	a.wepsSyncSelectionFromTube(fc, player, &a.Engine.Sonar)
+}
+
+func (a *App) wepsSyncSelectionFromTube(fc *weapons.FireControl, player *world.Entity, sonar *acoustics.SonarState) {
+	if fc == nil || sonar == nil {
+		return
+	}
+	t := fc.TubeByNumber(fc.SelectedTube)
+	if t == nil || t.TargetContactID == "" {
+		return
+	}
+	c := contactBySonarID(sonar, t.TargetContactID)
+	if c == nil {
+		return
+	}
+	a.selectContact(sonar, c)
+	a.wepsApplyContactToPrep(fc, player, c)
+}
+
+// wepsAssignTubeTarget binds the selected tube to a contact and updates fire-control prep (WEPS only).
+func (a *App) wepsAssignTubeTarget(fc *weapons.FireControl, player *world.Entity, sonar *acoustics.SonarState, c *acoustics.Contact) {
+	if fc == nil || c == nil {
+		return
+	}
+	fc.SetTubeTargetContact(fc.SelectedTube, c.ID)
+	a.selectContact(sonar, c)
+	a.wepsApplyContactToPrep(fc, player, c)
+}
+
 func (a *App) wepsApplyContactToPrep(fc *weapons.FireControl, player *world.Entity, c *acoustics.Contact) {
 	if fc == nil || c == nil {
 		return
@@ -745,8 +919,12 @@ func (a *App) wepsApplyContactToPrep(fc *weapons.FireControl, player *world.Enti
 		a.wepsApplyContactToWireFish(fc, player, c, fish, gt)
 		return
 	}
+	if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
+		a.wepsApplyContactToHarpoonPrep(fc, player, c)
+		return
+	}
 	fc.GyroAngleDeg = normalizeGyroDeg(c.BearingDeg)
-	if player != nil && contactHasKnownRange(c, gt) && acoustics.ContactTMAAccurate(c) {
+	if player != nil && contactHasKnownRange(c, gt) && contactTMAUsableForLead(c) {
 		tx, ty := contactPlotRaw(player, c, gt)
 		weaponKts := weapons.CruiseSpeedKts(fc.SpeedSetting)
 		if course, ok := weapons.TorpedoInterceptGyro(
@@ -767,8 +945,9 @@ func wepsSuggestedRunDepth(player *world.Entity, c *acoustics.Contact) float64 {
 	if c == nil || c.ConfirmedClass == "" {
 		return depth
 	}
-	switch c.Kind {
+	switch contactConfirmedKind(c) {
 	case world.KindSurfaceShip:
+		// Shallow under-keel run for surface targets.
 		return 40
 	case world.KindSubmarine:
 		if player != nil {
@@ -778,6 +957,27 @@ func wepsSuggestedRunDepth(player *world.Entity, c *acoustics.Contact) float64 {
 		return 100
 	}
 	return depth
+}
+
+// contactConfirmedKind prefers the signature-library Kind for a confirmed class,
+// so SPECTRUM classification drives WEPS depth even if track Kind lagged.
+func contactConfirmedKind(c *acoustics.Contact) world.EntityKind {
+	if c == nil {
+		return world.EntityKind(-1)
+	}
+	if c.ConfirmedID != "" {
+		if p, ok := world.ProfileByID(c.ConfirmedID); ok {
+			return p.Kind
+		}
+	}
+	if c.ConfirmedClass != "" {
+		for _, p := range world.SignatureLibrary {
+			if p.Name == c.ConfirmedClass || p.Class == c.ConfirmedClass {
+				return p.Kind
+			}
+		}
+	}
+	return c.Kind
 }
 
 // wepsApplyContactToWireFish retargets a wire-guided fish (not in Search) onto the contact.
@@ -827,7 +1027,7 @@ func (a *App) ensureWepsMapImg() *ebiten.Image {
 	return a.wepsMapImg
 }
 
-func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fish *weapons.Torpedo) {
+func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fish *weapons.Torpedo, harp *weapons.HarpoonMissile) {
 	fc := &a.Engine.FireControl
 	render.DrawText(screen, "TACTICAL MAP", wepsMapX, 86, render.ColorPlateLabel, true)
 	render.DrawMonitor(screen, wepsMapX, wepsMapY, wepsMapW, wepsMapH)
@@ -906,8 +1106,8 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 		clr := color.RGBA{150, 155, 160, 255}
 		kind := world.EntityKind(-1)
 		if c.ConfirmedClass != "" {
-			kind = c.Kind
-			if c.Kind == world.KindTorpedo {
+			kind = contactConfirmedKind(c)
+			if kind == world.KindTorpedo {
 				clr = color.RGBA{220, 60, 50, 255}
 			}
 		}
@@ -931,6 +1131,14 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 				drawThreatBlinkMarker(img, tx, ty)
 			}
 		}
+	}
+	for _, hm := range fc.ActiveHarpoons {
+		if hm != nil && hm.Alive && hm.VisibleOnWEPS {
+			a.drawWepsHarpoonGeometry(img, px, py, player, hm)
+		}
+	}
+	if harp != nil && harp.Alive && harp.VisibleOnWEPS {
+		a.drawWepsHarpoonGeometry(img, px, py, player, harp)
 	}
 
 	render.DrawText(img, fmt.Sprintf("ZOOM %.3f  GYRO %03.0f", a.wepsMapZoom, fc.GyroAngleDeg), 10, 16, render.ColorPhosphorDim, true)

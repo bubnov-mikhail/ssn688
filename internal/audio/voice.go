@@ -12,7 +12,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio/wav"
 )
 
-const voicePlayDelay = 400 * time.Millisecond
+const (
+	voicePlayDelay    = 250 * time.Millisecond
+	maxVoiceQueue     = 2
+	maxVoiceQueueAge  = 5 * time.Second
+)
 
 // Compartment identifies which watch station speaks.
 type Compartment string
@@ -33,7 +37,8 @@ type Manager struct {
 	fxVol        float64
 	clips        map[ClipID][]byte
 	mu           sync.Mutex
-	playing      []*playerVoice
+	voicePlaying []*playerVoice // officer lines only
+	fxPlaying    []*playerVoice // pings / launch FX — never block voice queue
 	queue        []queuedVoice
 	pending      *pendingClip
 	activeClipID ClipID
@@ -50,10 +55,11 @@ type pendingClip struct {
 }
 
 type queuedVoice struct {
-	clipID   ClipID
-	pcm      []byte
-	volume   float64
-	subtitle string
+	clipID     ClipID
+	pcm        []byte
+	volume     float64
+	subtitle   string
+	enqueuedAt time.Time
 }
 
 type playerVoice struct {
@@ -111,12 +117,16 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 
 	dup := make([]byte, len(pcm))
 	copy(dup, pcm)
-	// Do not drop a different clip that is still waiting on the play delay —
-	// promote it into the voice queue so both lines are heard.
+
+	// Pending slot is the newest line. Displace a prior pending carefully:
+	// keep critical lines by promoting them into the voice queue; drop routine
+	// spam so HELM/WEPS button chatter cannot backlog for minutes.
 	if m.pending != nil && m.pending.id != id {
-		p := m.pending
+		old := m.pending
 		m.pending = nil
-		m.startVoiceLocked(p.id, p.pcm, p.volume, p.subtitle)
+		if isCriticalClip(old.id) || isCriticalClip(id) {
+			m.startVoiceLocked(old.id, old.pcm, old.volume, old.subtitle)
+		}
 	}
 	m.pending = &pendingClip{
 		id:       id,
@@ -129,6 +139,21 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 	m.subtitleAt = time.Now()
 }
 
+func isCriticalClip(id ClipID) bool {
+	switch id {
+	case ClipWepsTorpedoInWater, ClipWepsTorpedoHeadingOwnship, ClipWepsImpactConfirmed,
+		ClipCaptMissionBrief, ClipCaptHoldSimulation,
+		ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost:
+		return true
+	default:
+		// Tube fire callouts are short and situational — treat as critical.
+		if strings.Contains(string(id), "torpedo_away") {
+			return true
+		}
+		return false
+	}
+}
+
 func (m *Manager) coalesceClipLocked(id ClipID, subtitle string) bool {
 	if m.pending != nil && m.pending.id == id {
 		m.pending.subtitle = subtitle
@@ -136,7 +161,7 @@ func (m *Manager) coalesceClipLocked(id ClipID, subtitle string) bool {
 		m.subtitleAt = time.Now()
 		return true
 	}
-	if m.activeClipID == id && len(m.playing) > 0 {
+	if m.activeClipID == id && len(m.voicePlaying) > 0 {
 		m.subtitle = subtitle
 		m.subtitleAt = time.Now()
 		return true
@@ -144,6 +169,7 @@ func (m *Manager) coalesceClipLocked(id ClipID, subtitle string) bool {
 	for i := range m.queue {
 		if m.queue[i].clipID == id {
 			m.queue[i].subtitle = subtitle
+			m.queue[i].enqueuedAt = time.Now()
 			m.subtitle = subtitle
 			m.subtitleAt = time.Now()
 			return true
@@ -153,12 +179,51 @@ func (m *Manager) coalesceClipLocked(id ClipID, subtitle string) bool {
 }
 
 func (m *Manager) startVoiceLocked(id ClipID, pcm []byte, volume float64, subtitle string) {
-	m.activeClipID = id
-	if len(m.playing) == 0 && len(m.queue) == 0 {
-		m.playing = append(m.playing, &playerVoice{data: pcm, volume: volume})
+	m.pruneStaleQueueLocked()
+	if len(m.voicePlaying) == 0 {
+		m.activeClipID = id
+		m.voicePlaying = append(m.voicePlaying[:0], &playerVoice{data: pcm, volume: volume})
 		return
 	}
-	m.queue = append(m.queue, queuedVoice{clipID: id, pcm: pcm, volume: volume, subtitle: subtitle})
+	// Replace last queued line from the same watch station (depth/heading spam).
+	comp := clipCompartment(id)
+	for i := len(m.queue) - 1; i >= 0; i-- {
+		if clipCompartment(m.queue[i].clipID) == comp && !isCriticalClip(m.queue[i].clipID) {
+			m.queue[i] = queuedVoice{clipID: id, pcm: pcm, volume: volume, subtitle: subtitle, enqueuedAt: time.Now()}
+			return
+		}
+	}
+	m.queue = append(m.queue, queuedVoice{clipID: id, pcm: pcm, volume: volume, subtitle: subtitle, enqueuedAt: time.Now()})
+	for len(m.queue) > maxVoiceQueue {
+		// Prefer dropping non-critical from the front.
+		dropped := false
+		for i := range m.queue {
+			if !isCriticalClip(m.queue[i].clipID) {
+				m.queue = append(m.queue[:i], m.queue[i+1:]...)
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			m.queue = m.queue[1:]
+		}
+	}
+}
+
+func (m *Manager) pruneStaleQueueLocked() {
+	if len(m.queue) == 0 {
+		return
+	}
+	now := time.Now()
+	alive := m.queue[:0]
+	for _, q := range m.queue {
+		if now.Sub(q.enqueuedAt) <= maxVoiceQueueAge || isCriticalClip(q.clipID) {
+			if now.Sub(q.enqueuedAt) <= maxVoiceQueueAge*2 {
+				alive = append(alive, q)
+			}
+		}
+	}
+	m.queue = alive
 }
 
 func (m *Manager) flushPendingLocked() {
@@ -177,11 +242,14 @@ func (m *Manager) setSubtitle(comp Compartment, text string) {
 	m.subtitleAt = time.Now()
 }
 
+func (m *Manager) playFXLocked(pcm []byte, volume float64) {
+	m.fxPlaying = append(m.fxPlaying, &playerVoice{data: pcm, volume: volume})
+}
+
 func (m *Manager) PlayPing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	wav := generateToneWAV(m.sampleRate, 880, 0.08, 0.3)
-	m.playing = append(m.playing, &playerVoice{data: wav, volume: m.fxVol * m.masterVol * 0.6})
+	m.playFXLocked(generateToneWAV(m.sampleRate, 880, 0.08, 0.3), m.fxVol*m.masterVol*0.6)
 }
 
 func (m *Manager) PlayEnemyPing() {
@@ -190,25 +258,24 @@ func (m *Manager) PlayEnemyPing() {
 	if pcm, ok := m.clips[ClipSonarEnemyPing]; ok {
 		dup := make([]byte, len(pcm))
 		copy(dup, pcm)
-		m.playing = append(m.playing, &playerVoice{data: dup, volume: m.fxVol * m.masterVol * 0.55})
+		m.playFXLocked(dup, m.fxVol*m.masterVol*0.55)
 		return
 	}
-	wav := generateEnemyPingWAV(m.sampleRate)
-	m.playing = append(m.playing, &playerVoice{data: wav, volume: m.fxVol * m.masterVol * 0.55})
+	m.playFXLocked(generateEnemyPingWAV(m.sampleRate), m.fxVol*m.masterVol*0.55)
 }
 
 func (m *Manager) PlayTorpedoLaunch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	wav := generateSweepWAV(m.sampleRate, 200, 80, 0.5)
-	m.playing = append(m.playing, &playerVoice{data: wav, volume: m.fxVol * m.masterVol})
+	m.playFXLocked(generateSweepWAV(m.sampleRate, 200, 80, 0.5), m.fxVol*m.masterVol)
 }
 
 // StopAll clears queued/playing voices and FX so a session can release cleanly.
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.playing = nil
+	m.voicePlaying = nil
+	m.fxPlaying = nil
 	m.queue = nil
 	m.pending = nil
 	m.activeClipID = ""
@@ -233,6 +300,30 @@ type streamPlayer struct {
 	m *Manager
 }
 
+func advancePlayers(list []*playerVoice) []*playerVoice {
+	remaining := list[:0]
+	for _, v := range list {
+		if v.pos+1 >= len(v.data) {
+			continue
+		}
+		remaining = append(remaining, v)
+	}
+	return remaining
+}
+
+func mixPlayers(list []*playerVoice) float64 {
+	var sample float64
+	for _, v := range list {
+		if v.pos+1 >= len(v.data) {
+			continue
+		}
+		val := int16(binary.LittleEndian.Uint16(v.data[v.pos:]))
+		sample += float64(val) / 32768 * v.volume
+		v.pos += 2
+	}
+	return sample
+}
+
 func (s *streamPlayer) Read(buf []byte) (int, error) {
 	s.m.mu.Lock()
 	defer s.m.mu.Unlock()
@@ -241,29 +332,23 @@ func (s *streamPlayer) Read(buf []byte) (int, error) {
 
 	// Ebiten expects stereo 16-bit PCM; mono samples are duplicated to L/R.
 	for i := 0; i < len(buf); i += 4 {
-		var sample float64
-		remaining := s.m.playing[:0]
-		for _, v := range s.m.playing {
-			if v.pos+1 >= len(v.data) {
-				continue
-			}
-			val := int16(binary.LittleEndian.Uint16(v.data[v.pos:]))
-			sample += float64(val) / 32768 * v.volume
-			v.pos += 2
-			remaining = append(remaining, v)
-		}
-		s.m.playing = remaining
-		if len(s.m.playing) == 0 && len(s.m.queue) > 0 {
-			next := s.m.queue[0]
-			s.m.queue = s.m.queue[1:]
-			s.m.activeClipID = next.clipID
-			s.m.playing = append(s.m.playing, &playerVoice{data: next.pcm, volume: next.volume})
-			s.m.subtitle = next.subtitle
-			s.m.subtitleAt = time.Now()
-		}
-		if len(s.m.playing) == 0 {
+		sample := mixPlayers(s.m.voicePlaying) + mixPlayers(s.m.fxPlaying)
+		s.m.voicePlaying = advancePlayers(s.m.voicePlaying)
+		s.m.fxPlaying = advancePlayers(s.m.fxPlaying)
+
+		if len(s.m.voicePlaying) == 0 {
 			s.m.activeClipID = ""
-			s.m.flushPendingLocked()
+			s.m.pruneStaleQueueLocked()
+			if len(s.m.queue) > 0 {
+				next := s.m.queue[0]
+				s.m.queue = s.m.queue[1:]
+				s.m.activeClipID = next.clipID
+				s.m.voicePlaying = append(s.m.voicePlaying, &playerVoice{data: next.pcm, volume: next.volume})
+				s.m.subtitle = next.subtitle
+				s.m.subtitleAt = time.Now()
+			} else {
+				s.m.flushPendingLocked()
+			}
 		}
 		if sample > 1 {
 			sample = 1
@@ -288,6 +373,12 @@ func humanSubtitle(id ClipID) string {
 		return "Hold simulation."
 	case ClipCaptSaveComplete:
 		return "Save complete."
+	case ClipCaptOwnshipHit:
+		return "Own ship hit. Systems damaged."
+	case ClipCaptCriticalDamage:
+		return "Critical damage. System casualty."
+	case ClipCaptOwnshipLost:
+		return "Own ship lost. We are sinking."
 	case ClipSonarPassiveOn:
 		return "Passive sonar online."
 	case ClipSonarPassiveOff:
@@ -323,87 +414,63 @@ func humanSubtitle(id ClipID) string {
 	case ClipWepsSpeedLow:
 		return "Torpedo speed LOW."
 	case ClipWepsSeekerOn:
-		return "Seeker enabled."
+		return "Seeker on."
 	case ClipWepsSeekerOff:
-		return "Seeker disabled."
+		return "Seeker off."
 	case ClipWepsWireCut:
 		return "Wire cut."
 	case ClipDiveComeLeft:
-		return "Come left, aye."
+		return "Come left."
 	case ClipDiveComeRight:
-		return "Come right, aye."
+		return "Come right."
 	case ClipDiveMakeDepth:
-		return "Make depth, aye."
+		return "Make depth."
 	case ClipDiveHoldDepth:
-		return "Holding depth, aye."
+		return "Hold depth."
 	case ClipDiveUnableDeeper:
-		return "Unable to dive deeper. Bottom limits ordered depth."
-	case ClipNavSpeedHalf:
-		return "Time acceleration 0.5x."
-	case ClipNavSpeedNormal:
-		return "Time acceleration normal."
+		return "Unable to dive deeper."
 	case ClipNavSpeedDouble:
-		return "Time acceleration 2x."
+		return "Time compression double."
 	case ClipNavSpeedQuad:
-		return "Time acceleration 4x."
-	case ClipNavSpeedEight:
-		return "Time acceleration 8x."
+		return "Time compression quadruple."
+	case ClipNavSpeedNormal:
+		return "Time compression normal."
 	default:
-		if strings.HasPrefix(string(id), "weps/outer_door_open_") {
-			return "Outer door open."
-		}
-		if strings.HasPrefix(string(id), "weps/torpedo_away_") {
-			return "Torpedo away."
-		}
 		return string(id)
 	}
 }
 
-func generateToneWAV(sampleRate int, freq, duration, volume float64) []byte {
-	n := int(float64(sampleRate) * duration)
-	pcm := make([]byte, n*2)
+func generateToneWAV(sampleRate int, freqHz, durationSec, amp float64) []byte {
+	n := int(float64(sampleRate) * durationSec)
+	out := make([]byte, n*2)
 	for i := 0; i < n; i++ {
 		t := float64(i) / float64(sampleRate)
-		env := math.Exp(-t * 3)
-		val := math.Sin(2*math.Pi*freq*t) * volume * env
-		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(val*32767)))
+		env := 1.0
+		if t < 0.01 {
+			env = t / 0.01
+		} else if rem := durationSec - t; rem < 0.03 {
+			env = rem / 0.03
+		}
+		s := math.Sin(2 * math.Pi * freqHz * t) * amp * env
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(s*32767)))
 	}
-	return pcm
-}
-
-func generateSweepWAV(sampleRate int, startFreq, endFreq, duration float64) []byte {
-	n := int(float64(sampleRate) * duration)
-	pcm := make([]byte, n*2)
-	for i := 0; i < n; i++ {
-		t := float64(i) / float64(sampleRate)
-		f := startFreq + (endFreq-startFreq)*t/duration
-		val := math.Sin(2*math.Pi*f*t) * 0.4 * (1 - t/duration)
-		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(val*32767)))
-	}
-	return pcm
+	return out
 }
 
 func generateEnemyPingWAV(sampleRate int) []byte {
-	duration := 0.95
-	n := int(float64(sampleRate) * duration)
-	pcm := make([]byte, n*2)
+	return generateToneWAV(sampleRate, 2200, 0.12, 0.35)
+}
+
+func generateSweepWAV(sampleRate int, f0, f1, durationSec float64) []byte {
+	n := int(float64(sampleRate) * durationSec)
+	out := make([]byte, n*2)
 	for i := 0; i < n; i++ {
 		t := float64(i) / float64(sampleRate)
-		f0 := 820.0 - 40.0*(t/duration)
-		core := math.Sin(2 * math.Pi * f0 * t)
-		harm := 0.22 * math.Sin(2*math.Pi*(f0*2.02)*t+0.35)
-		ring := 0.18 * math.Sin(2*math.Pi*(f0*0.51)*t+1.1)
-		echo1, echo2 := 0.0, 0.0
-		if et := t - 0.16; et > 0 {
-			echo1 = 0.30 * math.Sin(2*math.Pi*690.0*et) * math.Exp(-et*3.8)
-		}
-		if et := t - 0.33; et > 0 {
-			echo2 = 0.18 * math.Sin(2*math.Pi*560.0*et) * math.Exp(-et*3.2)
-		}
-		attack := math.Min(1, t/0.02)
-		env := attack * math.Exp(-t*2.6)
-		val := (core + harm + ring + echo1 + echo2) * 0.46 * env
-		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(val*32767)))
+		p := t / durationSec
+		freq := f0 + (f1-f0)*p
+		env := 1.0 - 0.5*p
+		s := math.Sin(2*math.Pi*freq*t) * 0.4 * env
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(s*32767)))
 	}
-	return pcm
+	return out
 }

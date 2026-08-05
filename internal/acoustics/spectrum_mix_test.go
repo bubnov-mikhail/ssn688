@@ -45,7 +45,7 @@ func TestSpectrumMixesCloseBearings(t *testing.T) {
 	ang := 4.0 * math.Pi / 180
 	rng := 4500.0
 	dd := &world.Entity{
-		ID: "dd", SignatureID: "spruance", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		ID: "dd", SignatureID: "udaloy", Kind: world.KindSurfaceShip, Status: world.StatusActive,
 		X: rng * math.Sin(ang), Y: rng * math.Cos(ang), SpeedKts: 14,
 	}
 	sonar := NewSonarState()
@@ -54,10 +54,10 @@ func TestSpectrumMixesCloseBearings(t *testing.T) {
 	solo := SpectrumAtBearing(model, listener, []*world.Entity{listener, kilo}, &sonar, 0, 0)
 	mixed := SpectrumAtBearing(model, listener, []*world.Entity{listener, kilo, dd}, &sonar, 0, 0)
 
-	// Spruance tonal cluster around 180 Hz should lift the mixed trace vs kilo alone.
-	ddBand := bandNear(180)
+	// Udaloy tonal cluster around 160 Hz should lift the mixed trace vs kilo alone.
+	ddBand := bandNear(160)
 	if mixed[ddBand] <= solo[ddBand]+1.5 {
-		t.Fatalf("close DD harmonics should raise mixed spectrum at ~180Hz: solo=%.1f mixed=%.1f",
+		t.Fatalf("close DD harmonics should raise mixed spectrum at ~160Hz: solo=%.1f mixed=%.1f",
 			solo[ddBand], mixed[ddBand])
 	}
 	// Kilo line should still contribute (not fully replaced by max-of-DD).
@@ -81,7 +81,7 @@ func TestContaminateClassifySignalLowersMatch(t *testing.T) {
 	}
 	ang := 3.5 * math.Pi / 180
 	dd := &world.Entity{
-		ID: "dd", SignatureID: "spruance", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		ID: "dd", SignatureID: "udaloy", Kind: world.KindSurfaceShip, Status: world.StatusActive,
 		X: 3500 * math.Sin(ang), Y: 3500 * math.Cos(ang), SpeedKts: 16,
 	}
 	sonar := NewSonarState()

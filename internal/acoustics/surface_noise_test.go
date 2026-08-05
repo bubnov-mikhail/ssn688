@@ -24,7 +24,7 @@ func TestCivilianQuieterThanWarshipAtRange(t *testing.T) {
 	m := NewModel(DefaultEnvironment())
 	listener := testEntity("p", "los_angeles", world.KindSubmarine, 180, 8)
 	merchant := testEntity("m", "merchant", world.KindSurfaceShip, 0, 11)
-	dd := testEntity("d", "spruance", world.KindSurfaceShip, 0, 14)
+	dd := testEntity("d", "udaloy", world.KindSurfaceShip, 0, 14)
 	merchant.Y = 6000
 	dd.Y = 6000
 	mSNR := m.Detect(listener, merchant, ModePassive, 0).PeakSNR

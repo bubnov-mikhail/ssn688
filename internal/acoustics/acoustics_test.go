@@ -16,7 +16,7 @@ func testEntity(id, sig string, kind world.EntityKind, depth, speed float64) *wo
 func TestPassiveSNRDecreasesWithRange(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	listener := testEntity("sub", "los_angeles", world.KindSubmarine, 180, 8)
-	emitter := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	emitter := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 
 	near := model.Detect(listener, emitter, ModePassive, 0).PeakSNR
 	emitter.Y = 4000
@@ -32,7 +32,7 @@ func TestPassiveSNRDecreasesWithRange(t *testing.T) {
 func TestThermoclineHidesSub(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 
-	surface := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 12)
+	surface := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 12)
 	subShallow := testEntity("sub1", "kilo", world.KindSubmarine, 150, 8)
 	subDeep := testEntity("sub2", "kilo", world.KindSubmarine, 900, 8)
 	subShallow.Y = 5000
@@ -61,7 +61,7 @@ func TestColumnAttenuationGrowsWithDepthSeparation(t *testing.T) {
 
 func TestDeepImmersionHarderForEnemy(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	enemy.Y = 4500
 
 	playerShallow := testEntity("p1", "los_angeles", world.KindSubmarine, 120, 8)
@@ -88,7 +88,7 @@ func TestCavitationIncreasesSelfNoise(t *testing.T) {
 func TestPassiveDetectionUnified(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	listener := testEntity("sub", "los_angeles", world.KindSubmarine, 320, 5)
-	emitter := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	emitter := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	emitter.Y = 6000
 
 	r := model.Detect(listener, emitter, ModePassive, 0)
@@ -98,7 +98,7 @@ func TestPassiveDetectionUnified(t *testing.T) {
 }
 
 func TestClassificationTemplateSelfMatch(t *testing.T) {
-	for _, id := range []string{"kilo", "spruance", "perry", "los_angeles"} {
+	for _, id := range []string{"kilo", "victor_iii", "foxtrot", "udaloy", "krivak", "kresta2", "grisha", "los_angeles"} {
 		p := mustProfile(id)
 		c := Classify(TemplateSpectrumForTest(p), 20, 3000)
 		if c.ProfileID != id {
@@ -117,7 +117,7 @@ func mustProfile(id string) world.SignatureProfile {
 
 func TestAIUsesSameDetector(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
-	enemy := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	enemy := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	player := testEntity("player", "los_angeles", world.KindSubmarine, 180, 20)
 	player.Y = 900
 

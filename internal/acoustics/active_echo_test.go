@@ -72,7 +72,7 @@ func TestProcessActiveEchoesCloseRange(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	listener := testEntity("player", "los_angeles", world.KindSubmarine, 180, 8)
 	listener.HeadingDeg = 90
-	target := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 14)
+	target := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 14)
 	target.Y = 1200
 	target.HeadingDeg = 90 // abeam aspect — previously failed the broken aspect gate
 	sonar := NewSonarState()
@@ -97,7 +97,7 @@ func TestProcessActiveEchoesCloseRange(t *testing.T) {
 func TestProcessActiveEchoesWaitsForReturn(t *testing.T) {
 	model := NewModel(DefaultEnvironment())
 	listener := testEntity("player", "los_angeles", world.KindSubmarine, 200, 5)
-	target := testEntity("dd", "spruance", world.KindSurfaceShip, 0, 12)
+	target := testEntity("dd", "udaloy", world.KindSurfaceShip, 0, 12)
 	target.Y = 4000
 	sonar := NewSonarState()
 	sonar.ActiveEnabled = true

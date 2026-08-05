@@ -118,10 +118,14 @@ type App struct {
 	torpedoThreatActive    map[string]bool // torpedoes currently assessed as threatening ownship
 	referenceProfileIdx    int
 	contactTableScroll     contactTableScrollState
+	librarySelectedID      string
+	libraryCatalogScroll   int
+	libraryDetailScroll    int
 	layerSurveyWasActive   bool
 	tactical               tacticalState
 	wepsMapZoom            float64
 	wepsMapImg             *ebiten.Image
+	wepsOrdnanceMenuTube   int // 0 = closed; 1–4 open dropdown
 }
 
 func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
@@ -285,6 +289,7 @@ func (a *App) updateGame() {
 		if isWeaponImpactEvent(ev) {
 			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, "")
 		}
+		a.playOwnshipCasualtyVoice(ev)
 		if ev == "Torpedo launch detected (hostile)" {
 			a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, "Torpedo in the water.")
 			a.markLatestHostileTorpedoReported()
@@ -663,76 +668,29 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	render.DrawText(screen, "[A] toggle  [F] ping  click plot / table → select contact", 40, 720, render.ColorDim, true)
 }
 
-func (a *App) updateLibraryInput() {
-	if a.Engine == nil {
-		return
-	}
-	mx, my := ebiten.CursorPosition()
-	scrollContactTableWheel(mx, my, 600, 142, 520, 18*25, len(a.Engine.Sonar.Contacts), 18, &a.contactTableScroll.library)
-}
-
-func (a *App) drawLibrary(screen *ebiten.Image) {
-	render.DrawConsolePanel(screen, 20, 50, 1100, 700)
-	render.DrawText(screen, "SIGNATURE LIBRARY", 40, 90, render.ColorPlateLabel, true)
-	y := 130
-	for _, p := range world.SignatureLibrary {
-		render.DrawText(screen, fmt.Sprintf("%s - %s (%s)", p.Class, p.Name, kindName(p.Kind)), 40, y, render.ColorText, false)
-		for _, b := range p.Bands {
-			render.DrawText(screen, fmt.Sprintf("  %.0f-%.0f Hz  %.0f dB", b.LowHz, b.HighHz, b.LevelDB), 60, y+20, render.ColorDim, true)
-			y += 20
-		}
-		render.DrawText(screen, fmt.Sprintf("  Blade rate: %.1f Hz  Cavitation onset: %.0f dB", p.BladeRateHz, p.CavitationDB), 60, y+20, render.ColorDim, true)
-		y += 45
-	}
-
-	render.DrawText(screen, "CLASSIFIED CONTACTS", 600, 130, render.ColorWarn, false)
-	const (
-		listX       = 600
-		listY       = 160
-		listW       = 520
-		rowH        = 25
-		visibleRows = 18
-	)
-	a.contactTableScroll.library = clampContactTableScroll(a.contactTableScroll.library, len(a.Engine.Sonar.Contacts), visibleRows)
-	start, end := contactTableWindow(len(a.Engine.Sonar.Contacts), a.contactTableScroll.library, visibleRows)
-	for row, i := 0, start; i < end; i, row = i+1, row+1 {
-		c := a.Engine.Sonar.Contacts[i]
-		label := contactClassLabel(&c)
-		if c.ConfirmedClass != "" {
-			label = c.ConfirmedClass + " (confirmed)"
-		}
-		render.DrawText(screen, fmt.Sprintf("%s: %s (%.0f%%) brg %s  %d bands  %.0fs",
-			c.ID, label, c.Confidence*100, contactBearingLabel(&c), c.BandsAbove, c.ListenTime),
-			listX, listY+row*rowH, render.ColorSonar, true)
-	}
-	drawContactTableScrollbar(screen, listX+listW+4, listY-12, visibleRows*rowH, len(a.Engine.Sonar.Contacts), visibleRows, a.contactTableScroll.library)
-}
-
-func kindName(k world.EntityKind) string {
-	switch k {
-	case world.KindSubmarine:
-		return "SUB"
-	case world.KindSurfaceShip:
-		return "SURFACE"
-	case world.KindTorpedo:
-		return "TORPEDO"
-	case world.KindCountermeasure:
-		return "CM"
-	default:
-		return "UNK"
-	}
-}
-
 func isWeaponImpactEvent(ev string) bool {
 	switch {
 	case strings.HasPrefix(ev, "Target destroyed:"):
-		return true
-	case strings.HasPrefix(ev, "PLAYER SUBMARINE HIT"):
 		return true
 	case ev == "Underwater explosion":
 		return true
 	default:
 		return false
+	}
+}
+
+func (a *App) playOwnshipCasualtyVoice(ev string) {
+	if a == nil || a.Audio == nil {
+		return
+	}
+	switch {
+	case strings.HasPrefix(ev, "PLAYER SUBMARINE FATAL DAMAGE"),
+		strings.HasPrefix(ev, "PLAYER SUBMARINE LOST"):
+		a.Audio.PlayClip(audio.ClipCaptOwnshipLost, "Own ship lost. We are sinking.")
+	case strings.HasPrefix(ev, "OWN SHIP CRITICAL"):
+		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. System casualty.")
+	case strings.HasPrefix(ev, "OWN SHIP HIT"):
+		a.Audio.PlayClip(audio.ClipCaptOwnshipHit, "Own ship hit. Systems damaged.")
 	}
 }
 

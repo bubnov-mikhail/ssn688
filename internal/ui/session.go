@@ -75,6 +75,10 @@ func (a *App) releaseSessionCaches() {
 	a.selectedPlotMarkerID = ""
 	a.pendingPlotMarker = false
 	a.referenceProfileIdx = 0
+	a.librarySelectedID = ""
+	a.libraryCatalogScroll = 0
+	a.libraryDetailScroll = 0
+	a.contactTableScroll = contactTableScrollState{}
 	a.layerSurveyWasActive = false
 	a.lastUpdateWall = time.Time{}
 	a.activeEchoFlashes = nil

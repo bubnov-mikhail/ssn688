@@ -56,7 +56,7 @@ func Classify(signal Spectrum, peakSNR, rangeYd float64) Classification {
 
 // IsTorpedoProfile reports whether a signature library ID is a torpedo class.
 func IsTorpedoProfile(id string) bool {
-	return id == "mk48" || id == "type53"
+	return id == "mk48" || id == "type53" || id == "umgt1" || id == "set40" || id == "mk46"
 }
 
 // TryAutoClassifyTorpedo confirms TORP when harmonics / match look like a fish.

@@ -23,8 +23,8 @@ func TestTubeAmmoStatus(t *testing.T) {
 	if got := TubeAmmoStatus(empty, 0); got != "EMPTY" {
 		t.Fatalf("empty: got %q", got)
 	}
-	reloading := Tube{State: TubeReloading, TorpedoType: "Mk48"}
-	if got := TubeAmmoStatus(reloading, 42.2); got != "RELOADING 42s" {
+	reloading := Tube{State: TubeReloading, ReloadOrdnance: "Mk48"}
+	if got := TubeAmmoStatus(reloading, 42.2); got != "RELOAD Mk48 42s" {
 		t.Fatalf("reloading: got %q", got)
 	}
 }
