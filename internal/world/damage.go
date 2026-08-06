@@ -441,12 +441,13 @@ func applySystemSideEffects(e *Entity, sys int, before, after float64, rng *rand
 		if after <= 0 {
 			e.OrderedSpeed = 0
 		} else {
-			maxSpd := 30.0 * after / 100
-			if e.Kind == KindSurfaceShip {
-				maxSpd = 28 * after / 100
-			}
+			maxSpd := e.MaxSpeedKts()
+			maxAstern := e.MaxAsternKts()
 			if e.OrderedSpeed > maxSpd {
 				e.OrderedSpeed = maxSpd
+			}
+			if e.OrderedSpeed < -maxAstern {
+				e.OrderedSpeed = -maxAstern
 			}
 		}
 	}
@@ -483,6 +484,11 @@ func (e *Entity) MaxSpeedKts() float64 {
 	}
 	eff := e.Damage.EffOf(SysPropulsion)
 	return base * eff / 100
+}
+
+// MaxAsternKts is the reverse-speed ceiling (subs are limited vs ahead flank).
+func (e *Entity) MaxAsternKts() float64 {
+	return e.MaxSpeedKts() * 0.55
 }
 
 // TurnRateScale 0..1 from steering damage.

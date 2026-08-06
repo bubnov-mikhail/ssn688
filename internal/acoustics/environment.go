@@ -221,6 +221,7 @@ func CavitationDepthFt(speedKts float64) float64 {
 
 // CavitationSeverity returns 0..1 how much the platform is cavitating.
 func CavitationSeverity(depthFt, speedKts float64) float64 {
+	speedKts = math.Abs(speedKts)
 	// Surface / near-surface platforms: depth≈0 would otherwise always read as
 	// "fully cavitating" under the submarine margin curve. Use speed instead.
 	if depthFt < 25 {

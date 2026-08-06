@@ -56,7 +56,8 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 		}
 
 		// Machinery grows with speed.
-		level += machineryNoiseDB(e.SpeedKts)
+		spd := math.Abs(e.SpeedKts)
+		level += machineryNoiseDB(spd)
 
 		// Discrete LOFAR/DEMON tonals (Cold Waters fingerprint lines).
 		level += TonalBoostDB(profile, freq)
@@ -65,12 +66,12 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 		if profile.BladeRateHz > 0 {
 			rem := math.Mod(freq, profile.BladeRateHz)
 			if rem < profile.BladeRateHz*0.12 || profile.BladeRateHz-rem < profile.BladeRateHz*0.12 {
-				level += 4 + e.SpeedKts*0.12
+				level += 4 + spd*0.12
 			}
 		}
 
 		// Cavitation broadband, stronger at higher frequencies.
-		cav := CavitationSeverity(e.DepthFt, e.SpeedKts)
+		cav := CavitationSeverity(e.DepthFt, spd)
 		if cav > 0 {
 			highFreqBoost := (freq / MaxFreqHz) * profile.CavitationDB * 0.08 * cav
 			level += highFreqBoost
@@ -78,8 +79,8 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 		}
 
 		// Flow noise at high speed.
-		if e.SpeedKts > 15 {
-			level += (e.SpeedKts - 15) * 0.35 * (freq / MaxFreqHz)
+		if spd > 15 {
+			level += (spd - 15) * 0.35 * (freq / MaxFreqHz)
 		}
 
 		if e.TransientUntil > 0 && e.TransientLevelDB > 0 {
@@ -104,6 +105,7 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 }
 
 func machineryNoiseDB(speedKts float64) float64 {
+	speedKts = math.Abs(speedKts)
 	if speedKts < 3 {
 		return 0
 	}
@@ -112,9 +114,10 @@ func machineryNoiseDB(speedKts float64) float64 {
 
 // SelfNoiseSpectrum is the noise floor produced by the listening platform.
 func SelfNoiseSpectrum(e *world.Entity, env Environment, array PassiveArrayKind, towedCablePct float64) Spectrum {
-	base := 62.0 + e.SpeedKts*1.1
-	if e.SpeedKts > 12 {
-		base += (e.SpeedKts - 12) * 2.2
+	spd := math.Abs(e.SpeedKts)
+	base := 62.0 + spd*1.1
+	if spd > 12 {
+		base += (spd - 12) * 2.2
 	}
 	// Surface combatants tow powerful passive arrays with lower flow noise at patrol speed.
 	if e.Kind == world.KindSurfaceShip && e.DepthFt < 30 {
@@ -130,9 +133,9 @@ func SelfNoiseSpectrum(e *world.Entity, env Environment, array PassiveArrayKind,
 		level := base
 
 		// Hull flow noise rises with frequency.
-		level += (freq / MaxFreqHz) * e.SpeedKts * 0.25
+		level += (freq / MaxFreqHz) * spd * 0.25
 
-		cav := CavitationSeverity(e.DepthFt, e.SpeedKts)
+		cav := CavitationSeverity(e.DepthFt, spd)
 		level += cav * 18
 		level += cav * (freq / MaxFreqHz) * 10
 

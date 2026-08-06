@@ -202,6 +202,7 @@ func ApplyTriangulationBonus(c *Contact, baselineYd, rangeYd, relBearingDeg floa
 // Below ~8 kts machinery dominates; above that, flow noise rises sharply.
 // Hull arrays suffer most on the bow quarters; towed arrays are cleaner astern.
 func PassiveSelfNoisePenaltyDB(array PassiveArrayKind, relativeBearingDeg, speedKts, depthFt, towedPct float64) float64 {
+	speedKts = math.Abs(speedKts)
 	if speedKts <= 4 {
 		return 0
 	}

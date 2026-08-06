@@ -101,10 +101,14 @@ func (e *Entity) Advance(dt float64) {
 	}
 	e.EnsureDamage()
 
-	// Propulsion ceiling.
+	// Propulsion ceiling (ahead) / floor (astern).
 	maxSpd := e.MaxSpeedKts()
+	maxAstern := e.MaxAsternKts()
 	if e.OrderedSpeed > maxSpd {
 		e.OrderedSpeed = maxSpd
+	}
+	if e.OrderedSpeed < -maxAstern {
+		e.OrderedSpeed = -maxAstern
 	}
 
 	// Cap acceleration by platform class (open-order figures; exact rates classified).
@@ -113,6 +117,9 @@ func (e *Entity) Advance(dt float64) {
 	e.SpeedKts += clamp(errSpd, -maxA*dt, maxA*dt)
 	if e.SpeedKts > maxSpd {
 		e.SpeedKts = maxSpd
+	}
+	if e.SpeedKts < -maxAstern {
+		e.SpeedKts = -maxAstern
 	}
 
 	if e.Kind != KindSurfaceShip {

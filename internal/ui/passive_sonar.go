@@ -275,11 +275,11 @@ func aContactCenter(c *acoustics.Contact) (float64, float64) {
 
 func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	render.DrawText(screen, "CONTACT LOG", layout.PassiveContactLabelX, layout.PassiveContactLabelY+12, render.ColorPlateLabel, true)
-	render.DrawText(screen, "CONTACT", passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG°", passiveListX+72, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RNG kyd", passiveListX+112, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "SRC", passiveListX+158, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "CLASS", passiveListX+200, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "ID", passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "BRG°", passiveListX+48, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "RNG kyd", passiveListX+92, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "SRC", passiveListX+152, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "CLASS", passiveListX+196, passiveListY+16, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	player := a.Engine.Scenario.Player
@@ -300,10 +300,10 @@ func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.Son
 			clr = render.ColorAmber
 		}
 		render.DrawText(screen, c.ID, passiveListX+8, y+16, clr, true)
-		render.DrawText(screen, contactBearingLabel(c), passiveListX+72, y+16, clr, true)
-		render.DrawText(screen, contactRangeLabel(c), passiveListX+112, y+16, clr, true)
-		render.DrawText(screen, contactSourceLabel(c, player, sonar), passiveListX+158, y+16, clr, true)
-		render.DrawText(screen, contactClassLabel(c), passiveListX+200, y+16, clr, true)
+		render.DrawText(screen, contactBearingLabel(c), passiveListX+48, y+16, clr, true)
+		render.DrawText(screen, contactRangeLabel(c), passiveListX+92, y+16, clr, true)
+		render.DrawText(screen, contactSourceLabel(c, player, sonar), passiveListX+152, y+16, clr, true)
+		render.DrawText(screen, contactClassLabel(c), passiveListX+196, y+16, clr, true)
 		y += passiveListRow
 	}
 	drawContactTableScrollbar(screen, passiveListX+passiveListW+4, passiveListY+passiveListRow, passiveListVisibleRows*passiveListRow, len(sonar.Contacts), passiveListVisibleRows, a.contactTableScroll.passive)

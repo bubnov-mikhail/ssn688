@@ -280,6 +280,11 @@ func (a *App) updateGame() {
 	if a.navHoverIdx < 0 {
 		a.navTooltip = ""
 	}
+	// Own-ship quick panel (replaces OBJECTIVES) on every screen except full HELM.
+	if a.Engine != nil && a.Engine.Scenario != nil {
+		a.updateOwnShipPanel(a.Engine.Scenario.Player)
+	}
+	a.updateCMQuickPanel()
 
 	for _, ev := range a.Engine.PopEvents() {
 		a.StatusMessage = ev
@@ -490,18 +495,8 @@ func (a *App) drawGame(screen *ebiten.Image) {
 	}
 
 	a.drawGameHeader(screen)
-
-	render.DrawConsolePanel(screen, render.ScreenW-300, 50, 290, 200)
-	render.DrawText(screen, "OBJECTIVES", render.ScreenW-280, 75, render.ColorWarn, false)
-	for i, o := range a.Engine.Scenario.Objectives {
-		mark := "[ ]"
-		clr := render.ColorDim
-		if o.Complete {
-			mark = "[X]"
-			clr = render.ColorSonar
-		}
-		render.DrawText(screen, mark+" "+o.Description, render.ScreenW-280, 100+i*30, clr, true)
-	}
+	a.drawOwnShipPanel(screen)
+	a.drawCMQuickPanel(screen)
 
 	if a.StatusMessage != "" {
 		render.DrawText(screen, a.StatusMessage, 20, render.ScreenH-navBarH-18, render.ColorWarn, false)
