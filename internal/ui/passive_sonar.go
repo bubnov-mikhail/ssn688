@@ -23,7 +23,7 @@ const (
 	passiveListY           = layout.PassiveListY
 	passiveListW           = layout.PassiveListW
 	passiveListRow         = layout.PassiveListRow
-	passiveListVisibleRows = 12
+	passiveListVisibleRows = 17
 )
 
 type contactChip struct {

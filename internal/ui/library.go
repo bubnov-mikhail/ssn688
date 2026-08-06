@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/assets"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -21,7 +22,7 @@ import (
 const (
 	libPanelX = 20
 	libPanelY = 50
-	libPanelW = 1100
+	libPanelW = 1260
 	libPanelH = 700
 
 	libLeftX = 40
@@ -36,7 +37,7 @@ const (
 
 	libRightX = 460
 	libRightY = 118
-	libRightW = 640
+	libRightW = 800
 	libRightH = 580
 
 	libPhotoH = 150
@@ -168,17 +169,17 @@ func (a *App) libraryDetailLines(e *libraryEntry) []detailLine {
 	}
 
 	addSection("OVERVIEW", render.ColorAmber)
-	addBody(e.Summary, render.ColorPhosphor)
+	addBody(e.Summary, render.ColorPlateLabel)
 	addSection("CHARACTERISTICS", render.ColorAmber)
-	addBullets(e.Specs, render.ColorPhosphor)
+	addBullets(e.Specs, render.ColorPlateLabel)
 	addSection("OFFENSIVE WEAPONS", render.ColorAmber)
-	addBullets(e.Offense, render.ColorPhosphor)
+	addBullets(e.Offense, render.ColorPlateLabel)
 	addSection("DEFENSIVE SYSTEMS", render.ColorAmber)
-	addBullets(e.Defense, render.ColorPhosphor)
+	addBullets(e.Defense, render.ColorPlateLabel)
 	addSection("NEUTRALIZATION", render.ColorWarn)
-	addBullets(e.Neutralize, render.ColorPhosphor)
+	addBullets(e.Neutralize, render.ColorPlateLabel)
 	addSection("EVASION (OWN SHIP)", render.ColorWarn)
-	addBullets(e.Evade, render.ColorPhosphor)
+	addBullets(e.Evade, render.ColorPlateLabel)
 	if e.Credit != "" {
 		addSection("IMAGE CREDIT", render.ColorPlateLabel)
 		addBody([]string{e.Credit}, render.ColorDim)
@@ -292,7 +293,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 	catVis := libCatH / libRowH
 
 	render.DrawConsolePanel(screen, libPanelX, libPanelY, libPanelW, libPanelH)
-	render.DrawText(screen, "THREAT LIBRARY", 40, 90, render.ColorPlateLabel, true)
+	render.DrawScreenTitle(screen, "THREAT LIBRARY", layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 
 	// —— Catalog table ——
 	render.DrawText(screen, "PLATFORM TYPES", libLeftX, libCatY-14, render.ColorPlateLabel, true)
@@ -314,7 +315,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 			} else if hover {
 				render.FillRect(screen, libLeftX+2, y, libLeftW-4, libRowH, render.ColorPanelMid)
 			}
-			clr := render.ColorPhosphor
+			clr := render.ColorPlateLabel
 			if selected {
 				clr = render.ColorAmber
 			}
@@ -346,7 +347,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 		} else if hover {
 			render.FillRect(screen, libLeftX+2, y, libLeftW-4, libRowH, render.ColorPanelMid)
 		}
-		clr := render.ColorPhosphor
+		clr := render.ColorPlateLabel
 		class := contactClassLabel(c)
 		if c.ConfirmedClass != "" {
 			clr = render.ColorAmber

@@ -111,7 +111,7 @@ func NewSonarState() SonarState {
 	return SonarState{
 		PassiveEnabled:  true,
 		ActiveEnabled:   false,
-		ActivePower:     0.7,
+		ActivePower:     0.25,
 		PingInterval:    12.0,
 		SpectrumBearing: 0,
 	}

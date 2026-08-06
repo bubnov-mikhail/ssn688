@@ -50,7 +50,7 @@ func DrawBevelButton(screen *ebiten.Image, x, y, w, h int, label string, hovered
 	}
 	tw := ButtonLabelWidth(label)
 	tx := x + (w-tw)/2
-	ty := y + h/2 + 4
+	ty := ButtonLabelBaseline(y, h)
 	DrawButtonText(screen, label, tx, ty, clr)
 }
 
@@ -59,7 +59,7 @@ func DrawBevelButtonDisabled(screen *ebiten.Image, x, y, w, h int, label string)
 	FillRect(screen, x, y, w, h, ColorBevelDark)
 	FillRect(screen, x+2, y+2, w-4, h-4, ColorPanelInset)
 	tw := ButtonLabelWidth(label)
-	DrawButtonText(screen, label, x+(w-tw)/2, y+h/2+4, ColorDim)
+	DrawButtonText(screen, label, x+(w-tw)/2, ButtonLabelBaseline(y, h), ColorDim)
 }
 
 // DrawTooltip shows a help bubble near the cursor.

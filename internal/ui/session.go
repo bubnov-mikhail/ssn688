@@ -43,7 +43,9 @@ func (a *App) releaseSessionCaches() {
 	a.activePlotGridPix = nil
 	disposeImage(&a.wepsMapImg)
 	disposeImage(&a.tactical.bathyImg)
+	disposeImage(&a.tactical.minimapBathyImg)
 	a.tactical.bathyPix = nil
+	a.tactical.minimapBathyPix = nil
 	a.tactical = tacticalState{}
 
 	a.bearingWaterfalls.Reset()
@@ -89,7 +91,6 @@ func (a *App) releaseSessionCaches() {
 	a.activeSliderDrag = ""
 	a.compassDrag = false
 	a.wepsMapZoom = 0.05
-	a.debugMapZoom = 1.0
 	a.uiHoverID = ""
 	a.uiTooltip = ""
 	a.uiPressedID = ""

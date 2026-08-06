@@ -102,5 +102,5 @@ const (
 	PassiveListY   = PassiveContactLabelY + 22
 	PassiveListW   = 310
 	PassiveListRow = 22
-	PassiveListH   = 310
+	PassiveListH   = 410
 )

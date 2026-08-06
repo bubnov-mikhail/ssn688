@@ -29,6 +29,8 @@ const (
 	EnemySubMagazine = 14
 	// TubeClearYd — straight run along ownship heading before gyro turn is enabled.
 	TubeClearYd = 180.0
+	// SearchArmMinDistYd — minimum slant range from launcher before deferred seeker arms.
+	SearchArmMinDistYd = 450.0
 	// TorpedoActivePingIntervalSec is the search-mode seeker ping cadence.
 	TorpedoActivePingIntervalSec = 3.0
 	// TorpedoActivePingPower is quieter than a ship sonar but very audible nearby.
@@ -149,7 +151,39 @@ type FireControl struct {
 	ActiveHarpoons   []*HarpoonMissile
 	ActiveRastrub    []*RastrubFlight
 	ActiveRBU        []*RBUSalvo
+	DebugMapFlashes  []DebugMapFlash // short-lived WEPS debug letters (SAM/CIWS, …)
 	torpedoSeq       int
+}
+
+// DebugMapFlash is a brief letter marker for the WEPS debug overlay.
+type DebugMapFlash struct {
+	X, Y  float64
+	Label string
+	Until float64 // game time when the marker expires
+}
+
+const DebugMapFlashSec = 10.0
+
+func (fc *FireControl) PushDebugMapFlash(x, y float64, label string, gameTime float64) {
+	if fc == nil || label == "" {
+		return
+	}
+	fc.DebugMapFlashes = append(fc.DebugMapFlashes, DebugMapFlash{
+		X: x, Y: y, Label: label, Until: gameTime + DebugMapFlashSec,
+	})
+}
+
+func (fc *FireControl) PruneDebugMapFlashes(gameTime float64) {
+	if fc == nil || len(fc.DebugMapFlashes) == 0 {
+		return
+	}
+	dst := fc.DebugMapFlashes[:0]
+	for _, f := range fc.DebugMapFlashes {
+		if f.Until > gameTime {
+			dst = append(dst, f)
+		}
+	}
+	fc.DebugMapFlashes = dst
 }
 
 func NewFireControl() FireControl {
@@ -548,8 +582,14 @@ func (fc *FireControl) cutWireTorpedo(torp *Torpedo) {
 	}
 	torp.WireCut = true
 	if torp.TubeCleared() {
-		torp.Mode = ModeSearch
-		torp.SeekerOn = true
+		torp.EnableSearchAfterClear = true
+		torp.Mode = ModeWire
+		torp.SeekerOn = false
+		if !torp.gyroEnabled {
+			torp.enableGyroAfterClear()
+		} else {
+			torp.OrderedHead = torp.GyroCourseDeg
+		}
 	} else {
 		// Finish tube-clear run, then go autonomous.
 		torp.EnableSearchAfterClear = true
@@ -616,8 +656,7 @@ func (fc *FireControl) EnableSeeker(torp *Torpedo) {
 		torp.EnableSearchAfterClear = true
 		return
 	}
-	torp.SeekerOn = true
-	torp.Mode = ModeSearch
+	torp.EnableSearchAfterClear = true
 }
 
 // ToggleSeeker turns ModeSearch on/off while the wire is intact.
@@ -641,8 +680,11 @@ func (fc *FireControl) ToggleSeeker(torp *Torpedo) {
 		torp.GyroCourseDeg = torp.HeadingDeg
 		return
 	}
-	torp.SeekerOn = true
-	torp.Mode = ModeSearch
+	if torp.EnableSearchAfterClear {
+		torp.EnableSearchAfterClear = false
+		return
+	}
+	torp.EnableSearchAfterClear = true
 }
 
 func (fc *FireControl) WireSteer(torp *Torpedo, deltaHead, deltaDepth float64) {
@@ -699,10 +741,36 @@ func (t *Torpedo) enableGyroAfterClear() {
 	}
 	t.gyroEnabled = true
 	t.OrderedHead = t.GyroCourseDeg
-	if t.EnableSearchAfterClear || t.WireCut {
-		t.Mode = ModeSearch
-		t.SeekerOn = true
+}
+
+func (t *Torpedo) pendingSearchArm() bool {
+	return t != nil && t.EnableSearchAfterClear && !t.SeekerOn && t.Mode != ModeSearch
+}
+
+func (t *Torpedo) distToParent(targets []*world.Entity) float64 {
+	if t == nil || t.ParentSubID == "" {
+		return -1
 	}
+	for _, tgt := range targets {
+		if tgt != nil && tgt.ID == t.ParentSubID && tgt.Alive() {
+			return math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
+		}
+	}
+	return -1
+}
+
+func (t *Torpedo) tryArmSearch(targets []*world.Entity) {
+	if !t.pendingSearchArm() || !t.TubeCleared() {
+		return
+	}
+	if !t.gyroEnabled {
+		t.enableGyroAfterClear()
+	}
+	if d := t.distToParent(targets); d >= 0 && d < SearchArmMinDistYd {
+		return
+	}
+	t.Mode = ModeSearch
+	t.SeekerOn = true
 }
 
 // AcousticEntity fills dst with a world.Entity view for sonar detection.
@@ -761,10 +829,6 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 	if t.Mode == ModeWire && !t.WireCut && t.Age > 120 {
 		t.WireCut = true
 		t.EnableSearchAfterClear = true
-		if t.TubeCleared() {
-			t.Mode = ModeSearch
-			t.SeekerOn = true
-		}
 	}
 
 	// Tube-exit: hold launch heading until clear distance is reached.
@@ -774,8 +838,8 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 		t.SeekerOn = false
 	}
 
-	// Wire guidance: follow OrderedHead while wire intact and not searching.
-	if t.Mode == ModeWire && !t.WireCut {
+	// Wire guidance: follow OrderedHead while wire intact, or while running out on gyro before seeker arms.
+	if t.Mode == ModeWire && (!t.WireCut || t.pendingSearchArm()) {
 		diff := shortestAngleDiff(t.HeadingDeg, t.OrderedHead)
 		t.HeadingDeg += clamp(diff*dt*1.2, -dt*10, dt*10)
 		t.HeadingDeg = normalizeAngle(t.HeadingDeg)
@@ -785,6 +849,8 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 		t.HeadingDeg += clamp(diff*dt*1.2, -dt*10, dt*10)
 		t.HeadingDeg = normalizeAngle(t.HeadingDeg)
 	}
+
+	t.tryArmSearch(targets)
 
 	// Active search: acquire ships/subs OR soft-kill decoys; anti-CM can reject decoys.
 	if t.Mode == ModeSearch {
@@ -896,9 +962,11 @@ func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFu
 				continue
 			}
 		}
-		// Do not lock own launcher while still wire-connected.
-		if tgt.ID == t.ParentSubID && !t.WireCut {
-			continue
+		// Do not lock own launcher until safely clear (even after wire cut / pending search).
+		if tgt.ID == t.ParentSubID {
+			if d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y); d < SearchArmMinDistYd {
+				continue
+			}
 		}
 		d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
 		maxR, coneHalf := t.seekAcquireLimits(tgt.DepthFt, layerAtten)
@@ -998,8 +1066,10 @@ func (t *Torpedo) maybeRejectCM(targets []*world.Entity, gameTime float64) {
 		if tgt.Kind != world.KindSubmarine && tgt.Kind != world.KindSurfaceShip {
 			continue
 		}
-		if tgt.ID == t.ParentSubID && !t.WireCut {
-			continue
+		if tgt.ID == t.ParentSubID {
+			if d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y); d < SearchArmMinDistYd {
+				continue
+			}
 		}
 		d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
 		if d > SeekAcquireRangeYd {

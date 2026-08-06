@@ -3,6 +3,8 @@ package weapons
 import (
 	"math"
 	"testing"
+
+	"github.com/ssn688/sim/internal/world"
 )
 
 func TestInterceptCourseStationaryTarget(t *testing.T) {
@@ -43,5 +45,65 @@ func TestTorpedoInterceptGyroAccountsForTubeClear(t *testing.T) {
 	}
 	if course < 0 || course >= 360 {
 		t.Fatalf("bad course %.1f", course)
+	}
+}
+
+func TestDeferredSearchStaysWireUntilSafeDistance(t *testing.T) {
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive,
+		X: 0, Y: 0, DepthFt: 300,
+	}
+	target := &world.Entity{
+		ID: "enemy", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive,
+		X: 8000, Y: 0, DepthFt: 250,
+	}
+	targets := []*world.Entity{player, target}
+
+	fish := &Torpedo{
+		ID: "MK48-1", ParentSubID: "player", Side: world.SidePlayer,
+		X: 50, Y: 0, DepthFt: 300, HeadingDeg: 90, OrderedHead: 90,
+		LaunchHeadDeg: 90, GyroCourseDeg: 90,
+		SpeedKts: 40, CruiseKts: 55, RunDepthFt: 300,
+		Mode: ModeWire, Alive: true, Armed: true,
+		ClearDistYd: TubeClearYd, EnableSearchAfterClear: true,
+	}
+	fish.MarkGyroEnabled(true)
+
+	for i := 0; i < 200; i++ {
+		fish.Advance(0.1, float64(i)*0.1, targets, nil)
+		if fish.Mode == ModeSearch {
+			d := math.Hypot(fish.X-player.X, fish.Y-player.Y)
+			if d < SearchArmMinDistYd-20 {
+				t.Fatalf("search armed too close to launcher: %.0f yd at tick %d", d, i)
+			}
+			return
+		}
+	}
+	t.Fatal("seeker never armed after run-out")
+}
+
+func TestShootWithPrearmedSeekerDefersSearch(t *testing.T) {
+	fc := NewFireControl()
+	fc.SeekerEnabled = true
+	fc.GyroAngleDeg = 45
+	sub := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		X: 0, Y: 0, DepthFt: 300, HeadingDeg: 0,
+	}
+	tube := fc.TubeByNumber(1)
+	tube.State = TubeDoorOpen
+	tube.TorpedoType = OrdnanceMk48
+
+	fish := fc.Shoot(sub, 1)
+	if fish == nil {
+		t.Fatal("shoot failed")
+	}
+	if fish.Mode != ModeWire || fish.SeekerOn {
+		t.Fatalf("launch state mode=%d seek=%v", fish.Mode, fish.SeekerOn)
+	}
+	if !fish.EnableSearchAfterClear {
+		t.Fatal("expected deferred search flag")
 	}
 }

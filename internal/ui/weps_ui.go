@@ -28,7 +28,7 @@ const (
 	wepsMapX = 520
 	wepsMapY = 100
 	wepsMapW = 740
-	wepsMapH = 620
+	wepsMapH = 590
 
 	wepsTubeY0   = 124
 	wepsTubeRowH = 36
@@ -41,7 +41,7 @@ const (
 	wepsCMH = 48
 
 	wepsTargetsY   = 402
-	wepsTargetsH   = 278
+	wepsTargetsH   = 288
 	wepsTargetsRow = 22
 )
 
@@ -631,8 +631,8 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	sonar := &a.Engine.Sonar
 	gt := a.Engine.Clock.GameTime
 	render.DrawConsolePanel(screen, wepsPanelX, wepsPanelY, wepsPanelW, wepsPanelH)
-	render.DrawText(screen, "FIRE CONTROL — WEAPONS", wepsLeftX, 78, render.ColorPlateLabel, true)
-	render.DrawText(screen, fmt.Sprintf("MAGAZINE: %d Mk48  ·  %d Harpoon", fc.MagazineLeft, fc.HarpoonMagLeft), wepsLeftX, 100, render.ColorPhosphorDim, true)
+	render.DrawScreenTitle(screen, "FIRE CONTROL — WEAPONS", wepsLeftX, 78)
+	render.DrawText(screen, fmt.Sprintf("MAGAZINE: %d Mk48  ·  %d Harpoon", fc.MagazineLeft, fc.HarpoonMagLeft), wepsLeftX, 100, render.ColorPlateLabel, true)
 
 	mx, my := ebiten.CursorPosition()
 	for i := range fc.Tubes {
@@ -1031,6 +1031,11 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 	fc := &a.Engine.FireControl
 	render.DrawText(screen, "TACTICAL MAP", wepsMapX, 86, render.ColorPlateLabel, true)
 	render.DrawMonitor(screen, wepsMapX, wepsMapY, wepsMapW, wepsMapH)
+	mapBorder := color.RGBA{78, 78, 84, 255}
+	render.FillRect(screen, wepsMapX, wepsMapY, wepsMapW, 1, mapBorder)
+	render.FillRect(screen, wepsMapX, wepsMapY+wepsMapH-1, wepsMapW, 1, mapBorder)
+	render.FillRect(screen, wepsMapX, wepsMapY, 1, wepsMapH, mapBorder)
+	render.FillRect(screen, wepsMapX+wepsMapW-1, wepsMapY, 1, wepsMapH, mapBorder)
 
 	img := a.ensureWepsMapImg()
 	img.Fill(color.RGBA{4, 18, 28, 255})
@@ -1061,27 +1066,14 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 			continue
 		}
 		clr := render.ColorActive
-		// Debug: purple while seeker is seduced onto a countermeasure.
-		if torp.CMLockID != "" && torp.Mode == weapons.ModeSearch {
-			clr = color.RGBA{180, 80, 255, 255}
+		// Orange while seeker has a lock (ship or soft-kill CM); blue on wire / no target.
+		if torp.Mode == weapons.ModeSearch && torp.TargetID != "" {
+			clr = render.ColorAmber
 		}
 		render.FillRect(img, int(sx)-3, int(sy)-3, 7, 7, clr)
 	}
-	// Debug: live expendable CM markers (not plot contacts).
-	for _, cm := range a.Engine.CM.Active {
-		if cm == nil || !cm.Alive || cm.Kind == weapons.CMTowedNixie {
-			continue
-		}
-		sx := px + (cm.X-player.X)*a.wepsMapZoom
-		sy := py - (cm.Y-player.Y)*a.wepsMapZoom
-		if !wepsMapMarkerInside(sx, sy) {
-			continue
-		}
-		label := "d"
-		if cm.Kind == weapons.CMExpendableJitter {
-			label = "j"
-		}
-		render.DrawText(img, label, int(sx)-2, int(sy)+4, color.RGBA{200, 160, 255, 230}, true)
+	if a.Settings.Debug {
+		a.drawWepsDebugCMMarkers(img, px, py, player, gt)
 	}
 	// Contacts use the same plotted positions as TACTICAL PLOT (not true emitter coords).
 	for i := range sonar.Contacts {
@@ -1159,6 +1151,40 @@ func wepsMapMarkerInside(sx, sy float64) bool {
 	return sx >= left && sy >= top &&
 		sx <= float64(wepsMapW)-right &&
 		sy <= float64(wepsMapH)-bottom
+}
+
+func (a *App) drawWepsDebugCMMarkers(img *ebiten.Image, px, py float64, player *world.Entity, gameTime float64) {
+	if a.Engine == nil || player == nil {
+		return
+	}
+	fc := &a.Engine.FireControl
+	fc.PruneDebugMapFlashes(gameTime)
+	dbgClr := color.RGBA{200, 160, 255, 230}
+
+	for _, cm := range a.Engine.CM.Active {
+		if cm == nil || !cm.Alive || cm.Kind == weapons.CMTowedNixie {
+			continue
+		}
+		sx := px + (cm.X-player.X)*a.wepsMapZoom
+		sy := py - (cm.Y-player.Y)*a.wepsMapZoom
+		if !wepsMapMarkerInside(sx, sy) {
+			continue
+		}
+		label := "d"
+		if cm.Kind == weapons.CMExpendableJitter {
+			label = "j"
+		}
+		render.DrawText(img, label, int(sx)-2, int(sy)+4, dbgClr, true)
+	}
+
+	for _, flash := range fc.DebugMapFlashes {
+		sx := px + (flash.X-player.X)*a.wepsMapZoom
+		sy := py - (flash.Y-player.Y)*a.wepsMapZoom
+		if !wepsMapMarkerInside(sx, sy) {
+			continue
+		}
+		render.DrawText(img, flash.Label, int(sx)-2, int(sy)+4, dbgClr, true)
+	}
 }
 
 func (a *App) drawWepsTorpedoGeometry(screen *ebiten.Image, px, py float64, player *world.Entity, fish *weapons.Torpedo) {

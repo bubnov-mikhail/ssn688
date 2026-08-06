@@ -137,6 +137,11 @@ func (fc *FireControl) TryPointDefense(h *HarpoonMissile, ships []*world.Entity,
 	}
 
 	fc.markPDEngage(best.ID, gameTime)
+	label := "s"
+	if layer == "CIWS" {
+		label = "c"
+	}
+	fc.PushDebugMapFlash(h.X, h.Y, label, gameTime)
 	if layer == "SAM" {
 		fc.EnemySAM[best.ID] = fc.samAmmo(best) - 1
 	} else {

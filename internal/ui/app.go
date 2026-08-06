@@ -91,7 +91,6 @@ type App struct {
 	sonarBtnScratch        []sonarUIButton
 	enemyPingHeardAt       map[string]float64
 	lastPingPlayed         float64
-	debugMapZoom           float64
 	uiHoverID              string
 	uiHoverSince           time.Time
 	uiTooltip              string
@@ -135,7 +134,6 @@ func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
 		Audio:               audioMgr,
 		CurrentScreen:       ScreenPassive,
 		MenuIndex:           0,
-		debugMapZoom:        1.0,
 		enemyPingHeardAt:    map[string]float64{},
 		reportedTorpedoIDs:  map[string]bool{},
 		torpedoThreatActive: map[string]bool{},
@@ -218,7 +216,6 @@ func (a *App) updateGame() {
 		return
 	}
 
-	a.updateDebugMapInput()
 	a.updateNavBar()
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
@@ -463,8 +460,8 @@ func (a *App) drawSettings(screen *ebiten.Image) {
 	render.DrawText(screen, fmt.Sprintf("Master Volume ([ ]): %.0f%%", a.Settings.MasterVolume*100), 500, 260, render.ColorText, false)
 	render.DrawText(screen, fmt.Sprintf("Voice Volume: %.0f%%", a.Settings.VoiceVolume*100), 500, 300, render.ColorText, false)
 	render.DrawText(screen, fmt.Sprintf("Effects Volume: %.0f%%", a.Settings.EffectsVolume*100), 500, 340, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("Debug minimap (D): %v", a.Settings.Debug), 500, 400, render.ColorText, false)
-	render.DrawText(screen, "Green=calm  Yellow=search  Red=attack  Gray=destroyed", 500, 430, render.ColorDim, true)
+	render.DrawText(screen, fmt.Sprintf("Debug overlay (D): %v", a.Settings.Debug), 500, 400, render.ColorText, false)
+	render.DrawText(screen, "Debug shows all units on the minimap at true positions", 500, 430, render.ColorDim, true)
 	render.DrawText(screen, "ENTER or ESC to save and return", 500, 500, render.ColorDim, false)
 }
 
@@ -523,7 +520,7 @@ func (a *App) drawGame(screen *ebiten.Image) {
 		render.DrawTextLarge(screen, "OWN SHIP LOST", 650, 460, render.ColorDanger)
 	}
 
-	a.drawDebugMap(screen)
+	a.drawTacticalMinimap(screen)
 	a.drawNavBar(screen)
 }
 
@@ -583,8 +580,8 @@ func (a *App) drawPassive(screen *ebiten.Image) {
 
 	// Section legends — light gray engraved labels, no nameplates.
 	titleX := layout.PassiveTitleLabelX
-	titleY := layout.PassiveTitleLabelY + 12
-	render.DrawText(screen, "BEARING WATERFALL", titleX, titleY, render.ColorPlateLabel, true)
+	titleY := layout.PassiveTitleLabelY + 20
+	render.DrawScreenTitle(screen, "BEARING WATERFALL", titleX, titleY)
 
 	sel := selectedContactLabel(sonar, a.selectedContactID)
 	passiveExtra := ""
@@ -638,9 +635,9 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	render.DrawConsolePanel(screen, activePanelX, activePanelY, activePanelW, 700)
 	render.DrawConsolePanel(screen, activeSideX, activeSideY, activeSideW, 700)
 	render.DrawMonitor(screen, activePlotX, activePlotY, activePlotW, activePlotH)
-	render.DrawText(screen, "ACTIVE SONAR", 40, 90, render.ColorPlateLabel, true)
+	render.DrawScreenTitle(screen, "ACTIVE SONAR", layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 	status := "STANDBY"
-	statusClr := render.ColorDim
+	statusClr := render.ColorPlateLabel
 	if sonar.ActiveEnabled {
 		status = "TRANSMIT READY"
 		statusClr = render.ColorActive
@@ -650,7 +647,7 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	if echoYd > 0 {
 		echoLabel = fmt.Sprintf("%.1f kyd", echoYd/1000)
 	}
-	render.DrawText(screen, fmt.Sprintf("%s  |  SPD %.1f kts  |  ECHO REACH %s", status, player.SpeedKts, echoLabel), 40, 120, statusClr, false)
+	render.DrawText(screen, fmt.Sprintf("%s  |  SPD %.1f kts  |  ECHO REACH %s", status, player.SpeedKts, echoLabel), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+40, statusClr, true)
 
 	a.drawActiveRangeDisplay(screen, sonar)
 	a.drawActiveControls(screen, sonar)

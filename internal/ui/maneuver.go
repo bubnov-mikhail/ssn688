@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -27,7 +28,7 @@ func (b uiButton) contains(mx, my int) bool {
 }
 
 const (
-	depthGaugeX      = 880
+	depthGaugeX      = 1040
 	depthGaugeW      = 100
 	depthTop         = 190
 	depthH           = 380
@@ -54,12 +55,12 @@ func maneuverButtons() []uiButton {
 			{ID: "hdg_port", Label: "◄ PORT", Tooltip: "Come left 5 degrees", Y: 520, H: 40},
 			{ID: "hdg_stbd", Label: "STBD ►", Tooltip: "Come right 5 degrees", Y: 520, H: 40},
 			{ID: "hdg_stbd10", Label: "►►", Tooltip: "Come right 10 degrees", Y: 520, H: 40},
-			{ID: "dep_shallow", Label: "▲", Tooltip: "Rise 20 feet (shallower)", X: 980, Y: 200, H: 44},
-			{ID: "dep_surface", Label: "SURFACE", Tooltip: "Surface — order zero depth", X: 980, Y: 248, H: 30},
-			{ID: "dep_periscope", Label: "PERISCOPE", Tooltip: "Periscope depth — order 60 feet", X: 980, Y: 282, H: 30},
-			{ID: "dep_hold", Label: "HOLD", Tooltip: "Hold present depth", X: 980, Y: 360, H: 44},
-			{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: 980, Y: 520, H: 44},
-			{ID: "bt_cast", Label: "BT CAST", Tooltip: "Launch SSXBT — survey thermocline (~15 s sim time)", X: 780, Y: 665, H: 36},
+			{ID: "dep_shallow", Label: "▲", Tooltip: "Rise 20 feet (shallower)", X: 1140, Y: 200, H: 44},
+			{ID: "dep_surface", Label: "SURFACE", Tooltip: "Surface — order zero depth", X: 1140, Y: 248, H: 30},
+			{ID: "dep_periscope", Label: "PERISCOPE", Tooltip: "Periscope depth — order 60 feet", X: 1140, Y: 282, H: 30},
+			{ID: "dep_hold", Label: "HOLD", Tooltip: "Hold present depth", X: 1140, Y: 360, H: 44},
+			{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: 1140, Y: 520, H: 44},
+			{ID: "bt_cast", Label: "BT CAST", Tooltip: "Launch SSXBT — survey thermocline (~15 s sim time)", X: 940, Y: 665, H: 36},
 		}
 		for i := range buttons {
 			buttons[i].W = render.ButtonWidth(buttons[i].Label, 12)
@@ -72,7 +73,7 @@ func maneuverButtons() []uiButton {
 				x += buttons[i].W + 6
 			}
 		}
-		depColX := 980
+		depColX := 1140
 		depColW := 44
 		for _, b := range buttons {
 			switch b.ID {
@@ -95,7 +96,7 @@ func maneuverButtons() []uiButton {
 }
 
 const (
-	compassCX = 570.0
+	compassCX = 650.0
 	compassCY = 340.0
 	compassR  = 150.0
 )
@@ -370,11 +371,11 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 	p := a.Engine.Scenario.Player
 	env := a.Engine.Acoustics.Env
 	gt := a.Engine.Clock.GameTime
-	px, py, pw, ph := 20, 50, 1100, 700
+	px, py, pw, ph := 20, 50, 1260, 700
 	render.DrawPanel(screen, px, py, pw, ph)
 
-	render.DrawTextLarge(screen, "MANEUVERING ROOM — HELM", 48, 88, render.ColorPhosphor)
-	render.DrawText(screen, "ENGINE ORDER TELEGRAPH", 60, 170, render.ColorPhosphorDim, true)
+	render.DrawScreenTitle(screen, "MANEUVERING ROOM — HELM", layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
+	render.DrawText(screen, "ENGINE ORDER TELEGRAPH", 60, 170, render.ColorPlateLabel, true)
 
 	render.FillRect(screen, 160, 200, 180, 120, render.ColorPanelInset)
 	render.DrawTextLarge(screen, fmt.Sprintf("%.0f", p.OrderedSpeed), 200, 280, render.ColorAmber)

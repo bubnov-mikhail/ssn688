@@ -54,7 +54,8 @@ func TestReloadAfterSessionDispose(t *testing.T) {
 		a.Engine.Update(0.05)
 		a.updateSimulationUI()
 	}
-	_ = a.ensureTacticalBathyImage(0, 0, 128, 128, a.Engine.Scenario.Bathy)
+	view := tacticalMapView{0, 0, 128, 128, 0, 0, a.tactical.zoom}
+	_ = a.ensureTacticalBathyImage(view, a.Engine.Scenario.Bathy, false)
 	if a.Engine.Scenario.Player == nil {
 		t.Fatal("nil player")
 	}

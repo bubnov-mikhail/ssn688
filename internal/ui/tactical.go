@@ -47,10 +47,40 @@ type coastSegment struct {
 }
 
 type bathyViewKey struct {
-	zoom       float64
-	panX, panY float64
-	mapX, mapY int
-	mapW, mapH int
+	zoom                 float64
+	centerX, centerY     float64
+	mapX, mapY           int
+	mapW, mapH           int
+}
+
+// tacticalMapView maps world yards to screen pixels for a plot panel.
+type tacticalMapView struct {
+	mapX, mapY, mapW, mapH int
+	centerX, centerY       float64
+	zoom                   float64
+}
+
+func (v tacticalMapView) worldToScreen(wx, wy float64) (sx, sy float64) {
+	sx = float64(v.mapX+v.mapW/2) + (wx-v.centerX)*v.zoom
+	sy = float64(v.mapY+v.mapH/2) - (wy-v.centerY)*v.zoom
+	return sx, sy
+}
+
+func (v tacticalMapView) screenToWorld(sx, sy int) (wx, wy float64) {
+	wx = v.centerX + (float64(sx)-float64(v.mapX+v.mapW/2))/v.zoom
+	wy = v.centerY - (float64(sy)-float64(v.mapY+v.mapH/2))/v.zoom
+	return wx, wy
+}
+
+func (v tacticalMapView) containsScreen(sx, sy int) bool {
+	return inRect(sx, sy, v.mapX, v.mapY, v.mapW, v.mapH)
+}
+
+type tacticalMapOpts struct {
+	minimap       bool
+	debugOverlay  bool
+	showSelection bool
+	showChrome    bool
 }
 
 type tacticalState struct {
@@ -72,6 +102,9 @@ type tacticalState struct {
 	bathyImg           *ebiten.Image
 	bathyPix           []byte
 	bathyKey           bathyViewKey
+	minimapBathyImg    *ebiten.Image
+	minimapBathyPix    []byte
+	minimapBathyKey    bathyViewKey
 	rulerActive        bool
 	rulerX0, rulerY0   float64
 }
@@ -320,15 +353,21 @@ var (
 )
 
 func initTacticalButtons() {
-	y := tacticalPanelY + 8
+	const inset = 8
+	const gap = 6
+	y := tacticalPanelY + inset
+	right := tacticalPanelX + tacticalPanelW - inset
 	btns := []uiButton{
-		{ID: "tac_zoom_in", Label: "+", Tooltip: "Zoom in", X: tacticalPanelX + tacticalPanelW - 150, Y: y, H: 28},
-		{ID: "tac_zoom_out", Label: "-", Tooltip: "Zoom out", X: tacticalPanelX + tacticalPanelW - 115, Y: y, H: 28},
-		{ID: "tac_fit", Label: "FIT", Tooltip: "Center on ownship and fit known contacts", X: tacticalPanelX + tacticalPanelW - 80, Y: y, H: 28},
+		{ID: "tac_zoom_in", Label: "+", Tooltip: "Zoom in", Y: y, H: 28},
+		{ID: "tac_zoom_out", Label: "-", Tooltip: "Zoom out", Y: y, H: 28},
+		{ID: "tac_fit", Label: "FIT", Tooltip: "Center on ownship and fit known contacts", Y: y, H: 28},
 	}
 	for i := range btns {
 		btns[i].W = render.ButtonWidth(btns[i].Label, 10)
 	}
+	btns[2].X = right - btns[2].W
+	btns[1].X = btns[2].X - gap - btns[1].W
+	btns[0].X = btns[1].X - gap - btns[0].W
 	cachedTacticalButtons = btns
 }
 
@@ -532,8 +571,8 @@ func contactDisplaySide(c *acoustics.Contact) world.Side {
 func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
 	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
-	render.DrawText(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28, render.ColorPlateLabel, true)
-	render.DrawText(screen, "LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPhosphorDim, true)
+	render.DrawScreenTitle(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28)
+	render.DrawText(screen, "LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPlateLabel, true)
 
 	for _, b := range a.tacticalButtons() {
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, a.uiHoverID == b.ID, a.uiPressedID == b.ID)
@@ -544,7 +583,7 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 	mapW := tacticalPanelW - 16
 	mapH := tacticalPanelH - 52
 	render.DrawMonitor(screen, mapX, mapY, mapW, mapH)
-	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH)
+	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH, tacticalMapOpts{showSelection: true, showChrome: true})
 
 	if a.uiTooltip != "" {
 		mx, my := ebiten.CursorPosition()
@@ -552,24 +591,34 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 	}
 }
 
-func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) {
+func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int, opts tacticalMapOpts) {
 	player := a.Engine.Scenario.Player
 	sonar := &a.Engine.Sonar
 	bathy := a.Engine.Scenario.Bathy
 
-	render.FillRect(screen, mapX, mapY, mapW, mapH, color.RGBA{4, 18, 28, 255})
-	a.drawTacticalBathymetry(screen, mapX, mapY, mapW, mapH, bathy)
-	a.drawTacticalCoastline(screen, bathy)
+	var view tacticalMapView
+	if opts.minimap {
+		view = tacticalMapView{mapX, mapY, mapW, mapH, player.X, player.Y, a.tactical.zoom}
+	} else {
+		cx, cy := a.tacticalViewCenter()
+		view = tacticalMapView{mapX, mapY, mapW, mapH, cx, cy, a.tactical.zoom}
+	}
 
-	px, py := a.tacticalWorldToScreen(player.X, player.Y)
+	render.FillRect(screen, mapX, mapY, mapW, mapH, color.RGBA{4, 18, 28, 255})
+	a.drawTacticalBathymetry(screen, view, bathy, opts.minimap)
+	a.drawTacticalCoastline(screen, view, bathy)
+
+	px, py := view.worldToScreen(player.X, player.Y)
 	ringLabelClr := color.RGBA{0, 150, 120, 210}
 	for _, rYd := range []float64{2000, 4000, 8000, 12000} {
-		rad := rYd * a.tactical.zoom
+		rad := rYd * view.zoom
 		if rad < 12 || rad > float64(mapW) {
 			continue
 		}
 		drawCircle(screen, px, py, rad, color.RGBA{0, 70, 55, 160})
-		drawMapRangeRingLabel(screen, px, py, rad, rYd, ringLabelClr)
+		if !opts.minimap {
+			drawMapRangeRingLabel(screen, px, py, rad, rYd, ringLabelClr)
+		}
 	}
 
 	for i := range sonar.Contacts {
@@ -578,23 +627,22 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 			continue
 		}
 		if a.isOwnTorpedoContact(c) {
-			continue // own fish: blue telemetry marker only, not a plotted contact
+			continue
 		}
 		wx, wy := a.contactPlotWorld(player, c, a.Engine.Clock.GameTime)
-		sx, sy := a.tacticalWorldToScreen(wx, wy)
+		sx, sy := view.worldToScreen(wx, wy)
 		if x1, y1, ok := contactTMAWorldLineEnd(c, wx, wy); ok {
-			sx1, sy1 := a.tacticalWorldToScreen(x1, y1)
+			sx1, sy1 := view.worldToScreen(x1, y1)
 			render.DrawLine(screen, sx, sy, sx1, sy1, contactTMALineColor)
 		}
-		// Bearing-only (outer ring): draw LOB. Ranged fixes: marker only.
 		if !contactHasKnownRange(c, a.Engine.Clock.GameTime) {
 			lineClr := color.RGBA{0, 180, 120, 200}
-			if c.SourceEntityID == a.selectedContactID {
+			if opts.showSelection && c.SourceEntityID == a.selectedContactID {
 				lineClr = color.RGBA{255, 200, 60, 230}
 			}
 			render.DrawLine(screen, px, py, sx, sy, lineClr)
 		}
-		a.drawTacticalContactIcon(screen, c, sx, sy)
+		a.drawTacticalContactIcon(screen, c, sx, sy, opts)
 		if a.torpedoThreatMarkerActive(c.SourceEntityID) {
 			drawThreatBlinkMarker(screen, sx, sy)
 		}
@@ -602,17 +650,16 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 
 	drawOwnshipSymbol(screen, px, py, player.HeadingDeg, render.ColorHighlight)
 
-	a.drawTacticalPlotMarkers(screen)
+	a.drawTacticalPlotMarkers(screen, view, opts)
 
 	for _, aroc := range a.Engine.FireControl.ActiveRastrub {
 		if aroc == nil || !aroc.Alive {
 			continue
 		}
 		ax, ay := aroc.Pos(a.Engine.Clock.GameTime)
-		sx, sy := a.tacticalWorldToScreen(ax, ay)
-		// In-flight Rastrub: small amber diamond toward splash.
+		sx, sy := view.worldToScreen(ax, ay)
 		render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, render.ColorAmber)
-		sx1, sy1 := a.tacticalWorldToScreen(aroc.X1, aroc.Y1)
+		sx1, sy1 := view.worldToScreen(aroc.X1, aroc.Y1)
 		render.DrawLine(screen, sx, sy, sx1, sy1, color.RGBA{255, 180, 40, 90})
 	}
 
@@ -620,7 +667,7 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 		if t == nil || !t.Alive || t.Side != world.SidePlayer {
 			continue
 		}
-		sx, sy := a.tacticalWorldToScreen(t.X, t.Y)
+		sx, sy := view.worldToScreen(t.X, t.Y)
 		clr := render.ColorActive
 		if t.CMLockID != "" && t.Mode == weapons.ModeSearch {
 			clr = color.RGBA{180, 80, 255, 255}
@@ -631,22 +678,27 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int) 
 		}
 	}
 
-	if a.tactical.courseDragging {
+	if opts.debugOverlay {
+		a.drawTacticalDebugOverlay(screen, view)
+	}
+
+	if opts.showChrome && a.tactical.courseDragging {
 		rad := a.tactical.courseDeg * math.Pi / 180
 		lenPx := 120.0
 		render.DrawLine(screen, px, py, px+math.Sin(rad)*lenPx, py-math.Cos(rad)*lenPx, render.ColorAmber)
 		render.DrawText(screen, fmt.Sprintf("CSE %.0f", a.tactical.courseDeg), int(px)+14, int(py)+18, render.ColorAmber, true)
 	}
 
-	a.drawTacticalRuler(screen)
-
-	kyd := 2000.0
-	bar := kyd * a.tactical.zoom
-	bx := mapX + 16
-	by := mapY + mapH - 34
-	render.DrawLine(screen, float64(bx), float64(by), float64(bx)+bar, float64(by), render.ColorPhosphor)
-	render.DrawText(screen, "2 KYD", bx, by-4, render.ColorPhosphorDim, true)
-	a.drawTacticalNavCoords(screen, bx, by+14, mapX, mapY, mapW, mapH, player)
+	if opts.showChrome {
+		a.drawTacticalRuler(screen)
+		kyd := 2000.0
+		bar := kyd * view.zoom
+		bx := mapX + 16
+		by := mapY + mapH - 34
+		render.DrawLine(screen, float64(bx), float64(by), float64(bx)+bar, float64(by), render.ColorPhosphor)
+		render.DrawText(screen, "2 KYD", bx, by-4, render.ColorPhosphorDim, true)
+		a.drawTacticalNavCoords(screen, bx, by+14, mapX, mapY, mapW, mapH, player)
+	}
 }
 
 func (a *App) drawTacticalRuler(screen *ebiten.Image) {
@@ -703,17 +755,17 @@ func (a *App) drawTacticalNavCoords(screen *ebiten.Image, x, y, mapX, mapY, mapW
 	render.DrawText(screen, line, x, y, render.ColorPhosphorDim, true)
 }
 
-func (a *App) drawTacticalPlotMarkers(screen *ebiten.Image) {
+func (a *App) drawTacticalPlotMarkers(screen *ebiten.Image, view tacticalMapView, opts tacticalMapOpts) {
 	halfYd := world.PlotMarkerSizeYd * 0.5
 	for i := range a.Engine.PlotMarkers {
 		m := &a.Engine.PlotMarkers[i]
-		sx, sy := a.tacticalWorldToScreen(m.X, m.Y)
-		halfPx := halfYd * a.tactical.zoom
+		sx, sy := view.worldToScreen(m.X, m.Y)
+		halfPx := halfYd * view.zoom
 		if halfPx < 4 {
 			halfPx = 4
 		}
 		clr := color.RGBA{220, 200, 80, 255}
-		if m.ID == a.selectedPlotMarkerID {
+		if opts.showSelection && m.ID == a.selectedPlotMarkerID {
 			clr = render.ColorAmber
 		}
 		x0, y0 := sx-halfPx, sy-halfPx
@@ -722,10 +774,11 @@ func (a *App) drawTacticalPlotMarkers(screen *ebiten.Image) {
 		render.DrawLine(screen, x1, y0, x1, y1, clr)
 		render.DrawLine(screen, x1, y1, x0, y1, clr)
 		render.DrawLine(screen, x0, y1, x0, y0, clr)
-		// X through the square center.
 		render.DrawLine(screen, x0, y0, x1, y1, clr)
 		render.DrawLine(screen, x1, y0, x0, y1, clr)
-		render.DrawText(screen, m.ID, int(sx)+int(halfPx)+4, int(sy)-2, clr, true)
+		if !opts.minimap {
+			render.DrawText(screen, m.ID, int(sx)+int(halfPx)+4, int(sy)-2, clr, true)
+		}
 	}
 }
 
@@ -749,77 +802,85 @@ func drawThreatBlinkMarker(screen *ebiten.Image, sx, sy float64) {
 	render.DrawLine(screen, sx-r, sy+r, sx-r, sy-r, torpedoThreatBlinkColor)
 }
 
-func (a *App) drawTacticalBathymetry(screen *ebiten.Image, mapX, mapY, mapW, mapH int, bathy *world.Bathymetry) {
+func (a *App) drawTacticalBathymetry(screen *ebiten.Image, view tacticalMapView, bathy *world.Bathymetry, minimap bool) {
 	if bathy == nil || !bathy.Valid() {
 		return
 	}
-	img := a.ensureTacticalBathyImage(mapX, mapY, mapW, mapH, bathy)
+	img := a.ensureTacticalBathyImage(view, bathy, minimap)
 	if img == nil {
 		return
 	}
 	const step = 4
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(step, step)
-	op.GeoM.Translate(float64(mapX), float64(mapY))
+	op.GeoM.Translate(float64(view.mapX), float64(view.mapY))
 	screen.DrawImage(img, op)
 }
 
 func (a *App) invalidateTacticalBathy() {
 	a.tactical.bathyKey = bathyViewKey{}
+	a.tactical.minimapBathyKey = bathyViewKey{}
 }
 
-func (a *App) ensureTacticalBathyImage(mapX, mapY, mapW, mapH int, bathy *world.Bathymetry) *ebiten.Image {
+func (a *App) ensureTacticalBathyImage(view tacticalMapView, bathy *world.Bathymetry, minimap bool) *ebiten.Image {
 	key := bathyViewKey{
-		zoom: a.tactical.zoom,
-		panX: a.tactical.panX,
-		panY: a.tactical.panY,
-		mapX: mapX,
-		mapY: mapY,
-		mapW: mapW,
-		mapH: mapH,
+		zoom: view.zoom, centerX: view.centerX, centerY: view.centerY,
+		mapX: view.mapX, mapY: view.mapY, mapW: view.mapW, mapH: view.mapH,
 	}
-	if a.tactical.bathyImg != nil && a.tactical.bathyKey == key {
-		return a.tactical.bathyImg
+	var img **ebiten.Image
+	var pix *[]byte
+	var cachedKey *bathyViewKey
+	if minimap {
+		img = &a.tactical.minimapBathyImg
+		pix = &a.tactical.minimapBathyPix
+		cachedKey = &a.tactical.minimapBathyKey
+	} else {
+		img = &a.tactical.bathyImg
+		pix = &a.tactical.bathyPix
+		cachedKey = &a.tactical.bathyKey
+	}
+	if *img != nil && *cachedKey == key {
+		return *img
 	}
 
 	const step = 4
-	w := (mapW + step - 1) / step
-	h := (mapH + step - 1) / step
+	w := (view.mapW + step - 1) / step
+	h := (view.mapH + step - 1) / step
 	if w < 1 || h < 1 {
 		return nil
 	}
 	need := w * h * 4
-	if a.tactical.bathyPix == nil || len(a.tactical.bathyPix) != need {
-		a.tactical.bathyPix = make([]byte, need)
-		if a.tactical.bathyImg == nil {
-			a.tactical.bathyImg = ebiten.NewImage(w, h)
-		} else if a.tactical.bathyImg.Bounds().Dx() != w || a.tactical.bathyImg.Bounds().Dy() != h {
-			a.tactical.bathyImg = ebiten.NewImage(w, h)
+	if *pix == nil || len(*pix) != need {
+		*pix = make([]byte, need)
+		if *img == nil {
+			*img = ebiten.NewImage(w, h)
+		} else if (*img).Bounds().Dx() != w {
+			*img = ebiten.NewImage(w, h)
 		}
-	} else if a.tactical.bathyImg == nil || a.tactical.bathyImg.Bounds().Dx() != w || a.tactical.bathyImg.Bounds().Dy() != h {
-		a.tactical.bathyImg = ebiten.NewImage(w, h)
+	} else if *img == nil || (*img).Bounds().Dx() != w {
+		*img = ebiten.NewImage(w, h)
 	}
 
-	pix := a.tactical.bathyPix
+	buf := *pix
 	for py := 0; py < h; py++ {
-		sy := mapY + py*step
+		sy := view.mapY + py*step
 		for px := 0; px < w; px++ {
-			sx := mapX + px*step
-			wx, wy := a.tacticalScreenToWorld(sx, sy)
+			sx := view.mapX + px*step
+			wx, wy := view.screenToWorld(sx, sy)
 			clr := bathyColor(bathy.DepthAtFt(wx, wy))
 			off := (py*w + px) * 4
-			pix[off] = clr.R
-			pix[off+1] = clr.G
-			pix[off+2] = clr.B
-			pix[off+3] = clr.A
+			buf[off] = clr.R
+			buf[off+1] = clr.G
+			buf[off+2] = clr.B
+			buf[off+3] = clr.A
 		}
 	}
-	a.tactical.bathyImg.WritePixels(pix)
-	a.tactical.bathyKey = key
-	return a.tactical.bathyImg
+	(*img).WritePixels(buf)
+	*cachedKey = key
+	return *img
 }
 
-func (a *App) drawTacticalCoastline(screen *ebiten.Image, bathy *world.Bathymetry) {
+func (a *App) drawTacticalCoastline(screen *ebiten.Image, view tacticalMapView, bathy *world.Bathymetry) {
 	if bathy == nil || !bathy.Valid() {
 		return
 	}
@@ -827,13 +888,81 @@ func (a *App) drawTacticalCoastline(screen *ebiten.Image, bathy *world.Bathymetr
 		a.tactical.coastSegments = buildCoastSegments(bathy)
 		a.tactical.coastBathy = bathy
 	}
+	left := float64(view.mapX)
+	top := float64(view.mapY)
+	right := float64(view.mapX + view.mapW - 1)
+	bottom := float64(view.mapY + view.mapH - 1)
 	shadow := color.RGBA{5, 10, 12, 220}
 	shore := color.RGBA{226, 232, 214, 235}
 	for _, seg := range a.tactical.coastSegments {
-		x0, y0 := a.tacticalWorldToScreen(seg.X0, seg.Y0)
-		x1, y1 := a.tacticalWorldToScreen(seg.X1, seg.Y1)
+		x0, y0 := view.worldToScreen(seg.X0, seg.Y0)
+		x1, y1 := view.worldToScreen(seg.X1, seg.Y1)
+		x0, y0, x1, y1, ok := clipLineToRect(x0, y0, x1, y1, left, top, right, bottom)
+		if !ok {
+			continue
+		}
 		render.DrawLine(screen, x0+1, y0+1, x1+1, y1+1, shadow)
 		render.DrawLine(screen, x0, y0, x1, y1, shore)
+	}
+}
+
+// clipLineToRect clips a line segment to an axis-aligned rectangle (Cohen–Sutherland).
+func clipLineToRect(x0, y0, x1, y1, left, top, right, bottom float64) (float64, float64, float64, float64, bool) {
+	const (
+		clipLeft   = 1
+		clipRight  = 2
+		clipBottom = 4
+		clipTop    = 8
+	)
+	encode := func(x, y float64) int {
+		c := 0
+		if x < left {
+			c |= clipLeft
+		} else if x > right {
+			c |= clipRight
+		}
+		if y < top {
+			c |= clipTop
+		} else if y > bottom {
+			c |= clipBottom
+		}
+		return c
+	}
+	c0 := encode(x0, y0)
+	c1 := encode(x1, y1)
+	for {
+		if c0 == 0 && c1 == 0 {
+			return x0, y0, x1, y1, true
+		}
+		if c0&c1 != 0 {
+			return 0, 0, 0, 0, false
+		}
+		out := c0
+		if out == 0 {
+			out = c1
+		}
+		var x, y float64
+		switch {
+		case out&clipTop != 0:
+			x = x0 + (x1-x0)*(top-y0)/(y1-y0)
+			y = top
+		case out&clipBottom != 0:
+			x = x0 + (x1-x0)*(bottom-y0)/(y1-y0)
+			y = bottom
+		case out&clipRight != 0:
+			y = y0 + (y1-y0)*(right-x0)/(x1-x0)
+			x = right
+		case out&clipLeft != 0:
+			y = y0 + (y1-y0)*(left-x0)/(x1-x0)
+			x = left
+		}
+		if out == c0 {
+			x0, y0 = x, y
+			c0 = encode(x0, y0)
+		} else {
+			x1, y1 = x, y
+			c1 = encode(x1, y1)
+		}
 	}
 }
 
@@ -931,7 +1060,7 @@ func interpZero(x0, y0, d0, x1, y1, d1 float64) (float64, float64) {
 	return x0 + (x1-x0)*t, y0 + (y1-y0)*t
 }
 
-func (a *App) drawTacticalContactIcon(screen *ebiten.Image, c *acoustics.Contact, sx, sy float64) {
+func (a *App) drawTacticalContactIcon(screen *ebiten.Image, c *acoustics.Contact, sx, sy float64, opts tacticalMapOpts) {
 	classified := contactIsClassified(c)
 	clr := color.RGBA{140, 145, 150, 255}
 	kind := world.EntityKind(-1)
@@ -953,11 +1082,14 @@ func (a *App) drawTacticalContactIcon(screen *ebiten.Image, c *acoustics.Contact
 	}
 
 	drawContactPictogram(screen, int(sx), int(sy), kind, clr)
+	if opts.minimap {
+		return
+	}
 	label := c.ID
 	if classified {
 		label = contactLongLabel(c)
 	}
-	if c.SourceEntityID == a.selectedContactID {
+	if opts.showSelection && c.SourceEntityID == a.selectedContactID {
 		half := 12
 		x, y := int(sx), int(sy)
 		arm := 5
@@ -977,6 +1109,15 @@ func drawContactPictogram(screen *ebiten.Image, cx, cy int, kind world.EntityKin
 	case world.KindSubmarine:
 		render.FillRect(screen, cx-8, cy-1, 16, 3, clr)
 		render.FillRect(screen, cx-1, cy-5, 4, 4, clr)
+	case world.KindTorpedo:
+		// Cigar body, pointed nose to the right, cruciform fins aft.
+		render.FillRect(screen, cx-7, cy-1, 12, 3, clr)
+		render.FillRect(screen, cx+5, cy-1, 2, 3, clr)
+		render.FillRect(screen, cx+7, cy, 2, 1, clr)
+		render.DrawLine(screen, float64(cx-7), float64(cy), float64(cx-10), float64(cy-4), clr)
+		render.DrawLine(screen, float64(cx-7), float64(cy), float64(cx-10), float64(cy+4), clr)
+		render.DrawLine(screen, float64(cx-7), float64(cy-1), float64(cx-9), float64(cy), clr)
+		render.DrawLine(screen, float64(cx-7), float64(cy+1), float64(cx-9), float64(cy), clr)
 	default:
 		render.DrawLine(screen, float64(cx), float64(cy-6), float64(cx+6), float64(cy), clr)
 		render.DrawLine(screen, float64(cx+6), float64(cy), float64(cx), float64(cy+6), clr)

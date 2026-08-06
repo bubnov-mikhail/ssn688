@@ -72,10 +72,12 @@ func BenchmarkTacticalBathyRaster(b *testing.B) {
 	mapY := tacticalPanelY + 40
 	mapW := tacticalPanelW - 16
 	mapH := tacticalPanelH - 52
+	cx, cy := a.tacticalViewCenter()
+	view := tacticalMapView{mapX, mapY, mapW, mapH, cx, cy, a.tactical.zoom}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		a.invalidateTacticalBathy()
-		_ = a.ensureTacticalBathyImage(mapX, mapY, mapW, mapH, bathy)
+		_ = a.ensureTacticalBathyImage(view, bathy, false)
 	}
 }
 

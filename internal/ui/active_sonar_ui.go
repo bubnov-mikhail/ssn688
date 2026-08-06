@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,34 +16,32 @@ import (
 )
 
 const (
-	activePanelX            = 20
-	activePanelY            = 50
-	activePanelW            = 900
-	activeSideX             = 940
-	activeSideY             = 50
-	activeSideW             = 340
-	activeControlsX         = 960
-	activeControlsY         = 90
-	activeSliderW           = 200
-	activeSliderH           = 10
-	activeSliderLabelW      = 90
-	activeSliderTrackX      = activeControlsX + activeSliderLabelW
-	activeSliderRowGap      = 28
-	activePingSliderY       = activeControlsY + 88
-	activePowerSliderY      = activeControlsY + 88 + activeSliderRowGap
-	activeRangeScaleY       = activePowerSliderY + activeSliderRowGap + 14
-	activeListY             = 318
-	activeListVisibleRows   = 18
-	activePlotX             = 40
-	activePlotY             = 152
-	activePlotW             = 860
-	activePlotH             = 528
+	activePanelX          = 20
+	activePanelY          = 50
+	activePanelW          = 900
+	activeSideX           = 940
+	activeSideY           = 50
+	activeSideW           = 340
+	activeControlsX       = 960
+	activeSideLabelY      = 56
+	activeControlsY       = 90
+	activeControlLabelW   = 90
+	activeControlBtnX     = activeControlsX + activeControlLabelW
+	activePingRowY        = activeControlsY + 88
+	activePowerRowY       = activePingRowY + 36
+	activeRangeScaleY     = activePowerRowY + 40
+	activeListY           = 318
+	activeListVisibleRows = 17
+	activePlotX           = 40
+	activePlotY           = 152
+	activePlotW           = 860
+	activePlotH           = 528
 	activeEchoMarkerFadeSec = acoustics.ActiveFixHoldSec // dissolve time; matches tactical active-fix hold
-	activeFlashCrossMin     = 5.0
-	activeFlashCrossMax     = 11.0
-	activePlotBgR           = 0
-	activePlotBgG           = 2
-	activePlotBgB           = 16
+	activeFlashCrossMin   = 5.0
+	activeFlashCrossMax   = 11.0
+	activePlotBgR         = 0
+	activePlotBgG         = 2
+	activePlotBgB         = 16
 )
 
 // activeEchoFlash is a fixed range-bearing snapshot from one active echo return.
@@ -63,9 +62,43 @@ var cachedActiveRangeScale struct {
 	btns []sonarUIButton
 }
 
+var cachedActivePingInterval struct {
+	once sync.Once
+	btns []sonarUIButton
+}
+
+var cachedActivePower struct {
+	once sync.Once
+	btns []sonarUIButton
+}
+
+func cachedActivePingIntervalButtons() []sonarUIButton {
+	cachedActivePingInterval.once.Do(func() {
+		cachedActivePingInterval.btns = layoutButtonRow(activeControlBtnX, activePingRowY, 28, 4, []buttonSpec{
+			{"active_ping_3", "3", "Auto ping every 3 seconds"},
+			{"active_ping_6", "6", "Auto ping every 6 seconds"},
+			{"active_ping_12", "12", "Auto ping every 12 seconds"},
+			{"active_ping_24", "24", "Auto ping every 24 seconds"},
+		})
+	})
+	return cachedActivePingInterval.btns
+}
+
+func cachedActivePowerButtons() []sonarUIButton {
+	cachedActivePower.once.Do(func() {
+		cachedActivePower.btns = layoutButtonRow(activeControlBtnX, activePowerRowY, 28, 4, []buttonSpec{
+			{"active_power_15", "15%", "Transmit power 15%"},
+			{"active_power_25", "25%", "Transmit power 25%"},
+			{"active_power_75", "75%", "Transmit power 75%"},
+			{"active_power_100", "100%", "Transmit power 100%"},
+		})
+	})
+	return cachedActivePower.btns
+}
+
 func cachedActiveRangeScaleButtons() []sonarUIButton {
 	cachedActiveRangeScale.once.Do(func() {
-		cachedActiveRangeScale.btns = layoutButtonRow(activeSliderTrackX, activeRangeScaleY, 28, 4, []buttonSpec{
+		cachedActiveRangeScale.btns = layoutButtonRow(activeControlBtnX, activeRangeScaleY, 28, 4, []buttonSpec{
 			{"active_range_2k", "2k", "Range scale 2 kyd"},
 			{"active_range_6k", "6k", "Range scale 6 kyd"},
 			{"active_range_12k", "12k", "Range scale 12 kyd"},
@@ -110,6 +143,57 @@ func (a *App) activeRangeButtonAction(id string) {
 	}
 }
 
+func (a *App) activeSettingButtonAction(id string, sonar *acoustics.SonarState) {
+	switch id {
+	case "active_ping_3":
+		sonar.PingInterval = 3
+	case "active_ping_6":
+		sonar.PingInterval = 6
+	case "active_ping_12":
+		sonar.PingInterval = 12
+	case "active_ping_24":
+		sonar.PingInterval = 24
+	case "active_power_15":
+		sonar.ActivePower = 0.15
+	case "active_power_25":
+		sonar.ActivePower = 0.25
+	case "active_power_75":
+		sonar.ActivePower = 0.75
+	case "active_power_100":
+		sonar.ActivePower = 1.0
+	}
+}
+
+func activePingIntervalSelected(id string, interval float64) bool {
+	switch id {
+	case "active_ping_3":
+		return interval == 3
+	case "active_ping_6":
+		return interval == 6
+	case "active_ping_12":
+		return interval == 12
+	case "active_ping_24":
+		return interval == 24
+	default:
+		return false
+	}
+}
+
+func activePowerSelected(id string, power float64) bool {
+	switch id {
+	case "active_power_15":
+		return math.Abs(power-0.15) < 0.01
+	case "active_power_25":
+		return math.Abs(power-0.25) < 0.01
+	case "active_power_75":
+		return math.Abs(power-0.75) < 0.01
+	case "active_power_100":
+		return math.Abs(power-1.0) < 0.01
+	default:
+		return false
+	}
+}
+
 func (a *App) activeControlButtons(sonar *acoustics.SonarState) []sonarUIButton {
 	toggleLabel := "STANDBY"
 	if sonar.ActiveEnabled {
@@ -120,29 +204,13 @@ func (a *App) activeControlButtons(sonar *acoustics.SonarState) []sonarUIButton 
 		{"active_ping", "PING NOW", "Fire one immediate pulse (works in standby)"},
 	}
 	a.sonarBtnScratch = layoutButtonRowInto(a.sonarBtnScratch[:0], activeControlsX, activeControlsY+10, 34, 6, specs)
-	return append(a.sonarBtnScratch, cachedActiveRangeScaleButtons()...)
+	btns := append(a.sonarBtnScratch, cachedActivePingIntervalButtons()...)
+	btns = append(btns, cachedActivePowerButtons()...)
+	return append(btns, cachedActiveRangeScaleButtons()...)
 }
 
-func (a *App) activePingIntervalSliderRect() (x, y, w, h int) {
-	return activeSliderTrackX, activePingSliderY - 8, activeSliderW, activeSliderH
-}
-
-func (a *App) activePowerSliderRect() (x, y, w, h int) {
-	return activeSliderTrackX, activePowerSliderY - 8, activeSliderW, activeSliderH
-}
-
-func (a *App) sliderValueFromMouse(mx, x, w int, min, max float64) float64 {
-	if w <= 0 {
-		return min
-	}
-	t := float64(mx-x) / float64(w)
-	if t < 0 {
-		t = 0
-	}
-	if t > 1 {
-		t = 1
-	}
-	return min + t*(max-min)
+func activeContactTableHeight() int {
+	return passiveListRow*(activeListVisibleRows+1) + 14
 }
 
 func activeEchoFlashVisible(f activeEchoFlash, gameTime float64) bool {
@@ -195,25 +263,15 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 				switch {
 				case b.ID == "active_toggle" || b.ID == "active_ping":
 					a.activeSonarButtonAction(b.ID, sonar)
-				default:
+				case strings.HasPrefix(b.ID, "active_range_"):
 					a.activeRangeButtonAction(b.ID)
+				default:
+					a.activeSettingButtonAction(b.ID, sonar)
 				}
 				a.uiPressedID = b.ID
 				a.uiPressedAt = time.Now()
 				return
 			}
-		}
-		pingX, pingY, pingW, pingH := a.activePingIntervalSliderRect()
-		if inRect(mx, my, pingX, pingY, pingW, pingH) {
-			a.activeSliderDrag = "ping_interval"
-			sonar.PingInterval = math.Round(a.sliderValueFromMouse(mx, activeSliderTrackX, activeSliderW, acoustics.PingIntervalMinSec, acoustics.PingIntervalMaxSec))
-			return
-		}
-		powerX, powerY, powerW, powerH := a.activePowerSliderRect()
-		if inRect(mx, my, powerX, powerY, powerW, powerH) {
-			a.activeSliderDrag = "power"
-			sonar.ActivePower = a.sliderValueFromMouse(mx, activeSliderTrackX, activeSliderW, 0.3, 1.0)
-			return
 		}
 		if a.activePlotClick(sonar, mx, my) {
 			return
@@ -228,18 +286,6 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 			}
 			y += passiveListRow
 		}
-	}
-
-	if a.activeSliderDrag != "" && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		switch a.activeSliderDrag {
-		case "ping_interval":
-			sonar.PingInterval = math.Round(a.sliderValueFromMouse(mx, activeSliderTrackX, activeSliderW, acoustics.PingIntervalMinSec, acoustics.PingIntervalMaxSec))
-		case "power":
-			sonar.ActivePower = a.sliderValueFromMouse(mx, activeSliderTrackX, activeSliderW, 0.3, 1.0)
-		}
-	}
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		a.activeSliderDrag = ""
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyA) {
@@ -396,72 +442,37 @@ func (a *App) activeSonarButtonAction(id string, sonar *acoustics.SonarState) {
 	}
 }
 
-func (a *App) drawActiveSlider(screen *ebiten.Image, label string, y int, min, max, value float64, mx, my int, dragID string) {
-	render.DrawText(screen, label, activeControlsX, y+2, render.ColorPhosphorDim, true)
-	x, w, h := activeSliderTrackX, activeSliderW, activeSliderH
-	hover := inRect(mx, my, x, y-8, w, h)
-	render.FillRect(screen, x, y-8, w, h, render.ColorPanelInset)
-	t := (value - min) / (max - min)
-	if t < 0 {
-		t = 0
-	}
-	if t > 1 {
-		t = 1
-	}
-	fillW := int(float64(w) * t)
-	clr := render.ColorActive
-	if hover || a.activeSliderDrag == dragID {
-		clr = render.ColorHighlight
-	}
-	if fillW > 0 {
-		render.FillRect(screen, x, y-8, fillW, h, clr)
-	}
-	knobX := x + fillW - 3
-	if knobX < x {
-		knobX = x
-	}
-	if knobX > x+w-6 {
-		knobX = x + w - 6
-	}
-	render.FillRect(screen, knobX, y-10, 6, h+4, render.ColorText)
-}
-
 func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	render.DrawText(screen, "ACTIVE TX", activeControlsX, activeControlsY-8, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "ACTIVE TX", activeControlsX, activeSideLabelY+12, render.ColorPlateLabel, true)
+	render.DrawText(screen, "AUTO PING", activeControlsX, activePingRowY+2, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "POWER", activeControlsX, activePowerRowY+2, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "RANGE", activeControlsX, activeRangeScaleY+2, render.ColorPhosphorDim, true)
+
 	mx, my := ebiten.CursorPosition()
 	buttons := a.activeControlButtons(sonar)
 	scaleYd := a.activeRangeMaxYd()
 	for _, b := range buttons {
 		hover := b.contains(mx, my)
 		pressed := a.uiPressedID == b.ID && time.Since(a.uiPressedAt) < 120*time.Millisecond
-		selectedRange := (b.ID == "active_range_2k" && scaleYd == 2000) ||
+		selected := (b.ID == "active_range_2k" && scaleYd == 2000) ||
 			(b.ID == "active_range_6k" && scaleYd == 6000) ||
-			(b.ID == "active_range_12k" && scaleYd == 12000)
+			(b.ID == "active_range_12k" && scaleYd == 12000) ||
+			activePingIntervalSelected(b.ID, sonar.PingInterval) ||
+			activePowerSelected(b.ID, sonar.ActivePower)
 		if b.ID == "active_toggle" && sonar.ActiveEnabled {
 			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorActive)
 		}
-		if selectedRange {
+		if selected {
 			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorActive)
 		}
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
 	}
-
-	a.drawActiveSlider(screen, "AUTO PING", activePingSliderY, acoustics.PingIntervalMinSec, acoustics.PingIntervalMaxSec, sonar.PingInterval, mx, my, "ping_interval")
-	a.drawActiveSlider(screen, "POWER", activePowerSliderY, 0.3, 1.0, sonar.ActivePower, mx, my, "power")
-	render.DrawText(screen, "RANGE", activeControlsX, activeRangeScaleY+2, render.ColorPhosphorDim, true)
-
-	autoLabel := "MANUAL"
-	if sonar.PingInterval > 0 {
-		autoLabel = fmt.Sprintf("%.0fs", sonar.PingInterval)
-	}
-	render.DrawText(screen, autoLabel, activeSliderTrackX+activeSliderW+8, activePingSliderY+2, render.ColorDim, true)
-	render.DrawText(screen, fmt.Sprintf("%.0f%%", sonar.ActivePower*100), activeSliderTrackX+activeSliderW+8, activePowerSliderY+2, render.ColorDim, true)
 }
 
 func (a *App) drawActiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	x, y0, w := activeControlsX, activeListY, activeSideW-40
 	mx, my := ebiten.CursorPosition()
-	render.FillRect(screen, x, y0, w, passiveListRow*(activeListVisibleRows+1)+14, render.ColorPanelInset)
+	render.FillRect(screen, x, y0, w, activeContactTableHeight(), render.ColorPanelInset)
 	render.DrawText(screen, "CONTACT", x+8, y0+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "BRG°", x+72, y0+16, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "RNG kyd", x+118, y0+16, render.ColorPhosphorDim, true)

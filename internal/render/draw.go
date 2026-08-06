@@ -50,6 +50,16 @@ func ButtonLabelWidth(label string) int {
 	return len(label) * 6
 }
 
+// ButtonLabelBaseline returns the text baseline Y that vertically centers a
+// button-font label inside a box of height h starting at boxY.
+func ButtonLabelBaseline(boxY, boxH int) int {
+	if faceButton == nil {
+		return boxY + boxH/2 + 4
+	}
+	m := faceButton.Metrics()
+	return boxY + (boxH+m.Ascent.Ceil()-m.Descent.Ceil())/2
+}
+
 // ButtonWidth returns a button width that fits the label with horizontal padding.
 func ButtonWidth(label string, hPad int) int {
 	w := ButtonLabelWidth(label) + hPad
@@ -86,6 +96,11 @@ func DrawTextLarge(screen *ebiten.Image, txt string, x, y int, clr color.Color) 
 		return
 	}
 	drawFace(screen, txt, x, y, clr, faceLarge)
+}
+
+// DrawScreenTitle draws a primary instrument-panel title (large phosphor green).
+func DrawScreenTitle(screen *ebiten.Image, txt string, x, y int) {
+	DrawTextLarge(screen, txt, x, y, ColorPhosphorDim)
 }
 
 func drawFace(screen *ebiten.Image, txt string, x, y int, clr color.Color, f font.Face) {

@@ -99,8 +99,8 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 	d := &player.Damage
 
 	render.DrawConsolePanel(screen, dcPanelX, dcPanelY, dcPanelW, dcPanelH)
-	render.DrawText(screen, "DAMAGE CONTROL", dcPanelX+20, dcPanelY+28, render.ColorPlateLabel, true)
-	render.DrawText(screen, "Repair one system at a time — ~45 min from 25% to 100%", dcPanelX+280, dcPanelY+26, render.ColorPhosphorDim, true)
+	render.DrawScreenTitle(screen, "DAMAGE CONTROL", dcPanelX+20, dcPanelY+28)
+	render.DrawText(screen, "Repair one system at a time — ~45 min from 25% to 100%", dcPanelX+280, dcPanelY+26, render.ColorPlateLabel, true)
 
 	headers := []string{"SYSTEM", "STATUS", "EFFICIENCY", ""}
 	xs := []int{dcPanelX + 40, dcPanelX + 280, dcPanelX + 480, dcPanelX + dcPanelW - 160}
