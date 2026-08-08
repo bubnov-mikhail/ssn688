@@ -16,6 +16,7 @@ const (
 	IconManeuver
 	IconTactical
 	IconDamage
+	IconMast
 )
 
 // DrawScreenIcon draws a 688-style station icon centered at (cx, cy).
@@ -80,6 +81,12 @@ func DrawScreenIcon(screen *ebiten.Image, kind int, cx, cy, size int, clr color.
 		DrawLine(screen, float64(cx)-s*0.22, float64(cy)+s*0.08, float64(cx)+s*0.22, float64(cy)-s*0.18, clr)
 		DrawLine(screen, float64(cx)-s*0.18, float64(cy)-s*0.18, float64(cx)+s*0.18, float64(cy)+s*0.18, clr)
 		FillRect(screen, cx-int(s*0.08), cy-int(s*0.28), int(s*0.16), int(s*0.14), clr)
+	case IconMast:
+		// Raised mast / periscope stalk with sensor head
+		DrawLine(screen, float64(cx), float64(cy)+s*0.4, float64(cx), float64(cy)-s*0.25, clr)
+		FillRect(screen, cx-int(s*0.18), cy-int(s*0.38), int(s*0.36), int(s*0.16), clr)
+		DrawLine(screen, float64(cx)+s*0.18, float64(cy)-s*0.3, float64(cx)+s*0.42, float64(cy)-s*0.42, clr)
+		FillRect(screen, cx-int(s*0.28), cy+int(s*0.32), int(s*0.56), int(s*0.1), clr)
 	}
 }
 

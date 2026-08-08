@@ -39,6 +39,7 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 	rangeYd := ship.RangeYardsTo(player)
 	bearing := ship.BearingDegTo(player)
 	heardPing := acoustics.HeardPlayerPing(model.Env, ship, player, gameTime)
+	radarMast := acoustics.EnemyRadarDetectsMast(ship, player, evade.Weather, evade.ESM, evade.COMM, evade.Peri, gameTime)
 
 	canActive := ship.Damage.Operational(world.SysActive)
 	if ship.CanDefconPing() && canActive && gameTime-ship.LastPingTime > 8 {
@@ -54,6 +55,13 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 		detected = model.CanDetectActive(ship, player, 0.75)
 	} else if ship.Damage.Operational(world.SysPassiveHull) {
 		detected = model.CanDetectPlayerPassive(ship, player, gameTime)
+	}
+	if radarMast {
+		detected = true
+		// Solid radar paint: accurate bearing + range for intercept geometry.
+		if ship.CanDefconManeuver() {
+			ship.OrderedHead = bearing
+		}
 	}
 
 	// DEFCON 1 — may ping / hold contact; no intercept geometry.
@@ -76,8 +84,10 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 	if !hasRastrub {
 		engageHorizon = weapons.RBUMaxRangeYd + 800
 	}
-	if heardPing || detected || rangeYd < engageHorizon {
-		if heardPing && !detected {
+	if heardPing || detected || radarMast || rangeYd < engageHorizon {
+		if radarMast && detected {
+			ship.AIState = "RADAR_TRACK"
+		} else if heardPing && !detected {
 			ship.AIState = "PING_ALERT"
 		}
 		maxSpd := ship.MaxSpeedKts()
@@ -371,7 +381,7 @@ func subAttackSide(sub, player *world.Entity, gameTime float64) float64 {
 }
 
 // PlayerDetectedByEnemy returns true if any enemy has localized the player.
-func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model acoustics.Model, gameTime float64) bool {
+func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model acoustics.Model, gameTime float64, weather world.Weather, esm *acoustics.ESMState, comm *acoustics.COMMState, peri *acoustics.PeriscopeState) bool {
 	for _, e := range entities {
 		if !e.Alive() || e.Side != world.SideEnemy {
 			continue
@@ -383,6 +393,9 @@ func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model
 			return true
 		}
 		if model.CanDetectPlayerPassive(e, player, gameTime) {
+			return true
+		}
+		if acoustics.EnemyRadarDetectsMast(e, player, weather, esm, comm, peri, gameTime) {
 			return true
 		}
 	}

@@ -45,7 +45,7 @@ func TestReloadAfterSessionDispose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.beginGameSession(engine, false)
+	a.beginGameSession(engine)
 
 	// Warm paths that previously crashed after Dispose / waterfall Reset.
 	a.ensureWaterfallImage()
@@ -74,7 +74,7 @@ func TestSecondLoadAfterNewGame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.beginGameSession(eng, false)
+	a.beginGameSession(eng)
 	a.waterfallImg = ebiten.NewImage(32, 32)
 	a.exitToMenu()
 
@@ -82,7 +82,7 @@ func TestSecondLoadAfterNewGame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.beginGameSession(eng2, false)
+	a.beginGameSession(eng2)
 	a.Engine.Update(0.1)
 	a.updateSimulationUI()
 }
@@ -101,7 +101,7 @@ func TestLoadReplacesRunningEngineWithoutExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.beginGameSession(eng, false)
+	a.beginGameSession(eng)
 	a.Engine.Update(0.1)
 	a.updateSimulationUI()
 }

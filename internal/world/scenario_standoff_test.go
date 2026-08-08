@@ -19,18 +19,37 @@ func TestTrainingScenarioSurfaceStandoff(t *testing.T) {
 			t.Fatal("missing enemy_grisha")
 		}
 		dist := sc.Player.RangeYardsTo(corvette)
-		if dist < YardsPerNM-1 {
-			t.Fatalf("attempt %d: Grisha too close: %.0f yd (want ≥ %.0f / 1 nm)", i, dist, YardsPerNM)
+		if dist < 1100 || dist > 3000 {
+			t.Fatalf("attempt %d: Grisha at %.0f yd (want ~1200–2800 near ownship)", i, dist)
+		}
+		if corvette.Defcon != DefconPassive {
+			t.Fatalf("Grisha DEFCON=%d want 0", corvette.Defcon)
 		}
 		var fox *Entity
+		nearCiv := 0
 		for _, e := range sc.Entities {
-			if e != nil && e.ID == "enemy_foxtrot" {
-				fox = e
-				break
+			if e == nil {
+				continue
 			}
+			if e.ID == "enemy_foxtrot" {
+				fox = e
+			}
+			if e.Side == SideNeutral && (e.ID == "civ_merchant" || e.ID == "civ_tanker") {
+				d := sc.Player.RangeYardsTo(e)
+				if d < 1200 || d > 3500 {
+					t.Fatalf("attempt %d: %s at %.0f yd (want near band)", i, e.ID, d)
+				}
+				nearCiv++
+			}
+		}
+		if nearCiv != 2 {
+			t.Fatalf("want 2 near civilians, got %d", nearCiv)
 		}
 		if fox == nil || fox.SignatureID != "foxtrot" {
 			t.Fatal("missing Foxtrot in training scenario")
+		}
+		if fox.Defcon != DefconPassive {
+			t.Fatalf("Foxtrot DEFCON=%d want 0", fox.Defcon)
 		}
 		nHostile := 0
 		for _, e := range sc.Entities {

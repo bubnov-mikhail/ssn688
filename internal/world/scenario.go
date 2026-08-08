@@ -1,8 +1,10 @@
 package world
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -15,8 +17,26 @@ type Scenario struct {
 	Objectives  []Objective
 	FailReason  string
 	Bathy       *Bathymetry
+	Weather     Weather
 	// RestrictedZones reserved for future missions (player entry → DEFCON 3).
 	RestrictedZones []RestrictedZone
+	// CommBriefing is shown in the COMM inbox at mission start (no mast required).
+	CommBriefing string
+	// CommSchedule delivers traffic when COMM mast is raised at/after AtSec.
+	CommSchedule []CommScheduledMessage
+}
+
+// CommScheduledMessage is follow-on traffic gated by game time + raised COMM mast.
+type CommScheduledMessage struct {
+	ID    string
+	AtSec float64
+	Text  string
+}
+
+// CommInboxEntry is a received (or briefing) message in the COMM console.
+type CommInboxEntry struct {
+	TimeSec float64
+	Text    string
 }
 
 type Objective struct {
@@ -34,8 +54,8 @@ func NewTrainingScenario() *Scenario {
 	player := &Entity{
 		ID: "player", Name: "USS Los Angeles", Kind: KindSubmarine, Side: SidePlayer,
 		Status: StatusActive, SignatureID: "los_angeles",
-		X: 0, Y: 0, DepthFt: 180, HeadingDeg: 90, SpeedKts: 8,
-		OrderedSpeed: 8, OrderedDepth: 180, OrderedHead: 90,
+		X: 0, Y: 0, DepthFt: 60, HeadingDeg: 90, SpeedKts: 0,
+		OrderedSpeed: 0, OrderedDepth: 60, OrderedHead: 90,
 		LengthFt: 360,
 	}
 	placeOnWater(rng, player, 0, 2500, nil, &bathy)
@@ -44,27 +64,29 @@ func NewTrainingScenario() *Scenario {
 	placed := []*Entity{player}
 
 	// Weakest surface + weakest sub only — keeps the starter mission readable.
+	// Surface contact starts near ownship for MAST/ESM/periscope practice (DEFCON 0).
 	enemyGrisha := &Entity{
 		ID: "enemy_grisha", Name: "Hostile Corvette", Kind: KindSurfaceShip, Side: SideEnemy,
 		Status: StatusActive, SignatureID: "grisha",
 		DepthFt: 0, SpeedKts: 16, OrderedSpeed: 16, OrderedDepth: 0,
-		LengthFt: 235, AIState: "SEARCH", Defcon: DefconHostile,
+		LengthFt: 235, AIState: "SEARCH", Defcon: DefconPassive,
 	}
-	placeAwayFrom(rng, enemyGrisha, player, YardsPerNM, 4*YardsPerNM, nil, &bathy)
+	placeAwayFrom(rng, enemyGrisha, player, 1200, 2800, nil, &bathy)
 	placed = append(placed, enemyGrisha)
 
 	enemyFoxtrot := &Entity{
 		ID: "enemy_foxtrot", Name: "Hostile SS Foxtrot", Kind: KindSubmarine, Side: SideEnemy,
 		Status: StatusActive, SignatureID: "foxtrot",
 		DepthFt: 100 + rng.Float64()*60, SpeedKts: 5, OrderedSpeed: 5,
-		LengthFt: 300, AIState: "PATROL", Defcon: DefconHostile,
+		LengthFt: 300, AIState: "PATROL", Defcon: DefconPassive,
 	}
 	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
 	placeAwayFrom(rng, enemyFoxtrot, player, 4500, 9000, placed[1:], &bathy)
 	clampSubToBottom(enemyFoxtrot, &bathy)
 	placed = append(placed, enemyFoxtrot)
 
-	civilians := []*Entity{
+	// Two merchants near ownship for visual/ESM contrast; trawler stays farther out.
+	nearCivilians := []*Entity{
 		{
 			ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
 			Status: StatusActive, SignatureID: "merchant",
@@ -75,20 +97,23 @@ func NewTrainingScenario() *Scenario {
 			Status: StatusActive, SignatureID: "tanker",
 			DepthFt: 0, SpeedKts: 9, OrderedSpeed: 9, LengthFt: 900, AIState: "TRANSIT",
 		},
-		{
-			ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
-			Status: StatusActive, SignatureID: "fishing",
-			DepthFt: 0, SpeedKts: 7, OrderedSpeed: 7, LengthFt: 140, AIState: "TRANSIT",
-		},
 	}
-	for _, c := range civilians {
-		placeOnWater(rng, c, 2500, 9000, placed, &bathy)
+	for _, c := range nearCivilians {
+		placeAwayFrom(rng, c, player, 1400, 3200, placed[1:], &bathy)
 		placed = append(placed, c)
 	}
+	farTrawler := &Entity{
+		ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
+		Status: StatusActive, SignatureID: "fishing",
+		DepthFt: 0, SpeedKts: 7, OrderedSpeed: 7, LengthFt: 140, AIState: "TRANSIT",
+	}
+	placeAwayFrom(rng, farTrawler, player, 4500, 9000, placed[1:], &bathy)
+	placed = append(placed, farTrawler)
 
 	hostiles := []*Entity{enemyGrisha, enemyFoxtrot}
 	ents := append([]*Entity{}, hostiles...)
-	ents = append(ents, civilians...)
+	ents = append(ents, nearCivilians...)
+	ents = append(ents, farTrawler)
 
 	InitCombatantDamage(player)
 	for _, h := range hostiles {
@@ -101,10 +126,33 @@ func NewTrainingScenario() *Scenario {
 		Player:      player,
 		Entities:    ents,
 		Bathy:       &DefaultBathy,
+		Weather:     RandomWeather(rng),
 		Objectives: []Objective{
 			{ID: "obj_grisha", Description: "Destroy hostile Grisha corvette", TargetID: "enemy_grisha"},
 			{ID: "obj_foxtrot", Description: "Destroy hostile Foxtrot SS", TargetID: "enemy_foxtrot"},
 		},
+		CommBriefing: "" +
+			"TOP SECRET // FLASH\n" +
+			"FROM: COMSUBPAC\n" +
+			"TO: USS LOS ANGELES (SSN-688)\n" +
+			"BT\n" +
+			"PROCEED TO ASSIGNED OP AREA VICINITY SANTA CATALINA ISLAND.\n" +
+			"CONDUCT COVERT PATROL. REMAIN UNDETECTED. DO NOT ENGAGE UNTIL DIRECTED.\n" +
+			"COME TO COMMUNICATIONS DEPTH AND RAISE HF ANTENNA FOR FOLLOW-ON TASKING.\n" +
+			"BT",
+		CommSchedule: []CommScheduledMessage{{
+			ID:    "tasking_engage",
+			AtSec: 20,
+			Text: "" +
+				"TOP SECRET // IMMEDIATE\n" +
+				"FROM: COMSUBPAC\n" +
+				"TO: USS LOS ANGELES (SSN-688)\n" +
+				"BT\n" +
+				"EXECUTE. LOCATE AND SINK HOSTILE DIESEL SUBMARINE AND HOSTILE SURFACE COMBATANT IN YOUR OP AREA.\n" +
+				"CIVILIAN SHIPPING IS NOT TO BE ENGAGED.\n" +
+				"REPORT COMPLETION VIA THIS CHANNEL.\n" +
+				"BT",
+		}},
 	}
 }
 
@@ -218,11 +266,6 @@ func (s *Scenario) CheckObjectives() {
 			}
 		}
 	}
-	for _, e := range s.Entities {
-		if e.Side == SideNeutral && e.Status != StatusActive {
-			s.FailReason = "Civilian vessel destroyed: " + e.Name
-		}
-	}
 }
 
 func (s *Scenario) MissionComplete() bool {
@@ -247,13 +290,46 @@ func (s *Scenario) MissionFailed() bool {
 	if s.FailReason != "" {
 		return true
 	}
-	for _, e := range s.Entities {
-		if e.Side == SideNeutral && e.Status != StatusActive {
-			s.FailReason = "Civilian vessel destroyed: " + e.Name
-			return true
-		}
-	}
 	return false
+}
+
+// MissionStatusReport formats current objective progress for COMM REPORT.
+func (s *Scenario) MissionStatusReport() string {
+	if s == nil {
+		return "NO SCENARIO."
+	}
+	s.CheckObjectives()
+	var b strings.Builder
+	b.WriteString("OWN SHIP REPORT — MISSION STATUS\n")
+	switch {
+	case s.MissionFailed():
+		reason := s.FailReason
+		if reason == "" {
+			reason = "MISSION FAILED"
+		}
+		b.WriteString("OVERALL: FAILED — " + reason + "\n")
+	case s.MissionComplete():
+		b.WriteString("OVERALL: COMPLETE — ALL OBJECTIVES MET\n")
+	default:
+		b.WriteString("OVERALL: IN PROGRESS\n")
+	}
+	if len(s.Objectives) == 0 {
+		b.WriteString("NO OBJECTIVES ASSIGNED.")
+		return b.String()
+	}
+	b.WriteString("OBJECTIVES:\n")
+	for _, o := range s.Objectives {
+		mark := "OPEN"
+		if o.Complete {
+			mark = "DONE"
+		}
+		desc := o.Description
+		if desc == "" {
+			desc = o.ID
+		}
+		b.WriteString(fmt.Sprintf("  [%s] %s\n", mark, desc))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // BottomDepthAt returns chart depth under a point, falling back to acoustic env default.

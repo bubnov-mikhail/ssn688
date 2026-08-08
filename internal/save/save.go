@@ -14,7 +14,7 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
-const saveFormat = 10
+const saveFormat = 13
 
 // Save writes the simulation state to a plain-text file.
 func Save(path string, engine *sim.Engine) error {
@@ -44,9 +44,37 @@ func Save(path string, engine *sim.Engine) error {
 
 	env := engine.Acoustics.Env
 	fmt.Fprintf(w, "\n[environment]\n")
+	fmt.Fprintf(w, "weather=%d\n", int(engine.Scenario.Weather))
 	fmt.Fprintf(w, "layer_survey_known=%t\n", env.LayerSurveyKnown)
 	fmt.Fprintf(w, "layer_survey_start=%.3f\n", env.LayerSurveyStartAt)
 	fmt.Fprintf(w, "layer_survey_end=%.3f\n", env.LayerSurveyEndAt)
+
+	fmt.Fprintf(w, "\n[esm]\n")
+	fmt.Fprintf(w, "order=%d\n", int(engine.ESM.Order))
+	fmt.Fprintf(w, "extension=%.3f\n", engine.ESM.Extension)
+	fmt.Fprintf(w, "sheared=%t\n", engine.ESM.Sheared)
+
+	fmt.Fprintf(w, "\n[comm]\n")
+	fmt.Fprintf(w, "order=%d\n", int(engine.COMM.Order))
+	fmt.Fprintf(w, "extension=%.3f\n", engine.COMM.Extension)
+	fmt.Fprintf(w, "sheared=%t\n", engine.COMM.Sheared)
+	for id := range engine.COMM.DeliveredIDs {
+		fmt.Fprintf(w, "delivered=%s\n", id)
+	}
+	for _, msg := range engine.COMM.Inbox {
+		esc := strings.ReplaceAll(msg.Text, "\\", "\\\\")
+		esc = strings.ReplaceAll(esc, "\n", "\\n")
+		esc = strings.ReplaceAll(esc, "|", "/")
+		fmt.Fprintf(w, "inbox=%.3f|%s\n", msg.TimeSec, esc)
+	}
+
+	fmt.Fprintf(w, "\n[peri]\n")
+	fmt.Fprintf(w, "order=%d\n", int(engine.Periscope.Order))
+	fmt.Fprintf(w, "extension=%.3f\n", engine.Periscope.Extension)
+	fmt.Fprintf(w, "sheared=%t\n", engine.Periscope.Sheared)
+	fmt.Fprintf(w, "train_rel=%.3f\n", engine.Periscope.TrainRelDeg)
+	fmt.Fprintf(w, "zoom=%d\n", engine.Periscope.Zoom)
+	fmt.Fprintf(w, "lock_id=%s\n", engine.Periscope.LockEntityID)
 
 	fmt.Fprintf(w, "\n[sonar]\n")
 	fmt.Fprintf(w, "passive_enabled=%t\n", engine.Sonar.PassiveEnabled)
@@ -66,6 +94,7 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "last_blast_y=%.3f\n", engine.Sonar.LastBlastY)
 	fmt.Fprintf(w, "last_blast_range=%.3f\n", engine.Sonar.LastBlastRangeYd)
 	fmt.Fprintf(w, "last_blast_flash=%.3f\n", engine.Sonar.LastBlastFlashSec)
+	fmt.Fprintf(w, "last_blast_entity=%s\n", engine.Sonar.LastBlastEntityID)
 	for _, c := range engine.Sonar.Contacts {
 		fmt.Fprintf(w, "contact=%s|%.3f|%.3f|%.3f|%s|%s|%.3f|%s|%s|%d|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f\n",
 			c.ID, c.BearingDeg, c.EstimatedRangeYd, c.SNR,
@@ -144,14 +173,14 @@ func Save(path string, engine *sim.Engine) error {
 			a.X0, a.Y0, a.X1, a.Y1, a.LaunchAt, a.FlightSec)
 	}
 	for _, h := range engine.FireControl.ActiveHarpoons {
-		if h == nil || !h.Alive {
+		if h == nil || (!h.Alive && !h.VisibleOnWEPS) {
 			continue
 		}
-		fmt.Fprintf(w, "harpoon=%s|%s|%s|%d|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%t|%t|%.3f|%.3f|%.3f|%.3f|%.3f|%t\n",
+		fmt.Fprintf(w, "harpoon=%s|%s|%s|%d|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%t|%t|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%.3f\n",
 			h.ID, h.ParentSubID, h.TargetContactID, h.Side, h.TubeNumber,
 			h.LaunchX, h.LaunchY, h.X, h.Y, h.HeadingDeg, h.SpeedKts, h.DistanceYd, int(h.Phase),
 			h.RadarOn, h.Alive, h.BeamHalfDeg, h.RadarRangeYd, h.DestructRangeYd,
-			h.UnderwaterLeft, h.Age, h.VisibleOnWEPS)
+			h.UnderwaterLeft, h.Age, h.VisibleOnWEPS, h.ProgrammedHead, h.AssumedDistanceYd)
 	}
 
 	fmt.Fprintf(w, "\n[cm]\n")
@@ -274,6 +303,8 @@ func loadClean(path string) (*sim.Engine, error) {
 	engine.CM = weapons.NewCountermeasureSystem()
 	engine.CM.Active = nil
 	engine.PlotMarkers = nil
+	engine.COMM = acoustics.COMMState{}
+	engine.ESM = acoustics.ESMState{}
 
 	lines := strings.Split(string(data), "\n")
 	section := ""
@@ -314,12 +345,72 @@ func loadClean(path string) (*sim.Engine, error) {
 		switch section {
 		case "environment":
 			switch key {
+			case "weather":
+				n, _ := strconv.Atoi(val)
+				engine.Scenario.Weather = world.Weather(n)
+				engine.Acoustics.Env.SeaState = engine.Scenario.Weather.SeaStateInt()
 			case "layer_survey_known":
 				engine.Acoustics.Env.LayerSurveyKnown, _ = strconv.ParseBool(val)
 			case "layer_survey_start":
 				engine.Acoustics.Env.LayerSurveyStartAt, _ = strconv.ParseFloat(val, 64)
 			case "layer_survey_end":
 				engine.Acoustics.Env.LayerSurveyEndAt, _ = strconv.ParseFloat(val, 64)
+			}
+		case "esm":
+			switch key {
+			case "order":
+				n, _ := strconv.Atoi(val)
+				engine.ESM.Order = acoustics.ESMMastOrder(n)
+			case "extension":
+				engine.ESM.Extension, _ = strconv.ParseFloat(val, 64)
+			case "sheared":
+				engine.ESM.Sheared, _ = strconv.ParseBool(val)
+			}
+		case "comm":
+			switch key {
+			case "order":
+				n, _ := strconv.Atoi(val)
+				engine.COMM.Order = acoustics.COMMMastOrder(n)
+			case "extension":
+				engine.COMM.Extension, _ = strconv.ParseFloat(val, 64)
+			case "sheared":
+				engine.COMM.Sheared, _ = strconv.ParseBool(val)
+			case "delivered":
+				if engine.COMM.DeliveredIDs == nil {
+					engine.COMM.DeliveredIDs = map[string]bool{}
+				}
+				engine.COMM.DeliveredIDs[val] = true
+			case "inbox":
+				parts := strings.SplitN(val, "|", 2)
+				if len(parts) == 2 {
+					tsec, _ := strconv.ParseFloat(parts[0], 64)
+					txt := strings.ReplaceAll(parts[1], "\\n", "\n")
+					txt = strings.ReplaceAll(txt, "\\\\", "\\")
+					engine.COMM.Inbox = append(engine.COMM.Inbox, world.CommInboxEntry{TimeSec: tsec, Text: txt})
+				}
+			}
+		case "peri":
+			switch key {
+			case "order":
+				n, _ := strconv.Atoi(val)
+				engine.Periscope.Order = acoustics.PeriMastOrder(n)
+			case "extension":
+				engine.Periscope.Extension, _ = strconv.ParseFloat(val, 64)
+			case "sheared":
+				engine.Periscope.Sheared, _ = strconv.ParseBool(val)
+			case "train_rel":
+				engine.Periscope.TrainRelDeg, _ = strconv.ParseFloat(val, 64)
+			case "zoom":
+				n, _ := strconv.Atoi(val)
+				if n < 0 {
+					n = 0
+				}
+				if n >= acoustics.PeriZoomCount {
+					n = acoustics.PeriZoomCount - 1
+				}
+				engine.Periscope.Zoom = n
+			case "lock_id":
+				engine.Periscope.LockEntityID = val
 			}
 		case "sonar":
 			switch key {
@@ -359,6 +450,8 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.Sonar.LastBlastRangeYd, _ = strconv.ParseFloat(val, 64)
 			case "last_blast_flash":
 				engine.Sonar.LastBlastFlashSec, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_entity":
+				engine.Sonar.LastBlastEntityID = val
 			case "contact":
 				parseContact(&engine.Sonar, val)
 			}
@@ -472,6 +565,9 @@ func loadClean(path string) (*sim.Engine, error) {
 	}
 	if len(engine.Scenario.Objectives) == 0 {
 		engine.Scenario.Objectives = world.NewTrainingScenario().Objectives
+	}
+	if len(engine.COMM.Inbox) == 0 {
+		engine.COMM.SeedBriefing(engine.Scenario.CommBriefing)
 	}
 	return engine, nil
 }
@@ -981,6 +1077,13 @@ func parseHarpoon(fc *weapons.FireControl, val string) {
 	h.Age, _ = strconv.ParseFloat(parts[19], 64)
 	if len(parts) > 20 {
 		h.VisibleOnWEPS, _ = strconv.ParseBool(parts[20])
+	}
+	if len(parts) > 22 {
+		h.ProgrammedHead, _ = strconv.ParseFloat(parts[21], 64)
+		h.AssumedDistanceYd, _ = strconv.ParseFloat(parts[22], 64)
+	} else {
+		h.ProgrammedHead = h.HeadingDeg
+		h.AssumedDistanceYd = h.DistanceYd
 	}
 	fc.ActiveHarpoons = append(fc.ActiveHarpoons, h)
 	fc.SetTorpedoSeq(parseTrailingInt(h.ID))

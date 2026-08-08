@@ -47,6 +47,8 @@ func (a *App) releaseSessionCaches() {
 	a.tactical.bathyPix = nil
 	a.tactical.minimapBathyPix = nil
 	a.tactical = tacticalState{}
+	a.disposePeriscopeImage()
+	a.periShipScratch = nil
 
 	a.bearingWaterfalls.Reset()
 	a.lastWaterfallSample = 0
@@ -81,6 +83,7 @@ func (a *App) releaseSessionCaches() {
 	a.libraryCatalogScroll = 0
 	a.libraryDetailScroll = 0
 	a.contactTableScroll = contactTableScrollState{}
+	a.mastCommScroll = 0
 	a.layerSurveyWasActive = false
 	a.lastUpdateWall = time.Time{}
 	a.activeEchoFlashes = nil
@@ -110,22 +113,21 @@ func (a *App) exitToMenu() {
 	}
 }
 
-func (a *App) beginGameSession(engine *sim.Engine, playBrief bool) {
+func (a *App) beginGameSession(engine *sim.Engine) {
 	a.releaseSessionCaches()
 	a.Engine = engine
 	a.Mode = ModeGame
 	a.CurrentScreen = ScreenPassive
 	a.tactical = tacticalState{zoom: 0.035, smoothedPos: map[string]smoothedContactPos{}, fitPending: true}
 	a.reportedTorpedoIDs = map[string]bool{}
+	a.ownTorpedoIDs = map[string]bool{}
 	a.torpedoThreatActive = map[string]bool{}
+	a.syncOwnTorpedoIDs()
 	a.StatusMessage = ""
-	if playBrief && a.Audio != nil {
-		a.Audio.PlayClip(audio.ClipCaptMissionBrief, "")
-	}
 }
 
 func (a *App) StartNewGame() {
-	a.beginGameSession(sim.NewEngine(world.NewTrainingScenario()), true)
+	a.beginGameSession(sim.NewEngine(world.NewTrainingScenario()))
 }
 
 func (a *App) loadSelectedSave() {
@@ -142,7 +144,7 @@ func (a *App) loadSelectedSave() {
 		a.StatusMessage = "Load failed: " + err.Error()
 		return
 	}
-	a.beginGameSession(engine, false)
+	a.beginGameSession(engine)
 }
 
 func (a *App) quickSave() {

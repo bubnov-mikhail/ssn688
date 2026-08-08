@@ -14,7 +14,7 @@ func TestLoadVoiceClips(t *testing.T) {
 		t.Fatalf("expected at least 30 voice clips, got %d", len(clips))
 	}
 	for _, id := range []ClipID{
-		ClipCaptMissionBrief, ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost,
+		ClipCaptHoldSimulation, ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost, ClipCaptCommMessage,
 		ClipSonarPassiveOn, ClipSonarDeployTowed, ClipSonarActiveOnline,
 		ClipWepsWireCut, ClipWepsTorpedoInWater, ClipWepsTorpedoHeadingOwnship,
 		ClipDiveMakeDepth, ClipDiveUnableDeeper, ClipDiveHoldDepth, ClipNavSpeedDouble,

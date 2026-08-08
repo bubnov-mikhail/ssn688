@@ -43,6 +43,7 @@ const (
 	ScreenManeuver
 	ScreenTactical
 	ScreenDamage
+	ScreenMast // extensible masts: radio, ESM, radar, periscope
 )
 
 type App struct {
@@ -114,9 +115,22 @@ type App struct {
 	selectedPlotMarkerID   string
 	pendingPlotMarker      bool // M pressed while already on PLOT
 	reportedTorpedoIDs     map[string]bool // hostile fish already announced by WEPS
+	ownTorpedoIDs          map[string]bool // player Mk48 IDs (alive or spent — suppress hostile alert)
 	torpedoThreatActive    map[string]bool // torpedoes currently assessed as threatening ownship
 	referenceProfileIdx    int
 	contactTableScroll     contactTableScrollState
+	mastCommScroll         int
+	periImg                *ebiten.Image
+	periPix                []byte
+	periCacheKey           uint64
+	periMarkerHits         []contactChip
+	periShipScratch        []periShipDraw
+	periLandHit            []float64
+	periLandElev           []float64
+	periLandOK             []bool
+	periLandHitTmp         []float64
+	periLandElevTmp        []float64
+	periLandOKTmp          []bool
 	librarySelectedID      string
 	libraryCatalogScroll   int
 	libraryDetailScroll    int
@@ -136,6 +150,7 @@ func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
 		MenuIndex:           0,
 		enemyPingHeardAt:    map[string]float64{},
 		reportedTorpedoIDs:  map[string]bool{},
+		ownTorpedoIDs:       map[string]bool{},
 		torpedoThreatActive: map[string]bool{},
 		activeRangeScaleYd:  12000,
 		wepsMapZoom:         0.05,
@@ -154,28 +169,6 @@ func (a *App) Update() error {
 		a.updateGame()
 	}
 	return nil
-}
-
-func (a *App) updateSettings() {
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-		_ = config.Save(a.Settings)
-		ebiten.SetFullscreen(a.Settings.Fullscreen)
-		a.Audio.SetVolumes(a.Settings.MasterVolume, a.Settings.VoiceVolume, a.Settings.EffectsVolume)
-		a.Mode = ModeMenu
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF) {
-		a.Settings.Fullscreen = !a.Settings.Fullscreen
-		ebiten.SetFullscreen(a.Settings.Fullscreen)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyBracketLeft) {
-		a.Settings.MasterVolume = clamp(a.Settings.MasterVolume-0.02, 0, 1)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyBracketRight) {
-		a.Settings.MasterVolume = clamp(a.Settings.MasterVolume+0.02, 0, 1)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyD) {
-		a.Settings.Debug = !a.Settings.Debug
-	}
 }
 
 func (a *App) refreshLoadList() {
@@ -206,8 +199,10 @@ func (a *App) updateGame() {
 		if realDT < 0 {
 			realDT = 0
 		}
-		if realDT > 0.10 {
-			realDT = 0.10
+		// Cap spike length so a tab-switch doesn't dump minutes of sim at once,
+		// but keep enough headroom that hitchy Draws don't starve GameTime at 1x.
+		if realDT > 0.25 {
+			realDT = 0.25
 		}
 	}
 	a.lastUpdateWall = nowWall
@@ -238,7 +233,7 @@ func (a *App) updateGame() {
 
 	// Screen selection (F-keys to avoid conflict with fire control tubes).
 	// M opens PLOT from other screens; on PLOT, M places a chart marker.
-	screenKeys := []ebiten.Key{ebiten.KeyF1, ebiten.KeyF2, ebiten.KeyF3, ebiten.KeyF4, ebiten.KeyF5, ebiten.KeyF6, ebiten.KeyM, ebiten.KeyF7}
+	screenKeys := []ebiten.Key{ebiten.KeyF1, ebiten.KeyF2, ebiten.KeyF3, ebiten.KeyF4, ebiten.KeyF5, ebiten.KeyF6, ebiten.KeyM, ebiten.KeyF7, ebiten.KeyF8}
 	for i, k := range screenKeys {
 		if inpututil.IsKeyJustPressed(k) {
 			switch k {
@@ -250,6 +245,8 @@ func (a *App) updateGame() {
 				}
 			case ebiten.KeyF7:
 				a.CurrentScreen = ScreenDamage
+			case ebiten.KeyF8:
+				a.CurrentScreen = ScreenMast
 			default:
 				a.CurrentScreen = Screen(i)
 			}
@@ -289,7 +286,20 @@ func (a *App) updateGame() {
 	for _, ev := range a.Engine.PopEvents() {
 		a.StatusMessage = ev
 		if isWeaponImpactEvent(ev) {
-			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, "")
+			sub := ""
+			if strings.HasPrefix(ev, "Torpedo struck bottom") {
+				sub = "Torpedo impact."
+			}
+			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, sub)
+		}
+		if strings.Contains(ev, "ESM MAST SHEARED") {
+			a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. ESM mast destroyed.")
+		} else if strings.Contains(ev, "COMM MAST SHEARED") {
+			a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. COMM mast destroyed.")
+		} else if strings.Contains(ev, "PERISCOPE SHEARED") {
+			a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. Periscope destroyed.")
+		} else if strings.HasPrefix(ev, "WARNING — ESM") || strings.HasPrefix(ev, "WARNING — COMM") || strings.HasPrefix(ev, "WARNING — periscope") {
+			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, "Unable. Mast limits exceeded.")
 		}
 		a.playOwnshipCasualtyVoice(ev)
 		if ev == "Torpedo launch detected (hostile)" {
@@ -299,6 +309,21 @@ func (a *App) updateGame() {
 	}
 	a.pollHostileTorpedoAlerts()
 	a.pollTorpedoCollisionAlerts()
+	if a.Engine.ESM.ChirpPending {
+		a.Engine.ESM.ChirpPending = false
+		if a.CurrentScreen == ScreenMast && a.Audio != nil {
+			a.Audio.PlayESMHit()
+		}
+	}
+	if a.Engine.COMM.NotifyPending {
+		a.Engine.COMM.NotifyPending = false
+		a.StatusMessage = "FLASH TRAFFIC — new message on COMM"
+		if a.Audio != nil {
+			a.Audio.PlayClip(audio.ClipCaptCommMessage, "Flash traffic. Incoming message.")
+		}
+		// Keep newest traffic visible in the scroll pane.
+		a.mastCommScroll = 1 << 20
+	}
 
 	if a.Engine.Scenario.MissionComplete() {
 		a.StatusMessage = "MISSION COMPLETE - All targets destroyed."
@@ -441,6 +466,8 @@ func (a *App) handleScreenInput() {
 		a.updateTacticalUI()
 	case ScreenDamage:
 		a.updateDamageUI()
+	case ScreenMast:
+		a.updateMastUI()
 	}
 }
 
@@ -449,7 +476,6 @@ func (a *App) Draw(screen *ebiten.Image) {
 	case ModeMenu:
 		a.drawMenu(screen)
 	case ModeSettings:
-		screen.Fill(render.ColorBG)
 		a.drawSettings(screen)
 	case ModeLoad:
 		a.drawLoad(screen)
@@ -457,17 +483,6 @@ func (a *App) Draw(screen *ebiten.Image) {
 		screen.Fill(render.ColorBG)
 		a.drawGame(screen)
 	}
-}
-
-func (a *App) drawSettings(screen *ebiten.Image) {
-	render.DrawTextLarge(screen, "SETTINGS", 700, 80, render.ColorText)
-	render.DrawText(screen, fmt.Sprintf("Fullscreen (F): %v", a.Settings.Fullscreen), 500, 200, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("Master Volume ([ ]): %.0f%%", a.Settings.MasterVolume*100), 500, 260, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("Voice Volume: %.0f%%", a.Settings.VoiceVolume*100), 500, 300, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("Effects Volume: %.0f%%", a.Settings.EffectsVolume*100), 500, 340, render.ColorText, false)
-	render.DrawText(screen, fmt.Sprintf("Debug overlay (D): %v", a.Settings.Debug), 500, 400, render.ColorText, false)
-	render.DrawText(screen, "Debug shows all units on the minimap at true positions", 500, 430, render.ColorDim, true)
-	render.DrawText(screen, "ENTER or ESC to save and return", 500, 500, render.ColorDim, false)
 }
 
 func (a *App) drawGame(screen *ebiten.Image) {
@@ -490,6 +505,8 @@ func (a *App) drawGame(screen *ebiten.Image) {
 		a.drawTactical(screen)
 	case ScreenDamage:
 		a.drawDamage(screen)
+	case ScreenMast:
+		a.drawMast(screen)
 	default:
 		render.DrawConsoleBackdrop(screen)
 	}
@@ -528,7 +545,7 @@ func (a *App) drawGameHeader(screen *ebiten.Image) {
 }
 
 func screenName(s Screen) string {
-	names := []string{"PASSIVE", "ACTIVE", "SPECTRUM", "LIBRARY", "WEPS", "MANEUVER", "TACTICAL"}
+	names := []string{"PASSIVE", "ACTIVE", "SPECTRUM", "LIBRARY", "WEPS", "MANEUVER", "TACTICAL", "DC", "MAST"}
 	if int(s) < len(names) {
 		return names[s]
 	}
@@ -664,10 +681,47 @@ func isWeaponImpactEvent(ev string) bool {
 	switch {
 	case strings.HasPrefix(ev, "Target destroyed:"):
 		return true
+	case strings.HasPrefix(ev, "Torpedo struck bottom"):
+		return true
 	case ev == "Underwater explosion":
 		return true
 	default:
 		return false
+	}
+}
+
+func (a *App) markOwnTorpedo(id string) {
+	if a == nil || id == "" {
+		return
+	}
+	if a.ownTorpedoIDs == nil {
+		a.ownTorpedoIDs = map[string]bool{}
+	}
+	a.ownTorpedoIDs[id] = true
+	if a.reportedTorpedoIDs == nil {
+		a.reportedTorpedoIDs = map[string]bool{}
+	}
+	// Own fish blast can linger on sonar after detonation — never announce as hostile.
+	a.reportedTorpedoIDs[id] = true
+}
+
+func (a *App) syncOwnTorpedoIDs() {
+	if a == nil || a.Engine == nil {
+		return
+	}
+	if a.ownTorpedoIDs == nil {
+		a.ownTorpedoIDs = map[string]bool{}
+	}
+	fc := &a.Engine.FireControl
+	for _, t := range fc.ActiveTorpedoes {
+		if t != nil && t.Side == world.SidePlayer {
+			a.markOwnTorpedo(t.ID)
+		}
+	}
+	for i := range fc.Tubes {
+		if id := fc.Tubes[i].TorpedoID; id != "" {
+			a.markOwnTorpedo(id)
+		}
 	}
 }
 

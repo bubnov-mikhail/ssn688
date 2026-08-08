@@ -70,8 +70,10 @@ type HarpoonMissile struct {
 	LaunchX, LaunchY float64
 	X, Y            float64
 	HeadingDeg      float64
+	ProgrammedHead  float64 // gyro at launch — WEPS assumed track never seeks
 	SpeedKts        float64
 	DistanceYd      float64
+	AssumedDistanceYd float64 // straight-line WEPS plot along ProgrammedHead
 	Phase           HarpoonPhase
 	UnderwaterLeft  float64
 	RadarOn         bool
@@ -231,6 +233,7 @@ func (fc *FireControl) ShootHarpoon(sub *world.Entity, tubeNum int) *HarpoonMiss
 		X:               sub.X + math.Sin(rad)*offset,
 		Y:               sub.Y + math.Cos(rad)*offset,
 		HeadingDeg:      gyro,
+		ProgrammedHead:  gyro,
 		SpeedKts:        HarpoonUnderwaterKts,
 		Phase:           HarpoonUnderwater,
 		UnderwaterLeft:  HarpoonUnderwaterSec,
@@ -249,7 +252,18 @@ func (fc *FireControl) ShootHarpoon(sub *world.Entity, tubeNum int) *HarpoonMiss
 
 // AdvanceHarpoon moves one missile; returns detonation if it hits or self-destructs.
 func (h *HarpoonMissile) Advance(dt float64, targets []*world.Entity) *Detonation {
-	if h == nil || !h.Alive {
+	if h == nil {
+		return nil
+	}
+	// Ghost WEPS track after soft-kill: keep assumed straight-line plot only.
+	if !h.Alive {
+		if h.VisibleOnWEPS {
+			h.Age += dt
+			h.advanceAssumed(dt)
+			if h.AssumedDistanceYd >= h.DestructRangeYd {
+				h.VisibleOnWEPS = false
+			}
+		}
 		return nil
 	}
 	h.Age += dt
@@ -261,6 +275,7 @@ func (h *HarpoonMissile) Advance(dt float64, targets []*world.Entity) *Detonatio
 		h.X += math.Sin(rad) * step
 		h.Y += math.Cos(rad) * step
 		h.DistanceYd += step
+		h.advanceAssumed(dt)
 		if h.UnderwaterLeft <= 0 {
 			h.Phase = HarpoonCruise
 			h.SpeedKts = HarpoonCruiseKts
@@ -279,6 +294,7 @@ func (h *HarpoonMissile) Advance(dt float64, targets []*world.Entity) *Detonatio
 	h.X += math.Sin(rad) * step
 	h.Y += math.Cos(rad) * step
 	h.DistanceYd += step
+	h.advanceAssumed(dt)
 
 	if h.RadarOn {
 		if hit := h.checkImpact(targets); hit != nil {
@@ -300,6 +316,25 @@ func (h *HarpoonMissile) Advance(dt float64, targets []*world.Entity) *Detonatio
 		}
 	}
 	return nil
+}
+
+// advanceAssumed steps the WEPS-only straight-line track (no seeker turn).
+func (h *HarpoonMissile) advanceAssumed(dt float64) {
+	uwDist := HarpoonUnderwaterSec * HarpoonUnderwaterKts * world.KnotsToYPS
+	spd := HarpoonCruiseKts
+	if h.AssumedDistanceYd < uwDist {
+		spd = HarpoonUnderwaterKts
+	}
+	h.AssumedDistanceYd += spd * world.KnotsToYPS * dt
+}
+
+// AssumedXY is the WEPS plot position along the programmed gyro course.
+func (h *HarpoonMissile) AssumedXY() (x, y float64) {
+	if h == nil {
+		return 0, 0
+	}
+	rad := h.ProgrammedHead * math.Pi / 180
+	return h.LaunchX + math.Sin(rad)*h.AssumedDistanceYd, h.LaunchY + math.Cos(rad)*h.AssumedDistanceYd
 }
 
 func (h *HarpoonMissile) updateSeeker(dt float64, targets []*world.Entity) {
@@ -433,17 +468,18 @@ func (h *HarpoonMissile) AcousticEntity(slot *world.Entity) *world.Entity {
 	return slot
 }
 
-// StraightLineEnd returns map endpoint for WEPS course display.
+// StraightLineEnd returns map endpoint for WEPS assumed course display.
 func (h *HarpoonMissile) StraightLineEnd() (x, y float64) {
 	if h == nil {
 		return 0, 0
 	}
-	remain := h.DestructRangeYd - h.DistanceYd
+	ax, ay := h.AssumedXY()
+	remain := h.DestructRangeYd - h.AssumedDistanceYd
 	if remain < 0 {
 		remain = 0
 	}
-	rad := h.HeadingDeg * math.Pi / 180
-	return h.X + math.Sin(rad)*remain, h.Y + math.Cos(rad)*remain
+	rad := h.ProgrammedHead * math.Pi / 180
+	return ax + math.Sin(rad)*remain, ay + math.Cos(rad)*remain
 }
 
 func (fc *FireControl) CycleHarpoonBeam() {
@@ -472,7 +508,7 @@ func (fc *FireControl) SetHarpoonDestructRange(setting string) {
 
 func (fc *FireControl) HarpoonByTube(tubeNum int) *HarpoonMissile {
 	for _, h := range fc.ActiveHarpoons {
-		if h != nil && h.Alive && h.VisibleOnWEPS && h.TubeNumber == tubeNum {
+		if h != nil && h.VisibleOnWEPS && h.TubeNumber == tubeNum {
 			return h
 		}
 	}
@@ -484,36 +520,41 @@ func (fc *FireControl) AdvanceHarpoons(dt, gameTime float64, targets []*world.En
 		return nil
 	}
 	var dets []*Detonation
-	alive := fc.ActiveHarpoons[:0]
+	keep := fc.ActiveHarpoons[:0]
 	for _, h := range fc.ActiveHarpoons {
-		if h == nil || !h.Alive {
+		if h == nil {
 			continue
 		}
-		if det := h.Advance(dt, targets); det != nil {
-			dets = append(dets, det)
-		} else if h.Alive {
-			if det := fc.TryPointDefense(h, targets, gameTime, rng); det != nil {
-				dets = append(dets, det)
-			}
-		}
 		if h.Alive {
-			alive = append(alive, h)
+			if det := h.Advance(dt, targets); det != nil {
+				dets = append(dets, det)
+			} else if h.Alive {
+				if det := fc.TryPointDefense(h, targets, gameTime, rng); det != nil {
+					dets = append(dets, det)
+				}
+			}
+		} else if h.VisibleOnWEPS {
+			h.Advance(dt, nil) // assumed ghost track only
+		}
+		if h.Alive || h.VisibleOnWEPS {
+			keep = append(keep, h)
 		}
 	}
-	fc.ActiveHarpoons = alive
+	fc.ActiveHarpoons = keep
 	return dets
 }
 
-// CheckHarpoonBlastHeard hides WEPS track when sonar hears a blast near ETA.
+// CheckHarpoonBlastHeard hides WEPS track when sonar hears a blast near the assumed track.
 func (fc *FireControl) CheckHarpoonBlastHeard(gameTime, blastX, blastY, blastAt float64) {
 	for _, h := range fc.ActiveHarpoons {
-		if h == nil || !h.Alive || !h.VisibleOnWEPS {
+		if h == nil || !h.VisibleOnWEPS {
 			continue
 		}
 		if gameTime-blastAt > 25 {
 			continue
 		}
-		dist := math.Hypot(h.X-blastX, h.Y-blastY)
+		ax, ay := h.AssumedXY()
+		dist := math.Hypot(ax-blastX, ay-blastY)
 		if dist < 8000 {
 			h.VisibleOnWEPS = false
 		}

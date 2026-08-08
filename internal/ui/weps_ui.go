@@ -777,7 +777,7 @@ func (a *App) drawWepsGroup(screen *ebiten.Image, x, y, w, h int, title string) 
 func (a *App) drawWepsContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	a.drawWepsGroup(screen, wepsLeftX-6, wepsTargetsY, wepsLeftW, wepsTargetsH, "RECOGNIZED TARGETS")
 	hdrY := wepsTargetsY + 32
-	render.DrawText(screen, "CONTACT", wepsLeftX+6, hdrY, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "ID", wepsLeftX+6, hdrY, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "BRG°", wepsLeftX+86, hdrY, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "RNG kyd", wepsLeftX+126, hdrY, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "CLASS", wepsLeftX+178, hdrY, render.ColorPhosphorDim, true)
@@ -1053,19 +1053,23 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 	}
 
 	gt := a.Engine.Clock.GameTime
-	// Own fish still on the wire: true geographic position (wire telemetry).
-	wireFishIDs := map[string]bool{}
+	// Own fish: true geographic position (wire telemetry or autonomous run until max range).
+	ownFishIDs := map[string]bool{}
 	for _, torp := range a.Engine.FireControl.ActiveTorpedoes {
-		if torp == nil || !torp.Alive || torp.Side != world.SidePlayer || torp.WireCut {
+		if torp == nil || !torp.Alive || torp.Side != world.SidePlayer {
 			continue
 		}
-		wireFishIDs[torp.ID] = true
+		ownFishIDs[torp.ID] = true
 		sx := px + (torp.X-player.X)*a.wepsMapZoom
 		sy := py - (torp.Y-player.Y)*a.wepsMapZoom
 		if !wepsMapMarkerInside(sx, sy) {
 			continue
 		}
 		clr := render.ColorActive
+		if torp.WireCut {
+			// Autonomous after CUT / door close — still in the water until endurance ends.
+			clr = color.RGBA{0, 140, 160, 255}
+		}
 		// Orange while seeker has a lock (ship or soft-kill CM); blue on wire / no target.
 		if torp.Mode == weapons.ModeSearch && torp.TargetID != "" {
 			clr = render.ColorAmber
@@ -1081,7 +1085,7 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 		if c.Kind == world.KindCountermeasure {
 			continue
 		}
-		if wireFishIDs[c.SourceEntityID] {
+		if ownFishIDs[c.SourceEntityID] {
 			continue
 		}
 		wx, wy := a.contactPlotWorld(player, c, gt)
@@ -1125,11 +1129,11 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 		}
 	}
 	for _, hm := range fc.ActiveHarpoons {
-		if hm != nil && hm.Alive && hm.VisibleOnWEPS {
+		if hm != nil && hm.VisibleOnWEPS {
 			a.drawWepsHarpoonGeometry(img, px, py, player, hm)
 		}
 	}
-	if harp != nil && harp.Alive && harp.VisibleOnWEPS {
+	if harp != nil && harp.VisibleOnWEPS {
 		a.drawWepsHarpoonGeometry(img, px, py, player, harp)
 	}
 

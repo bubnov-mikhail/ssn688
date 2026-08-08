@@ -44,6 +44,25 @@ func (a *App) selectContact(sonar *acoustics.SonarState, c *acoustics.Contact) {
 			}
 		}
 	}
+	a.engagePeriLockOnContact(c)
+}
+
+// engagePeriLockOnContact trains the optic onto the contact and holds lock while
+// acoustic, ESM, or visual track remains.
+func (a *App) engagePeriLockOnContact(c *acoustics.Contact) {
+	if a == nil || c == nil || c.SourceEntityID == "" || a.Engine == nil || a.Engine.Scenario == nil || a.Engine.Scenario.Player == nil {
+		return
+	}
+	player := a.Engine.Scenario.Player
+	brg := c.BearingDeg
+	for _, e := range a.Engine.Scenario.Entities {
+		if e != nil && e.ID == c.SourceEntityID {
+			brg = player.BearingDegTo(e)
+			break
+		}
+	}
+	a.Engine.Periscope.EngageLock(c.SourceEntityID, player.HeadingDeg, brg)
+	a.periCacheKey = 0
 }
 
 func (a *App) selectedContact(sonar *acoustics.SonarState) *acoustics.Contact {

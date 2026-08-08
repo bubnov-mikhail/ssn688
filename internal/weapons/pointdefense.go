@@ -154,7 +154,7 @@ func (fc *FireControl) TryPointDefense(h *HarpoonMissile, ships []*world.Entity,
 	}
 
 	h.Alive = false
-	h.VisibleOnWEPS = false
+	// Keep VisibleOnWEPS — player only sees the assumed track until DSTR / blast heard.
 	debris := bestDist <= DebrisDamageMaxYd
 	det := &Detonation{
 		X: h.X, Y: h.Y, DepthFt: 0,

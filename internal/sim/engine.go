@@ -31,6 +31,9 @@ type Engine struct {
 	Sonar             acoustics.SonarState
 	FireControl       weapons.FireControl
 	CM                weapons.CountermeasureSystem
+	ESM               acoustics.ESMState
+	COMM              acoustics.COMMState
+	Periscope         acoustics.PeriscopeState
 	PlotMarkers       []world.PlotMarker
 	plotMarkerSeq     int
 	Accum             float64
@@ -42,15 +45,20 @@ type Engine struct {
 }
 
 func NewEngine(scenario *world.Scenario) *Engine {
+	env := acoustics.DefaultEnvironment()
+	if scenario != nil {
+		env.SeaState = scenario.Weather.SeaStateInt()
+	}
 	e := &Engine{
 		Clock:       NewClock(),
 		Scenario:    scenario,
-		Acoustics:   acoustics.NewModel(acoustics.DefaultEnvironment()),
+		Acoustics:   acoustics.NewModel(env),
 		Sonar:       acoustics.NewSonarState(),
 		FireControl: weapons.NewFireControl(),
 		CM:          weapons.NewCountermeasureSystem(),
 	}
 	if scenario != nil {
+		e.COMM.SeedBriefing(scenario.CommBriefing)
 		if scenario.Player != nil {
 			e.CM.EnsureMagazine(scenario.Player.ID)
 		}
@@ -127,7 +135,9 @@ func (e *Engine) Update(realDT float64) {
 	}
 	e.Accum += realDT * e.Clock.TimeScale
 	step := 1.0 / TickRate
-	const maxTicksPerFrame = 6
+	// Allow catching up after hitchy frames (Draw/GC). Too low permanently
+	// desyncs GameTime from wall clock at 1x when frames exceed ~100ms.
+	const maxTicksPerFrame = 20
 	ticks := 0
 	for e.Accum >= step && ticks < maxTicksPerFrame {
 		e.tick(step)
@@ -166,6 +176,25 @@ func (e *Engine) tick(dt float64) {
 	e.finalizeSunkWrecks(t)
 	e.checkCatastrophicDamage(t)
 
+	// Sync weather → acoustic sea state; advance ESM mast + intercepts.
+	if e.Scenario != nil {
+		e.Acoustics.Env.SeaState = e.Scenario.Weather.SeaStateInt()
+	}
+	if player != nil {
+		if evs, sheared := e.ESM.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
+			e.Events = append(e.Events, evs...)
+		}
+		acoustics.UpdateESM(&e.Sonar, &e.ESM, player, e.Scenario.Entities, e.Scenario.Weather, t, dt)
+		if evs, sheared := e.COMM.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
+			e.Events = append(e.Events, evs...)
+		}
+		acoustics.UpdateCOMM(&e.COMM, e.Scenario, player, t)
+		if evs, sheared := e.Periscope.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
+			e.Events = append(e.Events, evs...)
+		}
+		e.Periscope.UpdateLock(dt, player, &e.Sonar, &e.ESM, e.Scenario.Entities, e.Scenario.Weather, t)
+	}
+
 	ai.UpdateDefcon(ai.DefconContext{
 		Entities: e.Scenario.Entities,
 		Player:   player,
@@ -173,10 +202,14 @@ func (e *Engine) tick(dt float64) {
 		Torps:    e.FireControl.ActiveTorpedoes,
 		Harpoons: e.FireControl.ActiveHarpoons,
 		Model:    e.Acoustics,
+		Weather:  e.Scenario.Weather,
+		ESM:      &e.ESM,
+		COMM:     &e.COMM,
+		Peri:     &e.Periscope,
 		GameTime: t,
 		Dt:       dt,
 	})
-	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM)
+	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope)
 	e.guideEnemyTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
 	e.tryEnemySurfaceWeapons(player, t)
@@ -228,8 +261,12 @@ func (e *Engine) tick(dt float64) {
 		if torp == nil || !torp.Alive {
 			continue
 		}
-		if det := torp.Advance(dt, t, shipTargets, e.torpedoLayerAtten); det != nil {
+		if det := torp.Advance(dt, t, shipTargets, e.torpedoLayerAtten, e.Scenario.Bathy); det != nil {
 			e.handleDetonation(det, t)
+		}
+		// Age-based wire expiry sets WireCut inside Advance — keep tube flags in sync.
+		if torp.WireCut {
+			e.FireControl.CutWire(torp)
 		}
 		if torp.Alive {
 			alive = append(alive, torp)
@@ -418,6 +455,8 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 		} else {
 			e.Events = append(e.Events, "Target hit: "+det.Hit.Name+" — damaged")
 		}
+	} else if det.Grounded {
+		e.Events = append(e.Events, "Torpedo struck bottom — warhead detonation")
 	} else {
 		e.Events = append(e.Events, "Underwater explosion")
 	}
@@ -441,6 +480,22 @@ func (e *Engine) syncDamageSideEffects(ent *world.Entity) {
 		if ent.Damage.Destroyed(world.SysActive) {
 			e.Sonar.ActiveEnabled = false
 			ent.ActiveSonar = false
+		}
+		if ent.Damage.Destroyed(world.SysESM) {
+			e.ESM.Sheared = true
+			e.ESM.Order = acoustics.ESMMastStow
+			e.ESM.Extension = 0
+		}
+		if ent.Damage.Destroyed(world.SysCOMM) {
+			e.COMM.Sheared = true
+			e.COMM.Order = acoustics.COMMMastStow
+			e.COMM.Extension = 0
+		}
+		if ent.Damage.Destroyed(world.SysPeriscope) {
+			e.Periscope.Sheared = true
+			e.Periscope.Order = acoustics.PeriMastStow
+			e.Periscope.Extension = 0
+			e.Periscope.ClearLock()
 		}
 	} else {
 		if ent.Damage.Destroyed(world.SysActive) {

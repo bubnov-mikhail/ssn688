@@ -94,12 +94,13 @@ type SonarState struct {
 	nextBioAt       float64
 	// SonarDeafUntil — temporary washout after nearby underwater detonation.
 	SonarDeafUntil    float64
-	LastBlastAt       float64
-	LastBlastX        float64
-	LastBlastY        float64
-	LastBlastRangeYd  float64 // washout visibility radius for this event
-	LastBlastFlashSec float64
-	contactSeq        int
+	LastBlastAt         float64
+	LastBlastX          float64
+	LastBlastY          float64
+	LastBlastRangeYd    float64 // washout visibility radius for this event
+	LastBlastFlashSec   float64
+	LastBlastEntityID   string  // hit platform — peri IR flash tracks this hull
+	contactSeq          int
 	// activeEchoDone marks SourceEntityIDs already processed for the current ping.
 	activeEchoDone map[string]bool
 	activeEchoAt   float64
@@ -164,6 +165,9 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		baseline = TowedBaselineYd(sonar.TowedCablePct)
 	}
 
+	selfNoise := SelfNoiseSpectrum(listenFrom, model.Env, PassiveArrayHull, 0)
+	ambient := model.Env.AmbientSpectrum(listenFrom.DepthFt)
+
 	for _, em := range emitters {
 		if em.ID == listener.ID {
 			continue
@@ -176,7 +180,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			continue
 		}
 
-		result := model.Detect(listenFrom, em, ModePassive, 0)
+		result := model.detect(listenFrom, em, ModePassive, 0, &selfNoise, &ambient)
 		ApplyListenBand(&result, sonar.ListenBand)
 		applyPassiveArrayModifiers(&result, sonar)
 		rel := AngleDiffDeg(result.BearingDeg, listener.HeadingDeg)
@@ -284,7 +288,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 
 	filtered := sonar.Contacts[:0]
 	for _, c := range sonar.Contacts {
-		if gameTime-c.LastUpdate < 50 {
+		if gameTime-c.LastUpdate < 60 {
 			filtered = append(filtered, c)
 		}
 	}

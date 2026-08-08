@@ -25,10 +25,15 @@ const (
 
 	spectrumTableX           = 40
 	spectrumTableY           = 278
-	spectrumTableW           = 450
+	spectrumTableW           = 480
 	spectrumTableRow         = 22
 	spectrumTableVisibleRows = 15
-	spectrumChartX           = 510
+	spectrumColID            = 8
+	spectrumColBRG           = 72
+	spectrumColRNG           = 118
+	spectrumColSRC           = 200
+	spectrumColCLASS         = 290
+	spectrumChartX           = 540
 	spectrumChartW           = spectrumScreenPanelX + spectrumScreenPanelW - spectrumChartX - 20
 	spectrumChartLabelInset  = 14
 	spectrumSigPanelH        = 118
@@ -143,7 +148,17 @@ func (a *App) spectrumBinsForUI(sonar *acoustics.SonarState) (bins []float64, be
 
 func (a *App) spectrumClassifyFilter(bins []float64, bearing float64) acoustics.ClassifyFilter {
 	mix := acoustics.CountSpectrumMixContacts(&a.Engine.Sonar, bearing)
-	return acoustics.AnalyzeClassifyFilter(bins, mix)
+	f := acoustics.AnalyzeClassifyFilter(bins, mix)
+	if f != acoustics.ClassifyIndistinct {
+		return f
+	}
+	// RF intercept on the selected track unlocks the platform library without tonals,
+	// so the player can hull-ID from ESM equipment type via LIBRARY.
+	c := a.selectedContact(&a.Engine.Sonar)
+	if c != nil && a.Engine.ESM.HasRecentRF(c.SourceEntityID, a.Engine.Clock.GameTime) {
+		return acoustics.ClassifyPlatformOnly
+	}
+	return f
 }
 
 func (a *App) ensureReferenceInFilter(f acoustics.ClassifyFilter) {
@@ -254,11 +269,11 @@ func (a *App) confirmClassification(sonar *acoustics.SonarState, filter acoustic
 
 func (a *App) drawSpectrumContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	render.FillRect(screen, spectrumTableX, spectrumTableY, spectrumTableW, spectrumTableHeight(), render.ColorPanelInset)
-	render.DrawText(screen, "CONTACT", spectrumTableX+8, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG°", spectrumTableX+72, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RNG kyd", spectrumTableX+118, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "SOURCE", spectrumTableX+162, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "CLASS", spectrumTableX+230, spectrumTableY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "ID", spectrumTableX+spectrumColID, spectrumTableY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "BRG°", spectrumTableX+spectrumColBRG, spectrumTableY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "RNG kyd", spectrumTableX+spectrumColRNG, spectrumTableY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "SOURCE", spectrumTableX+spectrumColSRC, spectrumTableY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, "CLASS", spectrumTableX+spectrumColCLASS, spectrumTableY+16, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	player := a.Engine.Scenario.Player
@@ -278,11 +293,11 @@ func (a *App) drawSpectrumContactTable(screen *ebiten.Image, sonar *acoustics.So
 		if c.ConfirmedClass != "" {
 			clr = render.ColorAmber
 		}
-		render.DrawText(screen, c.ID, spectrumTableX+8, y+16, clr, true)
-		render.DrawText(screen, contactBearingLabel(c), spectrumTableX+72, y+16, clr, true)
-		render.DrawText(screen, contactRangeLabel(c), spectrumTableX+118, y+16, clr, true)
-		render.DrawText(screen, contactSourceLabel(c, player, sonar), spectrumTableX+162, y+16, clr, true)
-		render.DrawText(screen, contactClassLabel(c), spectrumTableX+230, y+16, clr, true)
+		render.DrawText(screen, c.ID, spectrumTableX+spectrumColID, y+16, clr, true)
+		render.DrawText(screen, contactBearingLabel(c), spectrumTableX+spectrumColBRG, y+16, clr, true)
+		render.DrawText(screen, contactRangeLabel(c), spectrumTableX+spectrumColRNG, y+16, clr, true)
+		render.DrawText(screen, contactSourceLabel(c, player, sonar), spectrumTableX+spectrumColSRC, y+16, clr, true)
+		render.DrawText(screen, contactClassLabel(c), spectrumTableX+spectrumColCLASS, y+16, clr, true)
 		y += spectrumTableRow
 	}
 	drawContactTableScrollbar(screen, spectrumTableX+spectrumTableW+4, spectrumTableY+spectrumTableRow, spectrumTableVisibleRows*spectrumTableRow, len(sonar.Contacts), spectrumTableVisibleRows, a.contactTableScroll.spectrum)
@@ -577,7 +592,7 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	}
 	help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT manual bearing"
 	if filter == acoustics.ClassifyIndistinct {
-		help = "[B] array  LEFT/RIGHT manual bearing  — classify locked (no clear harmonics)"
+		help = "[B] array  LEFT/RIGHT manual bearing  — classify locked (no clear harmonics; ESM RF unlocks)"
 	}
 	render.DrawText(screen, help, 40, 720, render.ColorDim, true)
 }

@@ -33,6 +33,7 @@ func (a *App) navItems() []navItem {
 		{ScreenLibrary, render.IconLibrary, "LIBRARY", "Threat library — platforms, weapons, tactics", "F4"},
 		{ScreenFireControl, render.IconWeapons, "WEPS", "Fire control — torpedo tubes and launch", "F5"},
 		{ScreenManeuver, render.IconManeuver, "HELM", "Maneuvering room — speed, course, depth", "F6"},
+		{ScreenMast, render.IconMast, "MAST", "ESM / COMM / periscope — intercept, traffic, optic", "F8"},
 		{ScreenDamage, render.IconDamage, "DC", "Damage control — systems status and repair", "F7"},
 		{ScreenTactical, render.IconTactical, "PLOT", "Tactical plot — overview of the battlespace", "M"},
 	}

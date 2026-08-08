@@ -326,6 +326,9 @@ func (a *App) isOwnTorpedoContact(c *acoustics.Contact) bool {
 	if id == "" {
 		return false
 	}
+	if a.ownTorpedoIDs != nil && a.ownTorpedoIDs[id] {
+		return true
+	}
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
 		if t != nil && t.Alive && t.Side == world.SidePlayer && t.ID == id {
 			return true

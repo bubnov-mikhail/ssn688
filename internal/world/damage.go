@@ -19,6 +19,9 @@ const (
 	SysSteering   // rudder
 	SysPropulsion // shaft / screw / plant
 	SysHull       // pressure hull / buoyancy
+	SysESM        // ESM / EW mast (688 sail antenna)
+	SysCOMM       // HF/VLF communications mast
+	SysPeriscope  // optical / photonics mast
 	SysCount
 )
 
@@ -144,6 +147,12 @@ func SystemName(sys int) string {
 		return "Propulsion"
 	case SysHull:
 		return "Pressure Hull"
+	case SysESM:
+		return "ESM Mast"
+	case SysCOMM:
+		return "COMM Mast"
+	case SysPeriscope:
+		return "Periscope"
 	default:
 		return "Unknown"
 	}
@@ -408,7 +417,7 @@ func hitCandidates(kind EntityKind) []int {
 		SysSteering, SysPropulsion, SysHull,
 	}
 	if kind == KindSubmarine {
-		base = append(base, SysTowed, SysDepth)
+		base = append(base, SysTowed, SysDepth, SysESM, SysCOMM, SysPeriscope)
 	}
 	return base
 }

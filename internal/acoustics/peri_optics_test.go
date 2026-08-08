@@ -1,0 +1,98 @@
+package acoustics
+
+import (
+	"math"
+	"testing"
+
+	"github.com/ssn688/sim/internal/world"
+)
+
+func TestEyeAboveWaterAtPeriscopeDepth(t *testing.T) {
+	h := EyeAboveWaterFt(60, 1)
+	if h < periMinEyeAboveWaterFt-0.01 {
+		t.Fatalf("PD eye height %.2f, want >= %.0f ft floor", h, periMinEyeAboveWaterFt)
+	}
+	if EyeAboveWaterFt(60, 0) != 0 {
+		t.Fatal("stowed should be 0")
+	}
+	half := EyeAboveWaterFt(60, 0.5)
+	if math.Abs(half-h*0.5) > 0.01 {
+		t.Fatalf("extension scale: %.2f vs %.2f", half, h*0.5)
+	}
+}
+
+func TestGeometricHorizon(t *testing.T) {
+	// 6 ft → ~2.87 nm → ~5800 yd
+	h := GeometricHorizonYd(6)
+	want := 1.17 * math.Sqrt(6) * world.YardsPerNM
+	if math.Abs(h-want) > 1 {
+		t.Fatalf("horizon %.0f want %.0f", h, want)
+	}
+}
+
+func TestBearingToViewX(t *testing.T) {
+	x, ok := BearingToViewX(90, 90, 32, 320)
+	if !ok || x < 155 || x > 165 {
+		t.Fatalf("center x=%d ok=%v", x, ok)
+	}
+	_, ok = BearingToViewX(90+20, 90, 32, 320)
+	if ok {
+		t.Fatal("20° off 32° FOV should be outside")
+	}
+	xL, ok := BearingToViewX(90-16, 90, 32, 320)
+	if !ok || xL > 5 {
+		t.Fatalf("left edge x=%d", xL)
+	}
+}
+
+func TestShipBeamAspect(t *testing.T) {
+	if ShipBeamAspect01(90, 90) > 0.05 {
+		t.Fatal("bow-on should be near 0")
+	}
+	if ShipBeamAspect01(90, 0) < 0.95 {
+		t.Fatal("beam-on should be near 1")
+	}
+}
+
+func TestProjectSurfaceShipInFOV(t *testing.T) {
+	ship := &world.Entity{
+		ID: "m", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		X: 0, Y: 2000, HeadingDeg: 90, LengthFt: 520, SignatureID: "merchant",
+	}
+	const horizonY = 100
+	// Look north toward ship at Y+.
+	proj, ok := ProjectSurfaceShip(0, 0, 0, 32, 360, 200, horizonY, 8000, 6, ship)
+	if !ok {
+		t.Fatal("expected projection")
+	}
+	if proj.WidthPx < 2 {
+		t.Fatalf("proj %#v", proj)
+	}
+	// At ~2000 yd / 6 ft HOE the waterline sits essentially on the horizon.
+	if proj.WaterY > horizonY+4 {
+		t.Fatalf("waterline too low for PD eye height: WaterY=%d horizon=%d", proj.WaterY, horizonY)
+	}
+	near := &world.Entity{
+		ID: "n", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		X: 0, Y: 120, HeadingDeg: 0, LengthFt: 520, SignatureID: "merchant",
+	}
+	nearProj, ok := ProjectSurfaceShip(0, 0, 0, 32, 360, 200, horizonY, 8000, 6, near)
+	if !ok {
+		t.Fatal("expected near projection")
+	}
+	if nearProj.WaterY <= proj.WaterY {
+		t.Fatalf("near ship should sit lower than far: near=%d far=%d", nearProj.WaterY, proj.WaterY)
+	}
+	// Look east — ship is north, outside FOV.
+	_, ok = ProjectSurfaceShip(0, 0, 90, 32, 360, 200, horizonY, 8000, 6, ship)
+	if ok {
+		t.Fatal("should be outside FOV")
+	}
+}
+
+func TestSeaSurfacePixelYHugsHorizon(t *testing.T) {
+	y := SeaSurfacePixelY(6, 2500, 360, 200, 90, 32)
+	if y > 93 {
+		t.Fatalf("2500 yd should hug horizon, got y=%d", y)
+	}
+}

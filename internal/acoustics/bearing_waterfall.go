@@ -47,6 +47,9 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 		listenFrom = &towedListen
 	}
 
+	selfNoise := SelfNoiseSpectrum(listenFrom, model.Env, PassiveArrayHull, 0)
+	ambient := model.Env.AmbientSpectrum(listenFrom.DepthFt)
+
 	for _, em := range emitters {
 		if em == nil || em.ID == listener.ID {
 			continue
@@ -54,7 +57,7 @@ func BearingWaterfallInto(dst []float64, model Model, listener *world.Entity, em
 		if !em.Alive() && em.Status != world.StatusSinking {
 			continue
 		}
-		result := model.Detect(listenFrom, em, ModePassive, 0)
+		result := model.detect(listenFrom, em, ModePassive, 0, &selfNoise, &ambient)
 		ApplyListenBand(&result, synth.ListenBand)
 		applyPassiveArrayModifiers(&result, &synth)
 		// Beampattern relative to tow/hull axis (ownship heading).

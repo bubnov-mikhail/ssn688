@@ -72,6 +72,11 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	eng.Sonar.LastPingTime = 100.5
 	eng.Sonar.PassiveArray = acoustics.PassiveArrayTowed
 	eng.Sonar.TowedCablePct = 0.65
+	eng.Periscope.Order = acoustics.PeriMastRaise
+	eng.Periscope.Extension = 0.85
+	eng.Periscope.TrainRelDeg = -25
+	eng.Periscope.Zoom = acoustics.PeriZoomMed
+	eng.Periscope.LockEntityID = "enemy_foxtrot"
 	eng.Sonar.Contacts = []acoustics.Contact{{
 		ID: "C1", BearingDeg: 33, EstimatedRangeYd: 4200, SNR: 12,
 		BestMatchID: "foxtrot", BestMatchName: "Foxtrot SS", Confidence: 0.7,
@@ -169,6 +174,14 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	if got.Sonar.ListenBand != acoustics.ListenHF {
 		t.Fatalf("listen band %v", got.Sonar.ListenBand)
 	}
+	if got.Periscope.Order != acoustics.PeriMastRaise || got.Periscope.Zoom != acoustics.PeriZoomMed {
+		t.Fatalf("peri order/zoom %v/%d", got.Periscope.Order, got.Periscope.Zoom)
+	}
+	assertNear(t, "peri.ext", got.Periscope.Extension, 0.85)
+	assertNear(t, "peri.train", got.Periscope.TrainRelDeg, -25)
+	if got.Periscope.LockEntityID != "enemy_foxtrot" {
+		t.Fatalf("peri.lock=%q", got.Periscope.LockEntityID)
+	}
 	assertNear(t, "sonar.ping", got.Sonar.LastPingTime, 100.5)
 	if len(got.Sonar.Contacts) != 1 || got.Sonar.Contacts[0].SourceEntityID != "enemy_foxtrot" {
 		t.Fatalf("contacts %#v", got.Sonar.Contacts)
@@ -221,7 +234,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		t.Fatal("gyro should stay enabled after load")
 	}
 	ord := gf.OrderedHead
-	gf.Advance(0.1, got.Clock.GameTime+0.1, nil, nil)
+	gf.Advance(0.1, got.Clock.GameTime+0.1, nil, nil, nil)
 	if math.Abs(gf.OrderedHead-ord) > 1e-6 {
 		t.Fatalf("OrderedHead changed after load advance: %.3f -> %.3f", ord, gf.OrderedHead)
 	}

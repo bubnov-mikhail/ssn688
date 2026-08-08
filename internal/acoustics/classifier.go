@@ -19,10 +19,18 @@ func Classify(signal Spectrum, peakSNR, rangeYd float64) Classification {
 	best := Classification{Confidence: 0.3}
 	bestDist := math.MaxFloat64
 
-	for _, p := range world.SignatureLibrary {
-		template := templateSpectrum(p)
+	for i, p := range world.SignatureLibrary {
+		var template Spectrum
+		var blade float64
+		if i < len(profileCaches) {
+			c := &profileCaches[i]
+			template = c.template
+			blade = bladeRateMatchCached(signal, c)
+		} else {
+			template = templateSpectrum(p)
+			blade = bladeRateMatch(signal, p.BladeRateHz)
+		}
 		dist := spectralDistance(signal, template)
-		blade := bladeRateMatch(signal, p.BladeRateHz)
 
 		conf := math.Max(0.3, 1.0-dist/35) + blade*0.1
 		if peakSNR > 12 {
@@ -121,6 +129,13 @@ func AccumulateConfidence(current float64, measured float64, listenTime float64)
 }
 
 func templateSpectrum(p world.SignatureProfile) Spectrum {
+	if c := cacheForProfile(p); c != nil {
+		return c.template
+	}
+	return computeTemplateSpectrum(p, nil)
+}
+
+func computeTemplateSpectrum(p world.SignatureProfile, c *profileBandCache) Spectrum {
 	var s Spectrum
 	for i := 0; i < NumBands; i++ {
 		freq := BandCenterHz(i)
@@ -133,11 +148,18 @@ func templateSpectrum(p world.SignatureProfile) Spectrum {
 		if level < -100 {
 			level = 75
 		}
-		level += TonalBoostDB(p, freq)
-		if p.BladeRateHz > 0 {
-			rem := math.Mod(freq, p.BladeRateHz)
-			if rem < p.BladeRateHz*0.1 {
+		if c != nil {
+			level += c.tonalBoost[i]
+			if c.bladeTemplate[i] {
 				level += 6
+			}
+		} else {
+			level += TonalBoostDB(p, freq)
+			if p.BladeRateHz > 0 {
+				rem := math.Mod(freq, p.BladeRateHz)
+				if rem < p.BladeRateHz*0.1 {
+					level += 6
+				}
 			}
 		}
 		s[i] = level
@@ -158,6 +180,26 @@ func bladeRateMatch(signal Spectrum, bladeHz float64) float64 {
 			if signal[i] > peak {
 				peak = signal[i]
 			}
+		}
+	}
+	if sigPeak < -50 {
+		return 0
+	}
+	return math.Min(1, math.Max(0, (peak-(sigPeak-18))/18))
+}
+
+func bladeRateMatchCached(signal Spectrum, c *profileBandCache) float64 {
+	if c == nil || c.bladeHz <= 0 {
+		return 0
+	}
+	peak := 0.0
+	sigPeak := signal.Peak()
+	for i := 0; i < NumBands; i++ {
+		if !c.bladeClass[i] {
+			continue
+		}
+		if signal[i] > peak {
+			peak = signal[i]
 		}
 	}
 	if sigPeak < -50 {

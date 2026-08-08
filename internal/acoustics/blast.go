@@ -23,7 +23,7 @@ func ApplyDetonationDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTi
 		deafRange = weapons.BlastDeafRadiusYd * 2.2
 		flashSec = 32.0
 	}
-	stampBlastWashout(sonar, listener, x, y, gameTime, washRange, deafRange, flashSec)
+	stampBlastWashout(sonar, listener, x, y, gameTime, washRange, deafRange, flashSec, hit)
 }
 
 // ApplyCookOffDeaf is a lighter secondary magazine/fuel flash on a sinking wreck.
@@ -39,15 +39,22 @@ func ApplyCookOffDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTime 
 		deafRange = weapons.BlastDeafRadiusYd * 1.2
 		flashSec = 12.0
 	}
-	stampBlastWashout(sonar, listener, x, y, gameTime, washRange, deafRange, flashSec)
+	stampBlastWashout(sonar, listener, x, y, gameTime, washRange, deafRange, flashSec, hit)
 }
 
-func stampBlastWashout(sonar *SonarState, listener *world.Entity, x, y, gameTime, washRange, deafRange, flashSec float64) {
+func stampBlastWashout(sonar *SonarState, listener *world.Entity, x, y, gameTime, washRange, deafRange, flashSec float64, hit *world.Entity) {
 	sonar.LastBlastAt = gameTime
 	sonar.LastBlastX = x
 	sonar.LastBlastY = y
 	sonar.LastBlastRangeYd = washRange
 	sonar.LastBlastFlashSec = flashSec
+	sonar.LastBlastEntityID = ""
+	if hit != nil {
+		sonar.LastBlastEntityID = hit.ID
+		// Anchor to the hull so the visual follows a moving/sinking target.
+		sonar.LastBlastX = hit.X
+		sonar.LastBlastY = hit.Y
+	}
 	dist := math.Hypot(listener.X-x, listener.Y-y)
 	if dist <= deafRange {
 		until := gameTime + weapons.BlastDeafDurationSec*(0.35+0.45*(1-dist/deafRange))

@@ -16,7 +16,7 @@ const (
 	dcPanelY = 50
 	dcPanelW = 1260
 	dcPanelH = 700
-	dcRowH   = 36
+	dcRowH   = 32
 )
 
 func (a *App) updateDamageUI() {
@@ -44,8 +44,9 @@ func (a *App) damageButtons() []uiButton {
 	d := &player.Damage
 	btns := make([]uiButton, 0, world.SysCount)
 	tableY := dcPanelY + 90
+	row := 0
 	for sys := 0; sys < world.SysCount; sys++ {
-		if player.Kind != world.KindSubmarine && (sys == world.SysTowed || sys == world.SysDepth) {
+		if player.Kind != world.KindSubmarine && (sys == world.SysTowed || sys == world.SysDepth || sys == world.SysESM || sys == world.SysCOMM || sys == world.SysPeriscope) {
 			continue
 		}
 		label := "REPAIR"
@@ -62,7 +63,8 @@ func (a *App) damageButtons() []uiButton {
 				tip = "Destroyed beyond repair"
 			}
 		}
-		y := tableY + sys*dcRowH
+		y := tableY + row*dcRowH
+		row++
 		btns = append(btns, uiButton{
 			ID:      fmt.Sprintf("dc_repair_%d", sys),
 			Label:   label,
@@ -111,11 +113,13 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 	render.DrawLine(screen, float64(dcPanelX+30), float64(hy+8), float64(dcPanelX+dcPanelW-30), float64(hy+8), render.ColorBevelLight)
 
 	tableY := dcPanelY + 90
+	row := 0
 	for sys := 0; sys < world.SysCount; sys++ {
-		if player.Kind != world.KindSubmarine && (sys == world.SysTowed || sys == world.SysDepth) {
+		if player.Kind != world.KindSubmarine && (sys == world.SysTowed || sys == world.SysDepth || sys == world.SysESM || sys == world.SysCOMM || sys == world.SysPeriscope) {
 			continue
 		}
-		y := tableY + sys*dcRowH
+		y := tableY + row*dcRowH
+		row++
 		eff := d.EffOf(sys)
 		status := world.SystemStatusLabel(d, sys)
 		clr := color.RGBA{0, 200, 120, 255}

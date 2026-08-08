@@ -37,6 +37,12 @@ func NewModel(env Environment) Model {
 
 // Detect evaluates whether listener detects target using passive or active sonar.
 func (m Model) Detect(listener, target *world.Entity, mode DetectionMode, activePower float64) DetectionResult {
+	return m.detect(listener, target, mode, activePower, nil, nil)
+}
+
+// detect is the shared implementation. Optional selfNoise/ambient avoid recomputing
+// listener floors when scanning many emitters in one passive pass.
+func (m Model) detect(listener, target *world.Entity, mode DetectionMode, activePower float64, selfNoise, ambient *Spectrum) DetectionResult {
 	if !listener.Alive() || target == nil || listener.ID == target.ID {
 		return DetectionResult{}
 	}
@@ -72,8 +78,13 @@ func (m Model) Detect(listener, target *world.Entity, mode DetectionMode, active
 		return DetectionResult{}
 	}
 
-	selfNoise := SelfNoiseSpectrum(listener, m.Env, PassiveArrayHull, 0)
-	snr := received.SubNoise(selfNoise)
+	var snFloor Spectrum
+	if selfNoise != nil {
+		snFloor = *selfNoise
+	} else {
+		snFloor = SelfNoiseSpectrum(listener, m.Env, PassiveArrayHull, 0)
+	}
+	snr := received.SubNoise(snFloor)
 	if mode == ModePassive {
 		rel := AngleDiffDeg(bearing, listener.HeadingDeg)
 		if penalty := PassiveSelfNoisePenaltyDB(PassiveArrayHull, rel, listener.SpeedKts, listener.DepthFt, 0); penalty > 0 {
@@ -87,8 +98,13 @@ func (m Model) Detect(listener, target *world.Entity, mode DetectionMode, active
 	bands := snr.BandsAbove(DetectThreshold)
 	detected := bands >= MinDetectBands || peak >= PeakDetectSNR
 
-	ambient := m.Env.AmbientSpectrum(listener.DepthFt)
-	signalClassify := received.SubNoise(ambient)
+	var amb Spectrum
+	if ambient != nil {
+		amb = *ambient
+	} else {
+		amb = m.Env.AmbientSpectrum(listener.DepthFt)
+	}
+	signalClassify := received.SubNoise(amb)
 
 	return DetectionResult{
 		Detected:          detected,

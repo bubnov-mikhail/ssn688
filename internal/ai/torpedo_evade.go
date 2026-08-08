@@ -26,6 +26,10 @@ type EvadeContext struct {
 	CM       *weapons.CountermeasureSystem
 	Env      acoustics.Environment
 	GameTime float64
+	Weather  world.Weather
+	ESM      *acoustics.ESMState
+	COMM     *acoustics.COMMState
+	Peri     *acoustics.PeriscopeState
 }
 
 // tryEvadeTorpedo steers, deploys CM, and accelerates away from the most threatening fish.

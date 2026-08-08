@@ -24,24 +24,34 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 	if !ok {
 		return NewSpectrumFlat(80)
 	}
+	pc := cacheForSignatureID(e.SignatureID)
 
 	var s Spectrum
 	for i := 0; i < NumBands; i++ {
 		freq := BandCenterHz(i)
-		level := -200.0
-		for _, b := range profile.Bands {
-			if freq >= b.LowHz && freq <= b.HighHz {
-				level = combineDB(level, b.LevelDB)
+		var level float64
+		if pc != nil {
+			level = pc.baseLevel[i]
+		} else {
+			level = -200.0
+			for _, b := range profile.Bands {
+				if freq >= b.LowHz && freq <= b.HighHz {
+					level = combineDB(level, b.LevelDB)
+				}
 			}
-		}
-		if level < -100 {
-			level = 70
+			if level < -100 {
+				level = 70
+			}
 		}
 
 		if e.Kind == world.KindTorpedo {
 			// Torpedo propulsion is HF-heavy; do not apply ship machinery curve.
 			level += math.Min(6, (e.SpeedKts-20)*0.08)
-			level += TonalBoostDB(profile, freq)
+			if pc != nil {
+				level += pc.tonalBoost[i]
+			} else {
+				level += TonalBoostDB(profile, freq)
+			}
 			if profile.BladeRateHz > 0 {
 				rem := math.Mod(freq, profile.BladeRateHz)
 				if rem < profile.BladeRateHz*0.15 || profile.BladeRateHz-rem < profile.BladeRateHz*0.15 {
@@ -60,12 +70,22 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 		level += machineryNoiseDB(spd)
 
 		// Discrete LOFAR/DEMON tonals (Cold Waters fingerprint lines).
-		level += TonalBoostDB(profile, freq)
+		if pc != nil {
+			level += pc.tonalBoost[i]
+		} else {
+			level += TonalBoostDB(profile, freq)
+		}
 
 		// Propeller blade rate harmonics (broadband reinforcement).
 		if profile.BladeRateHz > 0 {
-			rem := math.Mod(freq, profile.BladeRateHz)
-			if rem < profile.BladeRateHz*0.12 || profile.BladeRateHz-rem < profile.BladeRateHz*0.12 {
+			onBlade := false
+			if pc != nil {
+				onBlade = pc.bladeNear[i]
+			} else {
+				rem := math.Mod(freq, profile.BladeRateHz)
+				onBlade = rem < profile.BladeRateHz*0.12 || profile.BladeRateHz-rem < profile.BladeRateHz*0.12
+			}
+			if onBlade {
 				level += 4 + spd*0.12
 			}
 		}

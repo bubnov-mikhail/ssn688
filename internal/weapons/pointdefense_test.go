@@ -20,8 +20,9 @@ func testDD(id string, x, y, heading float64, defcon int) *world.Entity {
 func inboundHarpoon(x, y, heading float64) *HarpoonMissile {
 	return &HarpoonMissile{
 		ID: "H-1", ParentSubID: "P", Alive: true, Phase: HarpoonCruise,
-		X: x, Y: y, HeadingDeg: heading, SpeedKts: HarpoonCruiseKts,
-		VisibleOnWEPS: true, RadarOn: true,
+		X: x, Y: y, LaunchX: x, LaunchY: y, HeadingDeg: heading, ProgrammedHead: heading,
+		SpeedKts: HarpoonCruiseKts, VisibleOnWEPS: true, RadarOn: true,
+		DestructRangeYd: HarpoonMaxRangeYd, BeamHalfDeg: HarpoonWideBeamDeg,
 	}
 }
 

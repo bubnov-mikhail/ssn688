@@ -142,8 +142,8 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 func isCriticalClip(id ClipID) bool {
 	switch id {
 	case ClipWepsTorpedoInWater, ClipWepsTorpedoHeadingOwnship, ClipWepsImpactConfirmed,
-		ClipCaptMissionBrief, ClipCaptHoldSimulation,
-		ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost:
+		ClipCaptHoldSimulation,
+		ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost, ClipCaptCommMessage:
 		return true
 	default:
 		// Tube fire callouts are short and situational — treat as critical.
@@ -270,6 +270,13 @@ func (m *Manager) PlayTorpedoLaunch() {
 	m.playFXLocked(generateSweepWAV(m.sampleRate, 200, 80, 0.5), m.fxVol*m.masterVol)
 }
 
+// PlayESMHit is a short RWR-style chirp when a search radar main beam paints the mast.
+func (m *Manager) PlayESMHit() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.playFXLocked(generateESMChirpWAV(m.sampleRate), m.fxVol*m.masterVol*0.5)
+}
+
 // StopAll clears queued/playing voices and FX so a session can release cleanly.
 func (m *Manager) StopAll() {
 	m.mu.Lock()
@@ -367,8 +374,6 @@ func (s *streamPlayer) Close() error { return nil }
 
 func humanSubtitle(id ClipID) string {
 	switch id {
-	case ClipCaptMissionBrief:
-		return "Rig ship for silent running. Locate and engage assigned targets."
 	case ClipCaptHoldSimulation:
 		return "Hold simulation."
 	case ClipCaptSaveComplete:
@@ -379,6 +384,8 @@ func humanSubtitle(id ClipID) string {
 		return "Critical damage. System casualty."
 	case ClipCaptOwnshipLost:
 		return "Own ship lost. We are sinking."
+	case ClipCaptCommMessage:
+		return "Flash traffic. Incoming message."
 	case ClipSonarPassiveOn:
 		return "Passive sonar online."
 	case ClipSonarPassiveOff:
@@ -459,6 +466,31 @@ func generateToneWAV(sampleRate int, freqHz, durationSec, amp float64) []byte {
 
 func generateEnemyPingWAV(sampleRate int) []byte {
 	return generateToneWAV(sampleRate, 2200, 0.12, 0.35)
+}
+
+// generateESMChirpWAV — brief descending RWR tick (~3.6→1.8 kHz, 60 ms).
+func generateESMChirpWAV(sampleRate int) []byte {
+	const (
+		dur = 0.06
+		f0  = 3600.0
+		f1  = 1800.0
+	)
+	n := int(float64(sampleRate) * dur)
+	out := make([]byte, n*2)
+	for i := 0; i < n; i++ {
+		t := float64(i) / float64(sampleRate)
+		p := t / dur
+		freq := f0 + (f1-f0)*p
+		env := 1.0
+		if p < 0.08 {
+			env = p / 0.08
+		} else if p > 0.55 {
+			env = (1 - p) / 0.45
+		}
+		s := math.Sin(2*math.Pi*freq*t) * 0.38 * env
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(s*32767)))
+	}
+	return out
 }
 
 func generateSweepWAV(sampleRate int, f0, f1, durationSec float64) []byte {

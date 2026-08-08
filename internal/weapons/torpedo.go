@@ -114,16 +114,17 @@ type Torpedo struct {
 
 // Detonation describes a warhead event for the sim (blast, deaf, sinking).
 type Detonation struct {
-	X, Y        float64
-	DepthFt     float64
-	Hit         *world.Entity // may be nil if scuttled without contact
-	SelfKill    bool          // intentional self-destruct — no blast/deaf
-	Harpoon     bool          // anti-ship missile warhead (surface)
-	Intercepted bool          // SAM/CIWS killed the missile
-	Debris      bool          // close-in intercept — fragment damage to Hit
-	RBU         bool          // RBU pattern splash — light ASW shock damage
-	LightWarhead bool         // UMGT-1 / SET-40 — reduced hull damage vs heavy fish
-	ShooterID   string
+	X, Y         float64
+	DepthFt      float64
+	Hit          *world.Entity // may be nil if scuttled without contact
+	SelfKill     bool          // intentional self-destruct — no blast/deaf
+	Grounded     bool          // struck coastline / seafloor (warhead cooks off)
+	Harpoon      bool          // anti-ship missile warhead (surface)
+	Intercepted  bool          // SAM/CIWS killed the missile
+	Debris       bool          // close-in intercept — fragment damage to Hit
+	RBU          bool          // RBU pattern splash — light ASW shock damage
+	LightWarhead bool          // UMGT-1 / SET-40 — reduced hull damage vs heavy fish
+	ShooterID    string
 }
 
 // FireControl manages 688-style torpedo firing.
@@ -193,8 +194,8 @@ func NewFireControl() FireControl {
 		RunDepthFt:           400,
 		SpeedSetting:         "HIGH",
 		SeekerEnabled:        false,
-		MagazineLeft:         PlayerMagazineCapacity - 4, // 4 Mk48 already in tubes
-		HarpoonMagLeft:       PlayerHarpoonMagazine,
+		MagazineLeft:         PlayerMagazineCapacity - 2, // tubes 1–2 Mk48
+		HarpoonMagLeft:       PlayerHarpoonMagazine - 2,  // tubes 3–4 Harpoon
 		HarpoonRadarBeam:     HarpoonBeamWide,
 		HarpoonRadarRange:    HarpoonSRCHMedium,
 		HarpoonDestructRange: HarpoonDSTRLong,
@@ -208,10 +209,14 @@ func NewFireControl() FireControl {
 		EnemyTubeOpenAt:      map[string]float64{},
 	}
 	for i := range fc.Tubes {
+		ord := OrdnanceMk48
+		if i >= 2 {
+			ord = OrdnanceHarpoon
+		}
 		fc.Tubes[i] = Tube{
 			Number:      i + 1,
 			State:       TubeLoaded,
-			TorpedoType: OrdnanceMk48,
+			TorpedoType: ord,
 		}
 	}
 	return fc
@@ -580,6 +585,16 @@ func (fc *FireControl) cutWireTorpedo(torp *Torpedo) {
 	if torp == nil {
 		return
 	}
+	// Already autonomous (manual CUT, door close, or age expiry). Closing the
+	// tube calls this again — must not reset ModeSearch / OrderedHead.
+	if torp.WireCut {
+		for i := range fc.Tubes {
+			if fc.Tubes[i].TorpedoID == torp.ID {
+				fc.Tubes[i].WireIntact = false
+			}
+		}
+		return
+	}
 	torp.WireCut = true
 	if torp.TubeCleared() {
 		torp.EnableSearchAfterClear = true
@@ -807,7 +822,8 @@ func speedKts(s string) float64 {
 
 // Advance moves the torpedo. Returns a detonation when the warhead goes off.
 // layerAtten (optional) models thermocline / layer loss for active seeker acquisition.
-func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAtten LayerAttenFunc) *Detonation {
+// bathy (optional) triggers grounding detonation on coastline / insufficient depth.
+func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAtten LayerAttenFunc, bathy *world.Bathymetry) *Detonation {
 	if !t.Alive {
 		return nil
 	}
@@ -881,8 +897,13 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 
 	rad := t.HeadingDeg * math.Pi / 180
 	yps := t.SpeedKts * world.KnotsToYPS
+	prevX, prevY := t.X, t.Y
 	t.X += math.Sin(rad) * yps * dt
 	t.Y += math.Cos(rad) * yps * dt
+
+	if det := t.checkGrounding(bathy, prevX, prevY); det != nil {
+		return det
+	}
 
 	// Influence fuse only while actively searching (not wire-run / transit).
 	if t.Armed && t.Age > 2 && t.Mode == ModeSearch {
@@ -926,6 +947,37 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 	}
 	if t.Age > maxAge {
 		t.Alive = false
+	}
+	return nil
+}
+
+// checkGrounding detonates if the move segment crosses land or the fish depth
+// meets/exceeds local seafloor (runs into the shelf / beach).
+func (t *Torpedo) checkGrounding(bathy *world.Bathymetry, prevX, prevY float64) *Detonation {
+	if t == nil || bathy == nil || !bathy.Valid() {
+		return nil
+	}
+	dx, dy := t.X-prevX, t.Y-prevY
+	dist := math.Hypot(dx, dy)
+	const sampleYd = 40.0
+	steps := int(dist/sampleYd) + 1
+	for i := 1; i <= steps; i++ {
+		f := float64(i) / float64(steps)
+		x := prevX + dx*f
+		y := prevY + dy*f
+		bottom := bathy.DepthAtFt(x, y)
+		hitLand := bottom <= 0
+		hitBottom := bottom > 0 && t.DepthFt >= bottom
+		if !hitLand && !hitBottom {
+			continue
+		}
+		t.X, t.Y = x, y
+		t.Alive = false
+		return &Detonation{
+			X: t.X, Y: t.Y, DepthFt: t.DepthFt,
+			Grounded: true, ShooterID: t.ParentSubID,
+			LightWarhead: t.Class == ClassUMGT1,
+		}
 	}
 	return nil
 }

@@ -186,6 +186,7 @@ func (a *App) wepsFireTube(fc *weapons.FireControl, player *world.Entity, tube i
 		return
 	}
 	if torp := fc.Shoot(player, tube); torp != nil {
+		a.markOwnTorpedo(torp.ID)
 		a.Audio.PlayTorpedoLaunch()
 		a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
 			fmt.Sprintf("Torpedo away, tube %d.", tube))
@@ -234,28 +235,38 @@ func (a *App) drawWepsHarpoonGeometry(screen *ebiten.Image, px, py float64, play
 	if h == nil || !h.VisibleOnWEPS {
 		return
 	}
-	tx := px + (h.X-player.X)*a.wepsMapZoom
-	ty := py - (h.Y-player.Y)*a.wepsMapZoom
+	ax, ay := h.AssumedXY()
+	tx := px + (ax-player.X)*a.wepsMapZoom
+	ty := py - (ay-player.Y)*a.wepsMapZoom
 	if !wepsMapMarkerInside(tx, ty) {
 		return
 	}
-	ex, ey := h.StraightLineEnd()
-	lx := px + (ex-player.X)*a.wepsMapZoom
-	ly := py - (ey-player.Y)*a.wepsMapZoom
+	head := h.ProgrammedHead
+	if head == 0 && h.HeadingDeg != 0 && h.AssumedDistanceYd < 1 {
+		head = h.HeadingDeg
+	}
+	// Compact markers (same order of magnitude as torpedo cone/line on WEPS).
+	const (
+		cruiseSec = 600.0
+		refSpd    = weapons.HarpoonCruiseKts
+	)
+	maxRangeYd := cruiseSec * refSpd * world.KnotsToYPS
+	coneYd := maxRangeYd / 80 // short seek cone
+	lineYd := maxRangeYd / 60 // short course stub
+
+	rad := head * math.Pi / 180
+	lx := tx + math.Sin(rad)*lineYd*a.wepsMapZoom
+	ly := ty - math.Cos(rad)*lineYd*a.wepsMapZoom
 	render.DrawLine(screen, tx, ty, lx, ly, color.RGBA{255, 140, 60, 255})
-	render.FillRect(screen, int(tx)-3, int(ty)-3, 7, 7, color.RGBA{255, 120, 40, 255})
+	render.FillRect(screen, int(tx)-2, int(ty)-2, 5, 5, color.RGBA{255, 120, 40, 255})
+
 	beam := h.BeamHalfDeg
 	if beam <= 0 {
 		beam = weapons.HarpoonWideBeamDeg
 	}
-	rad := h.HeadingDeg * math.Pi / 180
-	coneR := math.Min(12000, h.DestructRangeYd-h.DistanceYd) * a.wepsMapZoom * 0.15
-	if coneR < 40 {
-		coneR = 40
-	}
-	for _, ang := range []float64{h.HeadingDeg - beam, h.HeadingDeg + beam} {
+	coneR := coneYd * a.wepsMapZoom
+	for _, ang := range []float64{head - beam, head + beam} {
 		ar := ang * math.Pi / 180
 		render.DrawLine(screen, tx, ty, tx+math.Sin(ar)*coneR, ty-math.Cos(ar)*coneR, color.RGBA{255, 180, 80, 160})
 	}
-	_ = rad
 }

@@ -97,6 +97,10 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 		if t.Side == world.SidePlayer {
 			clr = render.ColorActive
 			label = "MK48"
+			if t.WireCut {
+				label = "MK48 AUTO"
+				clr = color.RGBA{0, 180, 200, 255}
+			}
 		}
 		a.drawDebugEntityAt(screen, view, t.X, t.Y, t.HeadingDeg, t.SpeedKts, clr, true, label)
 	}

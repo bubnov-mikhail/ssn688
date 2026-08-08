@@ -11,6 +11,27 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
+func TestOwnTorpedoContactRecognizedAfterDetonation(t *testing.T) {
+	app := NewApp(config.DefaultSettings(), nil)
+	eng := sim.NewEngine(world.NewTrainingScenario())
+	app.Engine = eng
+	app.markOwnTorpedo("MK48-1")
+
+	c := &acoustics.Contact{ID: "S1", SourceEntityID: "MK48-1", Kind: world.KindTorpedo, ConfirmedClass: "TORP"}
+	if !app.isOwnTorpedoContact(c) {
+		t.Fatal("own torpedo contact should still be recognized after fish is gone")
+	}
+	if !app.reportedTorpedoIDs["MK48-1"] {
+		t.Fatal("own fish should be marked so hostile alert is suppressed")
+	}
+}
+
+func TestGroundingEventIsWeaponImpact(t *testing.T) {
+	if !isWeaponImpactEvent("Torpedo struck bottom — warhead detonation") {
+		t.Fatal("grounding should count as weapon impact")
+	}
+}
+
 func TestTorpedoThreatensOwnshipDetectsCrossing(t *testing.T) {
 	if !torpedoThreatensOwnship(0, 0, 0, 0, 0, 4000, 180, 45) {
 		t.Fatal("expected crossing torpedo to threaten ownship")

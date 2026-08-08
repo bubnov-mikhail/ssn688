@@ -72,7 +72,7 @@ func TestDeferredSearchStaysWireUntilSafeDistance(t *testing.T) {
 	fish.MarkGyroEnabled(true)
 
 	for i := 0; i < 200; i++ {
-		fish.Advance(0.1, float64(i)*0.1, targets, nil)
+		fish.Advance(0.1, float64(i)*0.1, targets, nil, nil)
 		if fish.Mode == ModeSearch {
 			d := math.Hypot(fish.X-player.X, fish.Y-player.Y)
 			if d < SearchArmMinDistYd-20 {

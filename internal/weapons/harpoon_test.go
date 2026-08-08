@@ -1,6 +1,7 @@
 package weapons
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ssn688/sim/internal/world"
@@ -36,7 +37,7 @@ func TestRequestOrdnanceReload(t *testing.T) {
 	if tube.State != TubeReloading || tube.ReloadOrdnance != OrdnanceHarpoon {
 		t.Fatalf("state=%d ord=%s", tube.State, tube.ReloadOrdnance)
 	}
-	if fc.MagazineLeft != PlayerMagazineCapacity-4+1 {
+	if fc.MagazineLeft != PlayerMagazineCapacity-2+1 {
 		t.Fatalf("mk48 returned to mag: %d", fc.MagazineLeft)
 	}
 	if fc.HarpoonMagLeft != 1 {
@@ -71,8 +72,8 @@ func TestHarpoonTargetPriority(t *testing.T) {
 func TestHarpoonSeekerSteersTowardLock(t *testing.T) {
 	h := &HarpoonMissile{
 		Alive: true, Phase: HarpoonCruise, RadarOn: true,
-		HeadingDeg: 0, BeamHalfDeg: 45, SpeedKts: HarpoonCruiseKts,
-		X: 0, Y: 0, DestructRangeYd: HarpoonMaxRangeYd,
+		HeadingDeg: 0, ProgrammedHead: 0, BeamHalfDeg: 45, SpeedKts: HarpoonCruiseKts,
+		X: 0, Y: 0, LaunchX: 0, LaunchY: 0, DestructRangeYd: HarpoonMaxRangeYd,
 	}
 	tgt := &world.Entity{
 		ID: "dd", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
@@ -89,6 +90,50 @@ func TestHarpoonSeekerSteersTowardLock(t *testing.T) {
 	}
 	if h.HeadingDeg < 5 || h.HeadingDeg > 30 {
 		t.Fatalf("expected turn toward target, heading=%.1f", h.HeadingDeg)
+	}
+	ax, ay := h.AssumedXY()
+	// Assumed track stays on programmed north; real X drifts east toward target.
+	if math.Abs(ax) > 50 {
+		t.Fatalf("assumed track should stay on programmed course, ax=%.0f", ax)
+	}
+	if h.X <= ax+100 {
+		t.Fatalf("real missile should have steered off assumed track: realX=%.0f assumedX=%.0f", h.X, ax)
+	}
+	_ = ay
+}
+
+func TestHarpoonAssumedTrackSurvivesIntercept(t *testing.T) {
+	fc := NewFireControl()
+	h := &HarpoonMissile{
+		ID: "H-g", Alive: true, VisibleOnWEPS: true, Phase: HarpoonCruise,
+		HeadingDeg: 0, ProgrammedHead: 0, SpeedKts: HarpoonCruiseKts,
+		LaunchX: 0, LaunchY: 0, X: 0, Y: 0,
+		DestructRangeYd: 20000, AssumedDistanceYd: 1000,
+	}
+	fc.ActiveHarpoons = []*HarpoonMissile{h}
+	h.Alive = false // SAM soft-kill
+	dets := fc.AdvanceHarpoons(1.0, 50, nil, nil)
+	if len(dets) != 0 {
+		t.Fatalf("ghost advance should not detonate: %#v", dets)
+	}
+	if !h.VisibleOnWEPS {
+		t.Fatal("WEPS assumed track should remain after intercept")
+	}
+	if len(fc.ActiveHarpoons) != 1 {
+		t.Fatal("ghost harpoon should stay in ActiveHarpoons")
+	}
+	if h.AssumedDistanceYd <= 1000 {
+		t.Fatalf("assumed distance should advance, got %.0f", h.AssumedDistanceYd)
+	}
+}
+
+func TestNewFireControlHarpoonTubes(t *testing.T) {
+	fc := NewFireControl()
+	if fc.Tubes[0].TorpedoType != OrdnanceMk48 || fc.Tubes[1].TorpedoType != OrdnanceMk48 {
+		t.Fatal("tubes 1–2 should be Mk48")
+	}
+	if fc.Tubes[2].TorpedoType != OrdnanceHarpoon || fc.Tubes[3].TorpedoType != OrdnanceHarpoon {
+		t.Fatal("tubes 3–4 should be Harpoon")
 	}
 }
 

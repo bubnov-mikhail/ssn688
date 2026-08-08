@@ -25,6 +25,10 @@ type DefconContext struct {
 	Torps    []*weapons.Torpedo
 	Harpoons []*weapons.HarpoonMissile
 	Model    acoustics.Model
+	Weather  world.Weather
+	ESM      *acoustics.ESMState
+	COMM     *acoustics.COMMState
+	Peri     *acoustics.PeriscopeState
 	GameTime float64
 	Dt       float64
 }
@@ -46,6 +50,9 @@ func UpdateDefcon(ctx DefconContext) {
 		}
 		applyDefconProximity(ent, ctx.Player)
 		if heardPlayerActiveSonar(ctx.Model.Env, ent, ctx.Player, ctx.GameTime) {
+			ent.RaiseDefcon(world.DefconHostile)
+		}
+		if acoustics.EnemyRadarDetectsMast(ent, ctx.Player, ctx.Weather, ctx.ESM, ctx.COMM, ctx.Peri, ctx.GameTime) {
 			ent.RaiseDefcon(world.DefconHostile)
 		}
 	}
