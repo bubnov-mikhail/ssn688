@@ -241,7 +241,7 @@ func (a *App) handleSonarArrayKeys(sonar *acoustics.SonarState, allowTowedMotion
 	if inpututil.IsKeyJustPressed(ebiten.KeyY) {
 		a.sonarButtonAction("towed_retract", sonar)
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyH) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyH) && !a.debugPeriHitStealsH() {
 		a.sonarButtonAction("towed_stop", sonar)
 	}
 }

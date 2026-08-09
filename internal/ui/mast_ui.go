@@ -265,7 +265,7 @@ func (a *App) drawPeriscopeBlock(screen *ebiten.Image) {
 		status = "DESTROYED"
 		statusClr = render.ColorDanger
 	case peri.MastUp():
-		status = "RAISED — OPTIC READY"
+		status = "RAISED — IR SENSOR"
 		statusClr = render.ColorPhosphor
 	case peri.MastMoving():
 		if peri.Order == acoustics.PeriMastRaise {

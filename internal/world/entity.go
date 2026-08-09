@@ -53,10 +53,33 @@ type Entity struct {
 	// Magazine / fuel cook-offs after a kill: secondary underwater flashes.
 	CookOffLeft   int     // remaining secondary detonations
 	NextCookOffAt float64 // GameTime of next cook-off (0 = none scheduled)
+	// HullFireUntil is GameTime while peri IR should show burning wreckage on
+	// a surface ship after a warhead hit (persists after the blast flash).
+	HullFireUntil float64
 }
 
 func (e *Entity) Alive() bool {
 	return e.Status == StatusActive
+}
+
+// HullFireIntensity returns peri IR fire brightness (0..1) for a surface ship.
+// Soft-tails the last few seconds so wreckage fire does not pop off abruptly.
+func HullFireIntensity(fireUntil, gameTime float64) float64 {
+	if fireUntil <= gameTime {
+		return 0
+	}
+	rem := fireUntil - gameTime
+	const full = 25.0
+	const softTail = 4.0
+	if rem >= full {
+		return 1
+	}
+	if rem >= softTail {
+		return rem / full
+	}
+	// Ease the final seconds (continuous with rem/full at softTail).
+	u := rem / softTail
+	return (softTail / full) * u * u * (3 - 2*u)
 }
 
 // InWater reports platforms that still occupy the battlespace (incl. sinking wrecks).

@@ -63,16 +63,39 @@ func NewTrainingScenario() *Scenario {
 
 	placed := []*Entity{player}
 
-	// Weakest surface + weakest sub only — keeps the starter mission readable.
-	// Surface contact starts near ownship for MAST/ESM/periscope practice (DEFCON 0).
+	// Surface ships in a tight ring around ownship for peri size comparison
+	// (~0.6 nm). Beam-ish headings from placeAtBearing. Foxtrot stays farther.
 	enemyGrisha := &Entity{
 		ID: "enemy_grisha", Name: "Hostile Corvette", Kind: KindSurfaceShip, Side: SideEnemy,
 		Status: StatusActive, SignatureID: "grisha",
-		DepthFt: 0, SpeedKts: 16, OrderedSpeed: 16, OrderedDepth: 0,
+		DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, OrderedDepth: 0,
 		LengthFt: 235, AIState: "SEARCH", Defcon: DefconPassive,
 	}
-	placeAwayFrom(rng, enemyGrisha, player, 1200, 2800, nil, &bathy)
-	placed = append(placed, enemyGrisha)
+	nearCivilians := []*Entity{
+		{
+			ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
+			Status: StatusActive, SignatureID: "merchant",
+			DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, LengthFt: 520, AIState: "TRANSIT",
+		},
+		{
+			ID: "civ_tanker", Name: "MT Horizon", Kind: KindSurfaceShip, Side: SideNeutral,
+			Status: StatusActive, SignatureID: "tanker",
+			DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, LengthFt: 900, AIState: "TRANSIT",
+		},
+		{
+			ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
+			Status: StatusActive, SignatureID: "fishing",
+			DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, LengthFt: 140, AIState: "TRANSIT",
+		},
+	}
+	surfaceNear := append([]*Entity{enemyGrisha}, nearCivilians...)
+	// Cardinal bearings °T; same range so LOA differences read clearly in the optic.
+	const periCompareRangeYd = 1200.0
+	nearBrg := []float64{0, 90, 180, 270}
+	for i, e := range surfaceNear {
+		placeAtBearing(rng, e, player, nearBrg[i], periCompareRangeYd, &bathy)
+		placed = append(placed, e)
+	}
 
 	enemyFoxtrot := &Entity{
 		ID: "enemy_foxtrot", Name: "Hostile SS Foxtrot", Kind: KindSubmarine, Side: SideEnemy,
@@ -81,39 +104,13 @@ func NewTrainingScenario() *Scenario {
 		LengthFt: 300, AIState: "PATROL", Defcon: DefconPassive,
 	}
 	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
-	placeAwayFrom(rng, enemyFoxtrot, player, 4500, 9000, placed[1:], &bathy)
+	placeAwayFrom(rng, enemyFoxtrot, player, 12000, 16000, placed[1:], &bathy)
 	clampSubToBottom(enemyFoxtrot, &bathy)
 	placed = append(placed, enemyFoxtrot)
-
-	// Two merchants near ownship for visual/ESM contrast; trawler stays farther out.
-	nearCivilians := []*Entity{
-		{
-			ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
-			Status: StatusActive, SignatureID: "merchant",
-			DepthFt: 0, SpeedKts: 11, OrderedSpeed: 11, LengthFt: 520, AIState: "TRANSIT",
-		},
-		{
-			ID: "civ_tanker", Name: "MT Horizon", Kind: KindSurfaceShip, Side: SideNeutral,
-			Status: StatusActive, SignatureID: "tanker",
-			DepthFt: 0, SpeedKts: 9, OrderedSpeed: 9, LengthFt: 900, AIState: "TRANSIT",
-		},
-	}
-	for _, c := range nearCivilians {
-		placeAwayFrom(rng, c, player, 1400, 3200, placed[1:], &bathy)
-		placed = append(placed, c)
-	}
-	farTrawler := &Entity{
-		ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
-		Status: StatusActive, SignatureID: "fishing",
-		DepthFt: 0, SpeedKts: 7, OrderedSpeed: 7, LengthFt: 140, AIState: "TRANSIT",
-	}
-	placeAwayFrom(rng, farTrawler, player, 4500, 9000, placed[1:], &bathy)
-	placed = append(placed, farTrawler)
 
 	hostiles := []*Entity{enemyGrisha, enemyFoxtrot}
 	ents := append([]*Entity{}, hostiles...)
 	ents = append(ents, nearCivilians...)
-	ents = append(ents, farTrawler)
 
 	InitCombatantDamage(player)
 	for _, h := range hostiles {
@@ -174,6 +171,34 @@ func clampSubToBottom(e *Entity, bathy *Bathymetry) {
 func placeOnWater(rng *rand.Rand, e *Entity, minR, maxR float64, others []*Entity, bathy *Bathymetry) {
 	origin := &Entity{X: 0, Y: 0}
 	placeAwayFrom(rng, e, origin, minR, maxR, others, bathy)
+}
+
+// placeAtBearing puts e near ref at bearingDeg °T and rangeYd, nudging if dry.
+func placeAtBearing(rng *rand.Rand, e, ref *Entity, bearingDeg, rangeYd float64, bathy *Bathymetry) {
+	if ref == nil {
+		ref = &Entity{}
+	}
+	if rangeYd < 100 {
+		rangeYd = 100
+	}
+	tryR := []float64{rangeYd, rangeYd * 0.85, rangeYd * 1.15, rangeYd * 0.7, rangeYd * 1.35}
+	tryBrg := []float64{0, 15, -15, 30, -30, 45, -45}
+	for _, dr := range tryR {
+		for _, db := range tryBrg {
+			a := (bearingDeg + db) * math.Pi / 180
+			e.X = ref.X + math.Sin(a)*dr
+			e.Y = ref.Y + math.Cos(a)*dr
+			if bathy != nil && bathy.Valid() && !bathy.NavigableFor(e.X, e.Y, e.Kind, e.DepthFt) {
+				continue
+			}
+			// Face roughly across the LOS so peri sees a beam-ish aspect.
+			e.HeadingDeg = math.Mod(bearingDeg+90+rng.Float64()*40-20+360, 360)
+			e.OrderedHead = e.HeadingDeg
+			return
+		}
+	}
+	// Fall back to random ring.
+	placeAwayFrom(rng, e, ref, rangeYd*0.7, rangeYd*1.4, nil, bathy)
 }
 
 // placeAwayFrom positions e on navigable water at range [minR, maxR] from ref.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 
 	"github.com/ssn688/sim/internal/world"
 )
@@ -784,6 +785,9 @@ func contactSampleQuality(c *Contact) float64 {
 	}
 	if c.DetectedBy == "active" {
 		return 0.98
+	}
+	if strings.Contains(c.DetectedBy, "visual") {
+		return 0.97
 	}
 	if c.DetectedBy == "passive/ping" {
 		return 0.88

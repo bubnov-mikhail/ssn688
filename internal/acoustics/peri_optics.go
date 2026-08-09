@@ -198,13 +198,42 @@ type PeriShipProj struct {
 	Brightness float64 // 0..1 after haze
 	Signature  string
 	Sinking    bool
-	SpeedKts   float64
+	// SinkFrac is DepthFt/air-draft while StatusSinking (0=afloat … 1=just under).
+	// Sprite is lowered by this fraction and clipped at WaterY; ≥1 → not projected.
+	SinkFrac float64
+	SpeedKts float64
 	// BowRight: bow lies toward +X in the optic frame (false → toward −X).
 	BowRight bool
+	// Fire01 is peri IR hull-fire intensity (0..1) from HullFireUntil.
+	Fire01 float64
+	// FirePhase is game time used to flicker burning patches.
+	FirePhase float64
 }
 
-// ProjectSurfaceShip projects a surface contact into the optic frame, or ok=false
-// when outside FOV / beyond max range / not a surface ship.
+// SurfaceShipAirDraftFt is keel-to-mast height (ft) used for peri immersion.
+// Matches the floating silhouette scale (LengthFt/12, floor 25 ft).
+func SurfaceShipAirDraftFt(lengthFt float64) float64 {
+	h := lengthFt / 12
+	if h < 25 {
+		h = 25
+	}
+	return h
+}
+
+// SurfaceShipSubmergeSec is game-seconds until a sinking surface ship is fully
+// under (sprite gone), given SinkRateFPM. Bottom contact may be much later.
+func SurfaceShipSubmergeSec(lengthFt, sinkRateFPM float64) float64 {
+	if sinkRateFPM <= 0 {
+		return 0
+	}
+	return SurfaceShipAirDraftFt(lengthFt) / sinkRateFPM * 60
+}
+
+// ProjectSurfaceShip projects a surface contact into the optic frame from
+// entity truth (X/Y/HeadingDeg/LengthFt), or ok=false when outside FOV /
+// beyond max range / not a surface ship. Contact TMA estimates are never used
+// for silhouette size or aspect — those feed from this optic via
+// UpdateContactsFromPeriscope instead.
 func ProjectSurfaceShip(
 	eyeX, eyeY float64,
 	lookBrgDeg, fovDeg float64,
@@ -218,6 +247,19 @@ func ProjectSurfaceShip(
 	}
 	if !ship.Alive() && ship.Status != world.StatusSinking {
 		return out, false
+	}
+	airDraft := SurfaceShipAirDraftFt(ship.LengthFt)
+	sinkFrac := 0.0
+	if ship.Status == world.StatusSinking {
+		if ship.DepthFt >= airDraft {
+			return out, false // superstructure under — no IR silhouette
+		}
+		if airDraft > 0 {
+			sinkFrac = ship.DepthFt / airDraft
+			if sinkFrac < 0 {
+				sinkFrac = 0
+			}
+		}
 	}
 	dx := ship.X - eyeX
 	dy := ship.Y - eyeY
@@ -249,13 +291,7 @@ func ProjectSurfaceShip(
 		t = 1
 	}
 	waterY := SeaSurfacePixelY(eyeAboveWaterFt, rangeYd, frameW, frameH, horizonY, fovDeg)
-	mastFt := ship.LengthFt / 12
-	if mastFt < 25 {
-		mastFt = 25
-	}
-	if ship.Status == world.StatusSinking {
-		mastFt *= 0.45
-	}
+	mastFt := airDraft
 	angH := (mastFt / world.FeetPerYard) / rangeYd * (180 / math.Pi)
 	vFov := fovDeg * float64(frameH) / float64(frameW)
 	if vFov < 1 {
@@ -291,6 +327,7 @@ func ProjectSurfaceShip(
 		Brightness: haze,
 		Signature:  ship.SignatureID,
 		Sinking:    ship.Status == world.StatusSinking,
+		SinkFrac:   sinkFrac,
 		SpeedKts:   ship.SpeedKts,
 		BowRight:   relHdg >= 0,
 	}, true

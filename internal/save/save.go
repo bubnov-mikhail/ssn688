@@ -259,6 +259,7 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "wreck_noise_until=%.3f\n", e.WreckNoiseUntil)
 	fmt.Fprintf(w, "cook_off_left=%d\n", e.CookOffLeft)
 	fmt.Fprintf(w, "next_cook_off_at=%.3f\n", e.NextCookOffAt)
+	fmt.Fprintf(w, "hull_fire_until=%.3f\n", e.HullFireUntil)
 	fmt.Fprintf(w, "transient_until=%.3f\n", e.TransientUntil)
 	fmt.Fprintf(w, "transient_freq=%.3f\n", e.TransientFreqHz)
 	fmt.Fprintf(w, "transient_level=%.3f\n", e.TransientLevelDB)
@@ -719,6 +720,8 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.CookOffLeft, _ = strconv.Atoi(val)
 	case "next_cook_off_at":
 		e.NextCookOffAt, _ = strconv.ParseFloat(val, 64)
+	case "hull_fire_until":
+		e.HullFireUntil, _ = strconv.ParseFloat(val, 64)
 	case "transient_until":
 		e.TransientUntil, _ = strconv.ParseFloat(val, 64)
 	case "transient_freq":

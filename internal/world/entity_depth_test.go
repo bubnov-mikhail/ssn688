@@ -41,3 +41,25 @@ func TestAdvanceDepthRespectsRate(t *testing.T) {
 		t.Fatalf("depth still unrealistically fast: %.2f ft in 1s", delta)
 	}
 }
+
+func TestHullFireIntensitySoftTail(t *testing.T) {
+	const until = 100.0
+	if g := HullFireIntensity(until, 70); g != 1 {
+		t.Fatalf("full fire: got %v", g)
+	}
+	mid := HullFireIntensity(until, until-10)
+	if mid < 0.35 || mid > 0.45 {
+		t.Fatalf("mid intensity: got %v want ~0.4", mid)
+	}
+	near := HullFireIntensity(until, until-1)
+	far := HullFireIntensity(until, until-0.01)
+	if near <= far {
+		t.Fatalf("should decay toward zero: near=%v far=%v", near, far)
+	}
+	if HullFireIntensity(until, until) != 0 {
+		t.Fatal("expired fire should be 0")
+	}
+	if HullFireIntensity(until, until+1) != 0 {
+		t.Fatal("past fire should be 0")
+	}
+}

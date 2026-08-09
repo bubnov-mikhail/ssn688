@@ -193,6 +193,7 @@ func (e *Engine) tick(dt float64) {
 			e.Events = append(e.Events, evs...)
 		}
 		e.Periscope.UpdateLock(dt, player, &e.Sonar, &e.ESM, e.Scenario.Entities, e.Scenario.Weather, t)
+		acoustics.UpdateContactsFromPeriscope(&e.Sonar, &e.Periscope, player, e.Scenario.Entities, e.Scenario.Weather, t)
 	}
 
 	ai.UpdateDefcon(ai.DefconContext{
@@ -417,7 +418,9 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	player := e.Scenario.Player
 	acoustics.ApplyDetonationDeaf(&e.Sonar, player, det.X, det.Y, gameTime, det.Hit)
 	e.emitBlastTransient(player, det, gameTime)
-	ai.NotifyDefconDetonation(e.Scenario.Entities, e.Acoustics.Env, det, gameTime)
+	if !det.Accident {
+		ai.NotifyDefconDetonation(e.Scenario.Entities, e.Acoustics.Env, det, gameTime)
+	}
 	if det.Hit != nil && det.Hit.Alive() {
 		playerHit := player != nil && det.Hit.ID == player.ID
 		var beforeCrit [world.SysCount]bool
@@ -452,7 +455,11 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 			if sys := world.FirstNewCriticalSystem(beforeCrit, &det.Hit.Damage); sys != world.SysNone {
 				e.Events = append(e.Events, "OWN SHIP CRITICAL — "+world.SystemName(sys))
 			}
+		} else if det.Accident {
+			e.igniteHullFire(det.Hit, gameTime, false)
+			e.Events = append(e.Events, "Onboard explosion: "+det.Hit.Name+" — damaged")
 		} else {
+			e.igniteHullFire(det.Hit, gameTime, false)
 			e.Events = append(e.Events, "Target hit: "+det.Hit.Name+" — damaged")
 		}
 	} else if det.Grounded {
@@ -460,6 +467,39 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	} else {
 		e.Events = append(e.Events, "Underwater explosion")
 	}
+}
+
+// DebugAccidentHit applies a warhead-class onboard explosion to entityID without
+// DEFCON escalation (treated as an accident). Used by the debug peri hotkey.
+func (e *Engine) DebugAccidentHit(entityID string) bool {
+	if e == nil || e.Scenario == nil || entityID == "" {
+		return false
+	}
+	var ent *world.Entity
+	for _, cand := range e.Scenario.Entities {
+		if cand != nil && cand.ID == entityID {
+			ent = cand
+			break
+		}
+	}
+	if ent == nil || !ent.Alive() || ent.Kind != world.KindSurfaceShip {
+		return false
+	}
+	prevDefcon := ent.Defcon
+	det := &weapons.Detonation{
+		X:        ent.X,
+		Y:        ent.Y,
+		DepthFt:  0,
+		Hit:      ent,
+		Harpoon:  true,
+		Accident: true,
+	}
+	e.handleDetonation(det, e.Clock.GameTime)
+	// Belt-and-suspenders: never let the accident raise this unit's DEFCON.
+	if ent.Defcon > prevDefcon {
+		ent.Defcon = prevDefcon
+	}
+	return true
 }
 
 // syncDamageSideEffects mirrors subsystem casualties onto sonar / orders.
@@ -559,17 +599,37 @@ func (e *Engine) beginSinking(ent *world.Entity, gameTime float64) {
 	ent.OrderedSpeed = 0
 	ent.SinkRateFPM = 40
 	if ent.Kind == world.KindSurfaceShip {
+		// 25 ft/min → visual peri submerge = airDraft/25 min (trawler ~1 min, VLCC ~3 min).
 		ent.SinkRateFPM = 25
+		e.igniteHullFire(ent, gameTime, true)
 	}
 	// Wreck radiates while settling; cook-offs continue for ~1–2 minutes.
 	window := 60.0 + e.cookOffRng().Float64()*60.0
 	ent.WreckNoiseUntil = gameTime + window
-	n := 3 + e.cookOffRng().Intn(5) // 3–7 secondary detonations
-	if ent.Kind == world.KindSurfaceShip {
-		n = 4 + e.cookOffRng().Intn(6) // surface ships: more magazine/fuel events
+	// Secondary magazine/fuel flashes: combatants only — civilians have no warheads to cook off.
+	if ent.Side == world.SideNeutral {
+		ent.CookOffLeft = 0
+		ent.NextCookOffAt = 0
+		return
 	}
+	n := 1 + e.cookOffRng().Intn(3) // 1–3 secondary detonations
 	ent.CookOffLeft = n
 	ent.NextCookOffAt = gameTime + 4.0 + e.cookOffRng().Float64()*14.0
+}
+
+// igniteHullFire marks a surface ship for lingering peri IR fire after a hit.
+func (e *Engine) igniteHullFire(ent *world.Entity, gameTime float64, fatal bool) {
+	if ent == nil || ent.Kind != world.KindSurfaceShip {
+		return
+	}
+	dur := 50.0 + e.cookOffRng().Float64()*40.0
+	if fatal {
+		dur = 100.0 + e.cookOffRng().Float64()*80.0
+	}
+	until := gameTime + dur
+	if until > ent.HullFireUntil {
+		ent.HullFireUntil = until
+	}
 }
 
 func (e *Engine) cookOffRng() *rand.Rand {

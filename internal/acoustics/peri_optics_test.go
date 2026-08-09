@@ -96,3 +96,41 @@ func TestSeaSurfacePixelYHugsHorizon(t *testing.T) {
 		t.Fatalf("2500 yd should hug horizon, got y=%d", y)
 	}
 }
+
+func TestProjectSurfaceShipSinking(t *testing.T) {
+	ship := &world.Entity{
+		ID: "m", Kind: world.KindSurfaceShip, Status: world.StatusSinking,
+		X: 0, Y: 800, HeadingDeg: 90, LengthFt: 520, SignatureID: "merchant",
+		DepthFt: 0, SinkRateFPM: 25,
+	}
+	const horizonY = 100
+	air := SurfaceShipAirDraftFt(520) // ~43.3 ft
+	sec := SurfaceShipSubmergeSec(520, 25)
+	wantSec := air / 25 * 60
+	if math.Abs(sec-wantSec) > 0.01 {
+		t.Fatalf("submerge sec %.1f want %.1f", sec, wantSec)
+	}
+	if sec < 90 || sec > 130 {
+		t.Fatalf("merchant submerge ~%.0fs (air=%.0f ft @ 25 fpm), got %.0f", wantSec, air, sec)
+	}
+
+	proj, ok := ProjectSurfaceShip(0, 0, 0, 32, 360, 200, horizonY, 8000, 6, ship)
+	if !ok || !proj.Sinking || proj.SinkFrac != 0 {
+		t.Fatalf("just hit: ok=%v sinking=%v frac=%v", ok, proj.Sinking, proj.SinkFrac)
+	}
+	ship.DepthFt = air * 0.4
+	proj, ok = ProjectSurfaceShip(0, 0, 0, 32, 360, 200, horizonY, 8000, 6, ship)
+	if !ok || math.Abs(proj.SinkFrac-0.4) > 0.01 {
+		t.Fatalf("partial: ok=%v frac=%v", ok, proj.SinkFrac)
+	}
+	ship.DepthFt = air
+	_, ok = ProjectSurfaceShip(0, 0, 0, 32, 360, 200, horizonY, 8000, 6, ship)
+	if ok {
+		t.Fatal("fully submerged should not project")
+	}
+	ship.DepthFt = air + 50
+	_, ok = ProjectSurfaceShip(0, 0, 0, 32, 360, 200, horizonY, 8000, 6, ship)
+	if ok {
+		t.Fatal("deep wreck should not project")
+	}
+}

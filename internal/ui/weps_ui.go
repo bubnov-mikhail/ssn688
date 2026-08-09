@@ -418,7 +418,7 @@ func (a *App) handleFireControl(fc *weapons.FireControl, player *world.Entity) {
 		if inpututil.IsKeyJustPressed(ebiten.KeyS) && !ebiten.IsKeyPressed(ebiten.KeyControl) {
 			a.wepsButtonAction("spd", fc, player, gt)
 		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyH) {
+		if inpututil.IsKeyJustPressed(ebiten.KeyH) && !a.debugPeriHitStealsH() {
 			a.wepsButtonAction("seek", fc, player, gt)
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {

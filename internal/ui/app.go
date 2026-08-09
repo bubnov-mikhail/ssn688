@@ -121,8 +121,9 @@ type App struct {
 	contactTableScroll     contactTableScrollState
 	mastCommScroll         int
 	periImg                *ebiten.Image
-	periPix                []byte
-	periCacheKey           uint64
+	periPix                []byte // composited frame (bg + ships/FX)
+	periBgPix              []byte // cached sky/sea/land plate
+	periBgCacheKey         uint64
 	periMarkerHits         []contactChip
 	periShipScratch        []periShipDraw
 	periLandHit            []float64
@@ -253,6 +254,7 @@ func (a *App) updateGame() {
 		}
 	}
 
+	a.tryDebugPeriAccidentHit()
 	a.handleScreenInput()
 
 	if a.Mode != ModePaused {
@@ -420,6 +422,32 @@ func navSpeedClip(scale float64) audio.ClipID {
 	default:
 		return audio.ClipNavSpeedNormal
 	}
+}
+
+// tryDebugPeriAccidentHit: Debug-only undocumented hotkey H — onboard explosion on
+// the peri-locked surface ship (no DEFCON escalate). Steals H from sonar/WEPS when armed.
+func (a *App) tryDebugPeriAccidentHit() {
+	if a.Mode != ModeGame && a.Mode != ModePaused {
+		return
+	}
+	if !a.Settings.Debug || a.Engine == nil {
+		return
+	}
+	if !inpututil.IsKeyJustPressed(ebiten.KeyH) {
+		return
+	}
+	peri := &a.Engine.Periscope
+	if !peri.Locked() || peri.LockEntityID == "" {
+		return
+	}
+	if a.Engine.DebugAccidentHit(peri.LockEntityID) {
+		a.StatusMessage = "DEBUG: onboard explosion (accident)"
+	}
+}
+
+// debugPeriHitStealsH is true when Debug peri-lock would claim H this frame.
+func (a *App) debugPeriHitStealsH() bool {
+	return a.Settings.Debug && a.Engine != nil && a.Engine.Periscope.Locked()
 }
 
 func (a *App) handleScreenInput() {

@@ -8,3 +8,5 @@ dist/
 /tmp/
 saves/
 *.sav
+# 3D source meshes live under ~/ssn688/tools/vendor/ (not in-repo).
+tools/vendor/

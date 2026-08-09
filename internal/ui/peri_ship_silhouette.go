@@ -155,7 +155,7 @@ func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
 	if totalH < 3 {
 		totalH = 3
 	}
-	base := int(95 + p.Brightness*100)
+	base := int(112 + p.Brightness*118)
 	if p.Sinking {
 		base = int(float64(base) * 0.65)
 	}
@@ -169,8 +169,122 @@ func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
 		bowSign = -1
 	}
 
-	// Track peak column tops for masts / bloom seed.
+	// Prefer Blender-rendered raster sprites; fall back to column profiles.
+	if sp := pickPeriShipSprite(class, aspect); sp != nil {
+		// Sprites authored bow-left (−X); flip when bow should face +X.
+		flipX := p.BowRight
+		// Lift IR hulls above the cold sea plate so silhouettes read clearly.
+		br := p.Brightness*1.22 + 0.10
+		if p.Sinking {
+			br *= 0.65
+		}
+		if br > 1.35 {
+			br = 1.35
+		}
+		// Angular width × air-draft height (stable vs aspect-bin PNG crop).
+		x0, y0, x1, y1, ok := blitPeriShipSprite(pix, w, h, sp, p.CenterX, p.WaterY, p.WidthPx, totalH, flipX, br, p.SinkFrac)
+		if ok {
+			drawPeriShipBloomRect(pix, w, h, x0, y0, x1, y1, p.WaterY, base)
+			if p.Fire01 > 0.05 {
+				mask := func(xx, yy int) bool {
+					return periShipSpriteOpaqueAt(sp, p.CenterX, p.WaterY, p.WidthPx, totalH, flipX, p.SinkFrac, xx, yy)
+				}
+				drawPeriShipHullFire(pix, w, h, x0, y0, x1, y1, p.WaterY, p.Fire01, p.CenterX, p.FirePhase, mask)
+			}
+			return
+		}
+	}
+
+	drawPeriShipSilhouetteProcedural(pix, w, h, p, class, aspect, bowSign, base, halfW, totalH)
+}
+
+// drawPeriShipHullFire paints a few concentrated MWIR fire foci on hull pixels.
+// mask rejects sky/sea gaps inside the ship AABB (sprite alpha or procedural profile).
+func drawPeriShipHullFire(pix []byte, w, h, x0, y0, x1, y1, waterY int, fire01 float64, seedX int, phase float64, mask func(xx, yy int) bool) {
+	if fire01 <= 0 || x1 <= x0+2 || waterY <= y0+1 {
+		return
+	}
+	if y1 > waterY {
+		y1 = waterY
+	}
+	shipH := waterY - y0
+	if shipH < 2 {
+		return
+	}
+	// A handful of stable outbreaks — not a scattered peppering of the hull.
+	n := 2 + int(2.5*fire01)
+	if n > 4 {
+		n = 4
+	}
+	phaseBin := int(phase * 14)
+	bw := x1 - x0
+	for i := 0; i < n; i++ {
+		// Prefer spaced foci along the length (bow / mid / stern-ish).
+		uSlot := (float64(i) + 0.5) / float64(n)
+		var px, py int
+		found := false
+		for try := 0; try < 36; try++ {
+			jitter := periBlastNoise01(uint32(seedX*997+i*7919+try*17), i, 21+try)
+			v := periBlastNoise01(uint32(seedX*1931+i*104729+try*31), i, 22+try)
+			cx := x0 + int((uSlot*0.70+0.15+(jitter-0.5)*0.12)*float64(bw))
+			if cx < x0 {
+				cx = x0
+			}
+			if cx >= x1 {
+				cx = x1 - 1
+			}
+			// Mid-deck / superstructure band.
+			cy := y0 + int((0.18+0.55*v)*float64(shipH))
+			if cy >= waterY {
+				cy = waterY - 1
+			}
+			if mask != nil && !mask(cx, cy) {
+				continue
+			}
+			px, py = cx, cy
+			found = true
+			break
+		}
+		if !found {
+			continue
+		}
+		flick := periBlastNoise01(uint32(seedX+i*13), i, phaseBin+3)
+		u := periBlastNoise01(uint32(seedX*997+i*7919), i, 21)
+		pw := 3 + int(5.5*fire01*(0.55+0.45*flick))
+		ph := 3 + int(6.5*fire01*(0.55+0.45*u))
+		core := int(240 + 15*fire01*(0.5+0.5*flick))
+		for dy := -ph; dy <= ph; dy++ {
+			for dx := -pw; dx <= pw; dx++ {
+				if dx*dx*2+dy*dy > pw*pw+ph*ph {
+					continue
+				}
+				xx, yy := px+dx, py+dy
+				if xx < 0 || xx >= w || yy < 0 || yy >= h || yy >= waterY {
+					continue
+				}
+				if mask != nil && !mask(xx, yy) {
+					continue
+				}
+				fall := 1 - math.Hypot(float64(dx)/float64(pw+1), float64(dy)/float64(ph+1))
+				if fall < 0 {
+					continue
+				}
+				g := int(float64(core) * (0.55 + 0.45*fall) * (0.70 + 0.30*fire01))
+				periBrighten(pix, w, xx, yy, uint8(min255(g)))
+			}
+		}
+	}
+}
+
+func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShipProj, class periShipClass, aspect, bowSign float64, base, halfW, totalH int) {
 	cols := make([]periShipCol, 0, halfW*2+1)
+	sinkPx := int(float64(totalH)*p.SinkFrac + 0.5)
+	if sinkPx < 0 {
+		sinkPx = 0
+	}
+	if sinkPx >= totalH {
+		return
+	}
 
 	for dx := -halfW; dx <= halfW; dx++ {
 		x := p.CenterX + dx
@@ -188,7 +302,7 @@ func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
 		if hullPx < 1 && hf > 0.05 {
 			hullPx = 1
 		}
-		hullTop := p.WaterY - hullPx
+		hullTop := p.WaterY - hullPx + sinkPx
 		if hullTop < 0 {
 			hullTop = 0
 		}
@@ -197,16 +311,14 @@ func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
 			x: x, hullTop: hullTop, hullPx: hullPx, superPx: superPx, u: u, hot: hotBoost,
 		})
 
-		// Hull: cooler lower, warmer upper plate + waterline friction glow.
 		for y := hullTop; y < p.WaterY && y < h; y++ {
-			frac := float64(y-hullTop) / float64(hullPx+1) // 0=deck, 1=water
+			frac := float64(y-hullTop) / float64(hullPx+1)
 			tone := base - 18 + int(frac*12) + hotBoost/3
-			// Panel / rib suggestion along length.
 			if (dx+halfW)%3 == 0 {
 				tone -= 8
 			}
 			if y >= p.WaterY-2 {
-				tone += 18 + hotBoost/4 // waterline thermal halo
+				tone += 18 + hotBoost/4
 			}
 			periBrighten(pix, w, x, y, uint8(min255(tone)))
 		}
@@ -220,47 +332,103 @@ func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
 		}
 		cols[len(cols)-1].superTop = superTop
 
-		for y := superTop; y < hullTop && y < h; y++ {
+		for y := superTop; y < hullTop && y < h && y < p.WaterY; y++ {
 			vFrac := float64(y-superTop) / float64(superPx+1)
 			tone := base + 22 + hotBoost
-			// Bridge glass / recess bands (cooler).
 			if class != periClassFishing && vFrac > 0.35 && vFrac < 0.55 {
 				tone -= 35
 			}
-			// Roof / stack lip hotter.
 			if vFrac < 0.18 {
 				tone += 20 + hotBoost/2
 			}
-			// Exhaust funnel zone (class-specific u).
 			if periShipFunnelZone(class, u) && vFrac < 0.45 {
 				tone = min255(tone + 40)
 			}
 			periBrighten(pix, w, x, y, uint8(min255(tone)))
 		}
 
-		// Deck gear / gun mount bumps on combatants.
 		if class == periClassCombatant && aspect > 35 {
 			if (u > 0.45 && u < 0.75) || (u > -0.7 && u < -0.45) {
 				gunH := 1 + superPx/5
-				for y := hullTop - gunH; y < hullTop && y >= 0; y++ {
+				for y := hullTop - gunH; y < hullTop && y >= 0 && y < p.WaterY; y++ {
 					periBrighten(pix, w, x, y, uint8(min255(base+35)))
 				}
 			}
 		}
 	}
 
-	// Masts, yards, thin antennas — crisp IR lines.
 	drawPeriShipMasts(pix, w, h, p, class, aspect, bowSign, base, cols)
-
-	// Soft bloom around the hottest silhouette pixels.
 	drawPeriShipBloom(pix, w, h, p, cols, base)
+	if p.Fire01 > 0.05 {
+		half := p.WidthPx / 2
+		if half < 1 {
+			half = 1
+		}
+		mask := periProceduralShipMask(p, class, aspect, bowSign, half, totalH)
+		drawPeriShipHullFire(pix, w, h, p.CenterX-half, p.WaterY-(p.HullHPx+p.SuperHPx), p.CenterX+half, p.WaterY, p.WaterY, p.Fire01, p.CenterX, p.FirePhase, mask)
+	}
+}
 
-	// Thermal reflection / shimmer under the hull.
-	drawPeriShipReflection(pix, w, h, p, cols, base)
+// periProceduralShipMask returns true for pixels that fall on the procedural hull/super profile.
+func periProceduralShipMask(p acoustics.PeriShipProj, class periShipClass, aspect, bowSign float64, halfW, totalH int) func(xx, yy int) bool {
+	sinkPx := int(float64(totalH)*p.SinkFrac + 0.5)
+	if sinkPx < 0 {
+		sinkPx = 0
+	}
+	return func(xx, yy int) bool {
+		if yy < 0 || yy >= p.WaterY {
+			return false
+		}
+		dx := xx - p.CenterX
+		if dx < -halfW || dx > halfW || halfW < 1 {
+			return false
+		}
+		uScreen := float64(dx) / float64(halfW)
+		u := uScreen * bowSign
+		hf, sf := periProfileAt(class, aspect, u)
+		hullPx := int(float64(totalH) * hf)
+		superPx := int(float64(totalH) * sf)
+		if hullPx < 1 && hf > 0.05 {
+			hullPx = 1
+		}
+		hullTop := p.WaterY - hullPx + sinkPx
+		top := hullTop - superPx
+		return yy >= top && yy < p.WaterY
+	}
+}
 
-	// Wake / bow spray when making way.
-	if p.SpeedKts >= 3 && aspect > 25 && !p.Sinking {
-		drawPeriShipWake(pix, w, h, p, bowSign, base)
+func drawPeriShipBloomRect(pix []byte, w, h, x0, y0, x1, y1, waterY, base int) {
+	thresh := base + 20
+	glow := 18
+	if y0 < 0 {
+		y0 = 0
+	}
+	if y1 > waterY {
+		y1 = waterY
+	}
+	if y1 > h {
+		y1 = h
+	}
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if x < 0 || x >= w {
+				continue
+			}
+			i := (y*w + x) * 4
+			if i+3 >= len(pix) || int(pix[i]) < thresh {
+				continue
+			}
+			for _, d := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+				xx, yy := x+d[0], y+d[1]
+				if xx < 0 || xx >= w || yy < 0 || yy >= h {
+					continue
+				}
+				j := (yy*w + xx) * 4
+				if int(pix[j])+glow/2 < int(pix[i]) {
+					periBrighten(pix, w, xx, yy, uint8(min255(int(pix[j])+glow)))
+				}
+			}
+		}
 	}
 }
 
@@ -425,103 +593,3 @@ func drawPeriShipBloom(pix []byte, w, h int, p acoustics.PeriShipProj, cols []pe
 	}
 }
 
-func drawPeriShipReflection(pix []byte, w, h int, p acoustics.PeriShipProj, cols []periShipCol, base int) {
-	depth := 2 + (p.HullHPx+p.SuperHPx)/3
-	if depth > 14 {
-		depth = 14
-	}
-	if depth < 2 || p.WaterY >= h-1 {
-		return
-	}
-	for _, c := range cols {
-		srcTop := c.hullTop
-		if c.superPx > 0 {
-			srcTop = c.superTop
-		}
-		shipH := p.WaterY - srcTop
-		if shipH < 2 {
-			continue
-		}
-		for d := 1; d <= depth; d++ {
-			yy := p.WaterY + d
-			if yy >= h {
-				break
-			}
-			// Sample mirrored ship pixel (compressed vertically).
-			srcY := p.WaterY - 1 - (d-1)*shipH/depth
-			if srcY < srcTop {
-				srcY = srcTop
-			}
-			si := (srcY*w + c.x) * 4
-			if si+3 >= len(pix) {
-				continue
-			}
-			fall := 1 - float64(d)/float64(depth+1)
-			// Hotter columns leave a stronger shimmer; add speckled noise.
-			n := periHash8(c.x, yy, d) % 7
-			g := int(float64(pix[si]) * 0.55 * fall * p.Brightness)
-			g += int(n) - 3
-			if g < 0 {
-				g = 0
-			}
-			// Keep reflection brighter than open sea near waterline.
-			floor := base/5 + int(20*fall)
-			if g < floor {
-				g = floor
-			}
-			periBrighten(pix, w, c.x, yy, uint8(min255(g)))
-			if d <= 2 && c.x+1 < w {
-				periBrighten(pix, w, c.x+1, yy, uint8(min255(g*3/4)))
-			}
-		}
-	}
-}
-
-func drawPeriShipWake(pix []byte, w, h int, p acoustics.PeriShipProj, bowSign float64, base int) {
-	halfW := p.WidthPx / 2
-	if halfW < 2 {
-		halfW = 2
-	}
-	// Stern is opposite bow on screen.
-	sternDir := -1
-	if bowSign < 0 {
-		sternDir = 1
-	}
-	wakeLen := halfW + int(p.SpeedKts*0.9)
-	if wakeLen > halfW*3 {
-		wakeLen = halfW * 3
-	}
-	if wakeLen > 40 {
-		wakeLen = 40
-	}
-	spd := math.Min(1, p.SpeedKts/18)
-	for s := 1; s <= wakeLen; s++ {
-		fall := 1 - float64(s)/float64(wakeLen+1)
-		cx := p.CenterX + sternDir*(halfW+s)
-		// Slight V-spread.
-		spread := 1 + s/5
-		for dx := -spread; dx <= spread; dx++ {
-			xx := cx + dx
-			yy := p.WaterY + 1 + (s % 3)
-			if xx < 0 || xx >= w || yy < 0 || yy >= h {
-				continue
-			}
-			edge := 1 - math.Abs(float64(dx))/float64(spread+1)
-			g := int(float64(base) * 0.35 * fall * edge * (0.5 + 0.5*spd))
-			g += int(periHash8(xx, yy, s)%5) - 2
-			if g > 0 {
-				periBrighten(pix, w, xx, yy, uint8(min255(g)))
-			}
-		}
-	}
-	// Bow spray speckles.
-	bowX := p.CenterX + int(bowSign)*halfW
-	for i := 0; i < 6+int(spd*8); i++ {
-		xx := bowX + int(bowSign)*(i%3) + (int(periHash8(bowX, i, 3)%3) - 1)
-		yy := p.WaterY - 1 - int(periHash8(i, bowX, 7)%3)
-		if xx < 0 || xx >= w || yy < 0 || yy >= h {
-			continue
-		}
-		periBrighten(pix, w, xx, yy, uint8(min255(base+20)))
-	}
-}

@@ -62,7 +62,7 @@ func (a *App) engagePeriLockOnContact(c *acoustics.Contact) {
 		}
 	}
 	a.Engine.Periscope.EngageLock(c.SourceEntityID, player.HeadingDeg, brg)
-	a.periCacheKey = 0
+	a.periBgCacheKey = 0
 }
 
 func (a *App) selectedContact(sonar *acoustics.SonarState) *acoustics.Contact {

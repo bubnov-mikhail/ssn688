@@ -125,6 +125,8 @@ type Detonation struct {
 	RBU          bool          // RBU pattern splash — light ASW shock damage
 	LightWarhead bool          // UMGT-1 / SET-40 — reduced hull damage vs heavy fish
 	ShooterID    string
+	// Accident: onboard explosion (debug) — full blast FX/damage, no DEFCON escalate.
+	Accident bool
 }
 
 // FireControl manages 688-style torpedo firing.
