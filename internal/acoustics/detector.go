@@ -138,10 +138,26 @@ func (m Model) CanDetectActive(listener, target *world.Entity, power float64) bo
 	return m.Detect(listener, target, ModeActive, power).Detected
 }
 
+// passiveDetectCacheTTLSec — reuse AI passive detect result for this long when
+// the player is not illuminating (ping bonus changes detectability rapidly).
+const passiveDetectCacheTTLSec = 0.35
+
 // CanDetectPlayerPassive applies a temporary SNR bonus after the player active-pings.
 func (m Model) CanDetectPlayerPassive(listener, player *world.Entity, gameTime float64) bool {
+	if listener == nil || player == nil {
+		return false
+	}
+	heardAge := PlayerPingHeardAge(m.Env, listener, player, gameTime)
+	// Cache only the quiet case — ping bonuses must be live.
+	if heardAge < 0 &&
+		listener.PassiveDetectCacheAt > 0 &&
+		gameTime-listener.PassiveDetectCacheAt < passiveDetectCacheTTLSec {
+		return listener.PassiveDetectCached
+	}
+
 	r := m.Detect(listener, player, ModePassive, 0)
-	if heardAge := PlayerPingHeardAge(m.Env, listener, player, gameTime); heardAge >= 0 {
+	detected := r.Detected
+	if heardAge >= 0 {
 		power := player.LastPingPower
 		if power <= 0 {
 			power = 0.7
@@ -152,7 +168,10 @@ func (m Model) CanDetectPlayerPassive(listener, player *world.Entity, gameTime f
 		if bonus > 10 {
 			bands += 2
 		}
-		return bands >= MinDetectBands || peak >= PeakDetectSNR
+		detected = bands >= MinDetectBands || peak >= PeakDetectSNR
+	} else {
+		listener.PassiveDetectCacheAt = gameTime
+		listener.PassiveDetectCached = detected
 	}
-	return r.Detected
+	return detected
 }

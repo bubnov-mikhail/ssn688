@@ -92,6 +92,7 @@ func NewTrainingScenario() *Scenario {
 		Status: StatusActive, SignatureID: "grisha",
 		DepthFt: 0, SpeedKts: 14, OrderedSpeed: 14, OrderedDepth: 0,
 		LengthFt: 235, AIState: "PATROL", Defcon: DefconPassive,
+		CrewSkill: RandomCrewSkill(60, 20, rng.Float64()),
 	}
 	civMerchant := &Entity{
 		ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
@@ -113,6 +114,7 @@ func NewTrainingScenario() *Scenario {
 		Status: StatusActive, SignatureID: "foxtrot",
 		DepthFt: 100 + rng.Float64()*60, SpeedKts: 5, OrderedSpeed: 5,
 		LengthFt: 300, AIState: "PATROL", Defcon: DefconPassive,
+		CrewSkill: RandomCrewSkill(30, 10, rng.Float64()),
 	}
 	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
 

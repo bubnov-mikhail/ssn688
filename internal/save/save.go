@@ -260,6 +260,10 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "route_dir=%d\n", e.RouteDir)
 	fmt.Fprintf(w, "route_need_resume=%t\n", e.RouteNeedResume)
 	fmt.Fprintf(w, "defcon=%d\n", e.Defcon)
+	fmt.Fprintf(w, "crew_skill=%.3f\n", e.CrewSkill)
+	fmt.Fprintf(w, "ai_prosecuting=%t\n", e.AIProsecuting)
+	fmt.Fprintf(w, "ai_lost_contact_sec=%.3f\n", e.AILostContactSec)
+	fmt.Fprintf(w, "ai_engage_cooldown_until=%.3f\n", e.AIEngageCooldownUntil)
 	fmt.Fprintf(w, "sink_rate_fpm=%.3f\n", e.SinkRateFPM)
 	fmt.Fprintf(w, "wreck_noise_until=%.3f\n", e.WreckNoiseUntil)
 	fmt.Fprintf(w, "cook_off_left=%d\n", e.CookOffLeft)
@@ -645,10 +649,14 @@ func defaultLengthFt(sig string, kind world.EntityKind) float64 {
 		return 240
 	case "victor_iii":
 		return 335
+	case "yasen_m":
+		return 456
 	case "foxtrot":
 		return 300
 	case "udaloy":
 		return 535
+	case "gorshkov":
+		return 443
 	case "krivak":
 		return 405
 	case "kresta2":
@@ -727,6 +735,14 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.RouteNeedResume, _ = strconv.ParseBool(val)
 	case "defcon":
 		e.Defcon, _ = strconv.Atoi(val)
+	case "crew_skill":
+		e.CrewSkill, _ = strconv.ParseFloat(val, 64)
+	case "ai_prosecuting":
+		e.AIProsecuting, _ = strconv.ParseBool(val)
+	case "ai_lost_contact_sec":
+		e.AILostContactSec, _ = strconv.ParseFloat(val, 64)
+	case "ai_engage_cooldown_until":
+		e.AIEngageCooldownUntil, _ = strconv.ParseFloat(val, 64)
 	case "sink_rate_fpm":
 		e.SinkRateFPM, _ = strconv.ParseFloat(val, 64)
 	case "wreck_noise_until":

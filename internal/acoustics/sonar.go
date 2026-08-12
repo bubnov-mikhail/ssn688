@@ -30,6 +30,9 @@ type Contact struct {
 	FirstSeen        float64
 	ListenTime       float64
 
+	// LastClassifyAt — throttle expensive Classify() on warm tracks.
+	LastClassifyAt float64
+
 	// Last active range-bearing snapshot (held for ActiveFixHoldSec on the plot).
 	LastActiveBearingDeg float64
 	LastActiveRangeYd    float64
@@ -237,14 +240,25 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			continue
 		}
 
-		classifySig := ContaminateClassifySignal(result.SignalForClassify, model, listener, em.ID, emitters, result.BearingDeg, sonar)
-		class := Classify(classifySig, result.PeakSNR, result.TrueRangeYd)
+		reclass := true
+		var class Classification
+		if idx, ok := existing[em.ID]; ok && !shouldReclassify(&sonar.Contacts[idx], result.PeakSNR, gameTime) {
+			reclass = false
+			class = classificationFromContact(&sonar.Contacts[idx])
+		}
+		if reclass {
+			classifySig := ContaminateClassifySignal(result.SignalForClassify, model, listener, em.ID, emitters, result.BearingDeg, sonar)
+			class = Classify(classifySig, result.PeakSNR, result.TrueRangeYd)
+		}
 		bearing := bearingWithError(result.BearingDeg, result.PeakSNR, result.BandsAbove, sonar.passiveBearingSigmaScale())
 		estRange := estimatePassiveRange(model.Env, listener, em, result.TrueRangeYd, result.PeakSNR)
 
 		if idx, ok := existing[em.ID]; ok {
 			c := &sonar.Contacts[idx]
 			updateContactTrack(c, bearing, estRange, result.PeakSNR, result.BandsAbove, class, gameTime, em)
+			if reclass {
+				c.LastClassifyAt = gameTime
+			}
 			updateContactTMA(c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(c)))
 			TryAutoClassifyTorpedo(c, class)
 			if c.ConfirmedClass == "" {
@@ -274,6 +288,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			DetectedBy:       "passive",
 			LastUpdate:       gameTime,
 			FirstSeen:        gameTime,
+			LastClassifyAt:   gameTime,
 		}
 		if age := EnemyActivePingAgeSec(em, gameTime); age >= 0 && age < 2.5 {
 			c.DetectedBy = "passive/ping"
@@ -298,11 +313,35 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 }
 
 const (
+	classifyIntervalSec = 0.5
+	classifySNRDeltaDB  = 2.0
+
 	PingIntervalMinSec = 0 // 0 = manual pings only
 	PingIntervalMaxSec = 60
 	// ActiveDisplayMaxRangeYd is the PPI scale for the active range display.
 	ActiveDisplayMaxRangeYd = 12000.0
 )
+
+func shouldReclassify(c *Contact, peakSNR, gameTime float64) bool {
+	if c == nil || c.BestMatchID == "" || c.LastClassifyAt <= 0 {
+		return true
+	}
+	if gameTime-c.LastClassifyAt >= classifyIntervalSec {
+		return true
+	}
+	return math.Abs(peakSNR-c.SNR) >= classifySNRDeltaDB
+}
+
+func classificationFromContact(c *Contact) Classification {
+	if c == nil {
+		return Classification{Confidence: 0.3}
+	}
+	return Classification{
+		ProfileID:   c.BestMatchID,
+		ProfileName: c.BestMatchName,
+		Confidence:  c.Confidence,
+	}
+}
 
 // FireActivePing emits active sonar on the auto-ping schedule.
 func FireActivePing(model Model, listener *world.Entity, emitters []*world.Entity, sonar *SonarState, gameTime float64) {
@@ -528,7 +567,6 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 		}
 	}
 	out := dst
-	selfNoise := SelfNoiseSpectrum(listener, model.Env, sonar.PassiveArray, sonar.TowedCablePct)
 	sigma := SpectrumBeamSigmaDeg(sonar)
 	var accum Spectrum
 	for i := range accum {
@@ -536,18 +574,22 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 	}
 	nStrong := 0
 
+	// Listen from the active aperture. Beam weights MUST use that same origin —
+	// hull vs towed parallax (~800 yd) otherwise drops near abeam contacts out of
+	// the analyzer beam when SPECTRUM is locked to the towed contact bearing.
 	acoustic := listener
 	var towedListen world.Entity
 	if sonar != nil && sonar.PassiveArray == PassiveArrayTowed && !sonar.TowedDamaged &&
 		PlaceTowedListener(&towedListen, listener, sonar.TowedCablePct) {
 		acoustic = &towedListen
 	}
+	selfNoise := SelfNoiseSpectrum(acoustic, model.Env, sonar.PassiveArray, sonar.TowedCablePct)
 
 	for _, em := range emitters {
 		if em == nil || !em.Alive() || em.ID == listener.ID {
 			continue
 		}
-		b := listener.BearingDegTo(em)
+		b := acoustic.BearingDegTo(em)
 		w := SpectrumBeamWeight(b-bearingDeg, sigma)
 		if w < 0.02 {
 			continue
@@ -556,6 +598,7 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 		recv := Propagate(model.Env, src, em, acoustic)
 		snr := recv.SubNoise(selfNoise)
 		bonus := sonar.passiveSNRBonusDB()
+		// Beampattern relative to tow/hull axis (ownship heading).
 		rel := AngleDiffDeg(b, listener.HeadingDeg)
 		penalty := PassiveSelfNoiseDeltaDB(sonar.PassiveArray, rel, listener.SpeedKts, listener.DepthFt, sonar.TowedCablePct)
 		sens := PassiveArraySensitivity(sonar.PassiveArray, rel, sonar.TowedCablePct)
@@ -593,7 +636,13 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 // so auto-matching degrades when contacts share a bearing beam.
 func ContaminateClassifySignal(signal Spectrum, model Model, listener *world.Entity, primaryID string, emitters []*world.Entity, bearingDeg float64, sonar *SonarState) Spectrum {
 	sigma := SpectrumBeamSigmaDeg(sonar)
-	ambient := model.Env.AmbientSpectrum(listener.DepthFt)
+	acoustic := listener
+	var towedListen world.Entity
+	if sonar != nil && sonar.PassiveArray == PassiveArrayTowed && !sonar.TowedDamaged &&
+		PlaceTowedListener(&towedListen, listener, sonar.TowedCablePct) {
+		acoustic = &towedListen
+	}
+	ambient := model.Env.AmbientSpectrum(acoustic.DepthFt)
 	out := signal
 	for _, em := range emitters {
 		if em == nil || em.ID == listener.ID || em.ID == primaryID {
@@ -602,13 +651,13 @@ func ContaminateClassifySignal(signal Spectrum, model Model, listener *world.Ent
 		if !em.Alive() && em.Status != world.StatusSinking {
 			continue
 		}
-		b := listener.BearingDegTo(em)
+		b := acoustic.BearingDegTo(em)
 		w := SpectrumBeamWeight(b-bearingDeg, sigma)
 		if w < 0.15 {
 			continue
 		}
 		src := SourceSpectrum(em)
-		recv := Propagate(model.Env, src, em, listener)
+		recv := Propagate(model.Env, src, em, acoustic)
 		other := recv.SubNoise(ambient)
 		wDB := 10 * math.Log10(w)
 		for i := range other {

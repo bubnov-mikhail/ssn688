@@ -45,9 +45,9 @@ func TestAdvance_TurnRateRespectsHull(t *testing.T) {
 		t.Fatalf("after 1s tanker yawed %.2f°, fishing %.2f° — tanker should lag",
 			tanker.HeadingDeg, fish.HeadingDeg)
 	}
-	maxT := MaxTurnRateDegPerSec(tanker)*dt + 1e-6
+	maxT := MaxTurnRateDegPerSec(tanker)*RudderEffectiveness(tanker)*dt + 1e-6
 	if tanker.HeadingDeg > maxT {
-		t.Fatalf("tanker yaw %.3f° exceeds max %.3f°/s", tanker.HeadingDeg, MaxTurnRateDegPerSec(tanker))
+		t.Fatalf("tanker yaw %.3f° exceeds max %.3f°/s", tanker.HeadingDeg, MaxTurnRateDegPerSec(tanker)*RudderEffectiveness(tanker))
 	}
 	// ~3 min of tanker turn still well short of 90°.
 	for i := 0; i < 180; i++ {
@@ -58,5 +58,57 @@ func TestAdvance_TurnRateRespectsHull(t *testing.T) {
 	}
 	if math.Abs(shortestAngleDiff(tanker.HeadingDeg, 90)) < 1 {
 		t.Fatal("tanker should not complete 90° in 3 minutes")
+	}
+}
+
+func TestRudderEffectiveness_SubNeedsWayOn(t *testing.T) {
+	sub := &Entity{Kind: KindSubmarine, SignatureID: "los_angeles", LengthFt: 360}
+	sub.SpeedKts = 0
+	if RudderEffectiveness(sub) != 0 {
+		t.Fatal("all-stop sub must have zero rudder authority")
+	}
+	sub.SpeedKts = 1.0
+	if RudderEffectiveness(sub) != 0 {
+		t.Fatal("below deadband sub must not yaw")
+	}
+	sub.SpeedKts = 4.0
+	mid := RudderEffectiveness(sub)
+	if mid <= 0 || mid >= 1 {
+		t.Fatalf("mid-speed effectiveness should be partial, got %.2f", mid)
+	}
+	sub.SpeedKts = 10
+	if RudderEffectiveness(sub) != 1 {
+		t.Fatalf("full way-on should be 1, got %.2f", RudderEffectiveness(sub))
+	}
+	sub.SpeedKts = -6
+	if RudderEffectiveness(sub) <= 0 {
+		t.Fatal("astern flow should still feed the rudder")
+	}
+}
+
+func TestAdvance_SubCannotTurnInPlace(t *testing.T) {
+	sub := &Entity{
+		Kind: KindSubmarine, Status: StatusActive, SignatureID: "los_angeles", LengthFt: 360,
+		HeadingDeg: 0, OrderedHead: 90, SpeedKts: 0, OrderedSpeed: 0, DepthFt: 200, OrderedDepth: 200,
+	}
+	for i := 0; i < 60; i++ {
+		sub.Advance(1)
+	}
+	if math.Abs(sub.HeadingDeg) > 0.01 {
+		t.Fatalf("all-stop sub yawed to %.2f° — thrusterless turn forbidden", sub.HeadingDeg)
+	}
+
+	slow := &Entity{
+		Kind: KindSubmarine, Status: StatusActive, SignatureID: "los_angeles", LengthFt: 360,
+		HeadingDeg: 0, OrderedHead: 90, SpeedKts: 4, OrderedSpeed: 4, DepthFt: 200, OrderedDepth: 200,
+	}
+	fast := &Entity{
+		Kind: KindSubmarine, Status: StatusActive, SignatureID: "los_angeles", LengthFt: 360,
+		HeadingDeg: 0, OrderedHead: 90, SpeedKts: 12, OrderedSpeed: 12, DepthFt: 200, OrderedDepth: 200,
+	}
+	slow.Advance(1)
+	fast.Advance(1)
+	if fast.HeadingDeg <= slow.HeadingDeg {
+		t.Fatalf("faster sub should yaw more: slow=%.2f fast=%.2f", slow.HeadingDeg, fast.HeadingDeg)
 	}
 }

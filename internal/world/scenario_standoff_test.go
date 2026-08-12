@@ -46,6 +46,12 @@ func TestTrainingScenarioDiagonalPlacement(t *testing.T) {
 		if fox.Defcon != DefconPassive || grisha.Defcon != DefconPassive {
 			t.Fatal("hostiles should start passive")
 		}
+		if fox.CrewSkill < 20 || fox.CrewSkill > 40 {
+			t.Fatalf("foxtrot crew skill %.1f want 30±10", fox.CrewSkill)
+		}
+		if grisha.CrewSkill < 40 || grisha.CrewSkill > 80 {
+			t.Fatalf("grisha crew skill %.1f want 60±20", grisha.CrewSkill)
+		}
 	}
 }
 

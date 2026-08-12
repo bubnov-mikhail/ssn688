@@ -1,8 +1,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"runtime/pprof"
+	"sync"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	ebitenaudio "github.com/hajimehoshi/ebiten/v2/audio"
@@ -38,6 +45,45 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
+	cpuprofile := flag.String("cpuprofile", "", "write CPU profile to file (stop on exit)")
+	profilesec := flag.Int("profilesec", 0, "with -cpuprofile, auto-exit after N seconds")
+	pprofAddr := flag.String("pprof", "", "serve net/http/pprof on addr (e.g. localhost:6060)")
+	flag.Parse()
+
+	if *pprofAddr != "" {
+		go func() {
+			log.Printf("pprof listening on http://%s/debug/pprof/", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				log.Printf("pprof server: %v", err)
+			}
+		}()
+	}
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal(err)
+		}
+		var once sync.Once
+		stop := func() {
+			once.Do(func() {
+				pprof.StopCPUProfile()
+				_ = f.Close()
+			})
+		}
+		defer stop()
+		if *profilesec > 0 {
+			go func() {
+				time.Sleep(time.Duration(*profilesec) * time.Second)
+				log.Printf("profile window ended (%ds) — quitting", *profilesec)
+				stop()
+				os.Exit(0)
+			}()
+		}
+	}
+
 	if err := render.InitFonts(); err != nil {
 		log.Printf("font init: %v", err)
 	}

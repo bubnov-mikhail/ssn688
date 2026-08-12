@@ -301,7 +301,7 @@ func torpedoHullLoss(e *Entity, rng *rand.Rand, light bool) float64 {
 	case "grisha", "fishing":
 		// Corvette / small hull: under-keel Mk48 is decisive.
 		return 85.0 + rng.Float64()*20.0 // ~85–105%
-	case "krivak", "merchant":
+	case "krivak", "merchant", "gorshkov":
 		return 58.0 + rng.Float64()*22.0 // ~58–80% → usually 1–2 hits
 	case "udaloy", "kresta2", "tanker":
 		return 48.0 + rng.Float64()*18.0 // ~48–66% → typically 2 hits
@@ -309,7 +309,7 @@ func torpedoHullLoss(e *Entity, rng *rand.Rand, light bool) float64 {
 		return 75.0 + rng.Float64()*30.0 // older diesel — fragile
 	case "kilo":
 		return 58.0 + rng.Float64()*28.0
-	case "victor_iii", "los_angeles":
+	case "victor_iii", "los_angeles", "yasen_m":
 		return 48.0 + rng.Float64()*22.0 // peer SSN: often 2 hits
 	default:
 		if e.Kind == KindSurfaceShip {
@@ -470,12 +470,16 @@ func (e *Entity) MaxSpeedKts() float64 {
 		base = 32
 	case "victor_iii":
 		base = 30
+	case "yasen_m":
+		base = 31
 	case "kilo":
 		base = 17
 	case "foxtrot":
 		base = 15
 	case "udaloy", "kresta2":
 		base = 32
+	case "gorshkov":
+		base = 30
 	case "krivak":
 		base = 30
 	case "grisha":

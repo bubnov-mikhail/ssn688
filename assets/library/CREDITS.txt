@@ -26,6 +26,13 @@ foxtrot.jpg
 victor_iii.jpg
   File:Victor III class submarine.jpg — U.S. Navy / DoD photo, public domain.
 
+yasen_m.jpg
+  File:Северодвинск (АПЛ).jpeg — kremlin.ru photo, CC BY 4.0 (Wikimedia).
+  Yasen-class (Pr.885) stand-in for Pr.885M handbook entry.
+
+gorshkov.jpg
+  File:Admiral Gorshkov frigate 03.jpg — Russian MoD photo, CC BY 4.0 (Wikimedia).
+
 merchant.jpg
   File:US Navy 110324-N-FX485-046 The Military Sealift Command dry cargo and ammunition ship USNS Carl Brashear (T-AKE 7) is underway alongside the aircra.jpg
   U.S. Navy photo, public domain (stand-in freighter silhouette).

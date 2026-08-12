@@ -210,7 +210,7 @@ func (e *Engine) tick(dt float64) {
 		GameTime: t,
 		Dt:       dt,
 	})
-	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope, e.Scenario.Bathy, e.Scenario.Routes)
+	ai.UpdateAllAI(e.Scenario.Entities, player, t, dt, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope, e.Scenario.Bathy, e.Scenario.Routes)
 	e.guideEnemyTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
 	e.tryEnemySurfaceWeapons(player, t)
@@ -723,19 +723,47 @@ func (e *Engine) guideEnemyTorpedoes(player *world.Entity, gameTime float64) {
 		if torp.WireCut || torp.Mode != weapons.ModeWire {
 			continue
 		}
-		// Wire steer toward player with small lag / noise.
-		brg := bearingDeg(torp.X, torp.Y, player.X, player.Y)
-		diff := shortest(torp.OrderedHead, brg)
-		torp.OrderedHead += clampAngle(diff*0.35, -8, 8)
-		torp.RunDepthFt += (player.DepthFt - torp.RunDepthFt) * 0.2
-		// Wire-guide most of the mid-course, then cut for autonomous search
-		// so soft-kill still has a window before CPA.
-		if torp.Age > 50 && !torp.SeekerOn {
+		parent := e.entityByID(torp.ParentSubID)
+		skill := 0.35
+		aimX, aimY, aimDepth := player.X, player.Y, player.DepthFt
+		if parent != nil {
+			skill = parent.CrewSkill01()
+			if parent.Track.Valid {
+				aimX, aimY = parent.Track.X, parent.Track.Y
+				aimDepth = parent.Track.DepthFt
+			}
+		}
+		brg := bearingDeg(torp.X, torp.Y, aimX, aimY)
+		// Skill: steer gain + heading noise. Green crews weave and miss.
+		gain := ai.WireGuideGain(skill)
+		noise := ai.WireGuideNoiseDeg(skill) * (0.5 + 0.5*math.Sin(gameTime*3+float64(len(torp.ID))))
+		diff := shortest(torp.OrderedHead, brg+noise)
+		maxStep := 3.0 + 7.0*skill
+		torp.OrderedHead += clampAngle(diff*gain, -maxStep, maxStep)
+		depthGain := 0.05 + 0.22*skill
+		torp.RunDepthFt += (aimDepth - torp.RunDepthFt) * depthGain
+		handoff := ai.WireHandoffAgeSec(skill)
+		if torp.Age > handoff && !torp.SeekerOn {
 			torp.SeekerOn = true
 			torp.Mode = weapons.ModeSearch
 			torp.WireCut = true
 		}
 	}
+}
+
+func (e *Engine) entityByID(id string) *world.Entity {
+	if e == nil || e.Scenario == nil || id == "" {
+		return nil
+	}
+	if e.Scenario.Player != nil && e.Scenario.Player.ID == id {
+		return e.Scenario.Player
+	}
+	for _, ent := range e.Scenario.Entities {
+		if ent != nil && ent.ID == id {
+			return ent
+		}
+	}
+	return nil
 }
 
 func bearingDeg(x1, y1, x2, y2 float64) float64 {
@@ -865,17 +893,24 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 			continue
 		}
 		rangeYd := ent.RangeYardsTo(player)
+		if ent.Track.Valid {
+			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
+		}
 		// Prefer standoff shots — no point-blank / collision-range launches.
 		if rangeYd > 3400 || rangeYd < 1400 {
 			continue
 		}
+		if !ai.TrackClassified(ent) {
+			continue
+		}
+		aim := ai.TrackAimEntity(ent, player)
 		if e.FireControl.EnemyTubeOpenAt != nil {
 			if openAt, ok := e.FireControl.EnemyTubeOpenAt[ent.ID]; ok {
 				if gameTime-openAt < enemyTubeOpenLeadSec {
 					continue
 				}
 				delete(e.FireControl.EnemyTubeOpenAt, ent.ID)
-				if e.FireControl.SpawnHostileTorpedo(ent, player) != nil {
+				if e.FireControl.SpawnHostileTorpedo(ent, aim) != nil {
 					e.EmitTubeTransient(ent, gameTime, false)
 					e.Events = append(e.Events, "Torpedo launch detected (hostile)")
 					ent.AIState = "SHADOW"
@@ -932,13 +967,21 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			continue
 		}
 		rangeYd := ent.RangeYardsTo(player)
+		if ent.Track.Valid {
+			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
+		}
+		// Green crews must classify before weapon release (radar paint counts).
+		if ent.AIState != "RADAR_TRACK" && !ai.TrackClassified(ent) {
+			continue
+		}
+		aim := ai.TrackAimEntity(ent, player)
 
 		// Close band: ship torpedo tubes.
 		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
 			if int(gameTime*10)%38 != 0 {
 				continue
 			}
-			if e.FireControl.LaunchShipTube(ent, player) != nil {
+			if e.FireControl.LaunchShipTube(ent, aim) != nil {
 				e.Events = append(e.Events, "Torpedo launch detected (hostile)")
 			}
 			continue
@@ -950,7 +993,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			if int(gameTime*10)%44 != 0 {
 				continue
 			}
-			if e.FireControl.LaunchRBU(ent, player, gameTime) != nil {
+			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, "RBU barrage detected")
 			}
 			continue
@@ -962,8 +1005,8 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			if int(gameTime*10)%52 != 0 {
 				continue
 			}
-			if e.FireControl.LaunchRastrub(ent, player, gameTime) != nil {
-				e.Events = append(e.Events, "Rastrub launch detected")
+			if e.FireControl.LaunchRastrub(ent, aim, gameTime) != nil {
+				e.Events = append(e.Events, weapons.SurfaceASWRocketLabel(ent.SignatureID)+" launch detected")
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package acoustics
 import (
 	"math"
 
+	"github.com/ssn688/sim/internal/fastmath"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -318,15 +319,17 @@ func addAmbientNoise(bins []float64, gameTime float64, array PassiveArrayKind, t
 		base += math.Pow(speedKts-8, 1.15) * 0.28
 	}
 	n := len(bins)
+	// Quantize time so flutter isn't recomputed with unique Sin args every sample.
+	tBucket := int(gameTime * 8)
 	for bi := range bins {
 		bearing := float64(bi) / float64(n) * 360
 		rel := angleDiffDeg(bearing, headingDeg)
 		sens := arraySensitivity(array, rel, towedPct)
 		phase := gameTime*5.3 + float64(bi)*0.173
-		flutter := math.Sin(phase)*0.55 +
-			math.Sin(phase*2.17+0.8)*0.32 +
-			math.Sin(phase*0.41+float64(bi)*0.07)*0.22 +
-			math.Sin(gameTime*1.1+float64(bi)*0.53)*0.18
+		flutter := fastmath.Sin(phase)*0.55 +
+			fastmath.Sin(phase*2.17+0.8)*0.32 +
+			fastmath.Sin(phase*0.41+float64(bi)*0.07)*0.22 +
+			(fastmath.Hash01(bi, tBucket, 17)*2 - 1)*0.18
 		noise := (base + flutter) * (0.08 + 0.92*sens)
 		if noise > bins[bi] {
 			bins[bi] = noise

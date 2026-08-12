@@ -63,11 +63,11 @@ func routeCruiseSpeed(e *world.Entity) float64 {
 		return 9
 	case "fishing":
 		return 7
-	case "grisha", "udaloy", "kresta2", "krivak":
+	case "grisha", "udaloy", "kresta2", "krivak", "gorshkov":
 		return math.Min(14, e.MaxSpeedKts())
 	case "foxtrot":
 		return 5
-	case "victor_iii":
+	case "victor_iii", "yasen_m":
 		return 8
 	default:
 		if e.Kind == world.KindSubmarine {

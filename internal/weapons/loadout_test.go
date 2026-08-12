@@ -22,8 +22,53 @@ func TestLoadoutByClass(t *testing.T) {
 	if HostileTorpedoCruiseKts("victor_iii") <= HostileTorpedoCruiseKts("foxtrot") {
 		t.Fatal("Victor fish should be faster")
 	}
+	if EnemySubMagazineFor("yasen_m") <= EnemySubMagazineFor("victor_iii") {
+		t.Fatal("Yasen-M magazine should exceed Victor")
+	}
+	if !SurfaceHasRastrub("gorshkov") || SurfaceHasRBU("gorshkov") {
+		t.Fatal("Gorshkov: Otvet yes, RBU no")
+	}
+	if SurfaceASWRocketLabel("gorshkov") != "Otvet" {
+		t.Fatal("Gorshkov rocket label should be Otvet")
+	}
+	if ShipTubeMagazineFor("gorshkov") != 8 || SAMMagazineFor("gorshkov") < 20 {
+		t.Fatal("Gorshkov Paket/Redut magazines")
+	}
 	if LightweightTorpedoSignature("grisha") != "set40" {
 		t.Fatal("Grisha tubes fire SET-40")
+	}
+}
+
+func TestSpawnHostileTorpedoGreenSmearsSolution(t *testing.T) {
+	fc := NewFireControl()
+	sub := &world.Entity{
+		ID: "enemy_ss", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "foxtrot",
+		X: 0, Y: 0, HeadingDeg: 0, DepthFt: 150, CrewSkill: 0,
+		Track: world.AITrack{
+			Valid: true, ClassConf: 0.9, X: 500, Y: 2500, DepthFt: 400,
+			CourseDeg: 180, SpeedKts: 12,
+		},
+	}
+	tgt := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 2500, DepthFt: 200, HeadingDeg: 90, SpeedKts: 6,
+	}
+	fish := fc.SpawnHostileTorpedo(sub, tgt)
+	if fish == nil {
+		t.Fatal("expected hostile fish")
+	}
+	// Perfect gyro toward track ghost (~brg 11°) would be far from smeared green shot.
+	brgTruth := sub.BearingDegTo(tgt)
+	diff := fish.GyroCourseDeg - brgTruth
+	for diff > 180 {
+		diff -= 360
+	}
+	for diff < -180 {
+		diff += 360
+	}
+	if diff > -2 && diff < 2 && fish.RunDepthFt > 180 && fish.RunDepthFt < 220 {
+		t.Fatalf("green crew should smear gyro/depth; gyro=%.1f depth=%.0f", fish.GyroCourseDeg, fish.RunDepthFt)
 	}
 }
 

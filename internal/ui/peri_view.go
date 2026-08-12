@@ -8,6 +8,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/fastmath"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -1293,15 +1294,21 @@ func drawPeriSeaFoam(pix []byte, w, h, horizonY int, lookDeg, gameTime float64, 
 	if seaH < 1 {
 		seaH = 1
 	}
+	// Coarse time/look buckets — foam doesn't need sub-pixel temporal fidelity.
+	tBucket := int(gameTime * 6)
+	lookBucket := int(lookDeg * 2)
 	for y := horizonY + 1; y < h; y++ {
 		depth := float64(y-horizonY) / seaH // 0 = horizon (far), 1 = near
 		// Parallax: near water shifts more with train/time than far bands.
 		scroll := lookDeg*(0.16+0.62*depth) + gameTime*(0.9+5.2*depth)
+		scrollI := int(scroll)
+		yPhase := float64(y) * 0.065
 		for x := 0; x < w; x++ {
 			u := float64(x) + scroll
-			swell := math.Sin(u*0.036 + float64(y)*0.065)
-			foam := math.Sin(u*0.155 + float64(y)*0.21 + scroll*0.35)
-			cap := math.Sin(u*0.29 - float64(y)*0.11 + scroll*0.55)
+			// LUT sine for swell ridges; hash noise for foam/cap (was 3× math.Sin/px).
+			swell := fastmath.Sin(u*0.036 + yPhase)
+			foam := fastmath.Hash01(x+scrollI, y, tBucket+lookBucket)*2 - 1
+			cap := fastmath.Hash01(x*3+scrollI, y*5, tBucket)*2 - 1
 			add := 0.0
 			if swell > 0.58 {
 				add += (swell - 0.58) / 0.42 * (3.5 + 4.0*depth) * amp
@@ -1316,7 +1323,7 @@ func drawPeriSeaFoam(pix []byte, w, h, horizonY int, lookDeg, gameTime float64, 
 				continue
 			}
 			// Break continuous ridges into streaky foam patches.
-			if periHash8(x+int(scroll*0.25), y, 11) > 200 && foam < 0.93 {
+			if periHash8(x+scrollI/4, y, 11) > 200 && foam < 0.93 {
 				continue
 			}
 			i := (y*w + x) * 4

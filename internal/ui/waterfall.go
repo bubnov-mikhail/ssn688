@@ -159,8 +159,13 @@ func (a *App) updateBearingWaterfall() {
 		return
 	}
 	t := a.Engine.Clock.GameTime
-	// Advance the clock even off-screen so we never catch up hundreds of samples in one frame.
-	if t-a.lastWaterfallSample < waterfallSampleSec {
+	onFocus := a.CurrentScreen == ScreenPassive || a.CurrentScreen == ScreenSpectrum
+	// Off PASSIVE/SPECTRUM keep a thinner history so other screens aren't taxed.
+	sampleInterval := waterfallSampleSec
+	if !onFocus {
+		sampleInterval = waterfallSampleSec * 3
+	}
+	if t-a.lastWaterfallSample < sampleInterval {
 		return
 	}
 	// At most one sample per Update tick (high time-scale must not storm the GPU).
@@ -184,10 +189,10 @@ func (a *App) updateBearingWaterfall() {
 	acoustics.BearingWaterfallInto(a.waterfallScratch, a.Engine.Acoustics, player, emitters, sonar, primary, t)
 	a.bearingWaterfalls.ForArray(primary).PushCopy(a.waterfallScratch, player.HeadingDeg)
 
-	sampleSecondary := true
-	if a.CurrentScreen != ScreenPassive && a.CurrentScreen != ScreenSpectrum {
+	sampleSecondary := onFocus
+	if !onFocus {
 		a.waterfallAltCounter++
-		sampleSecondary = a.waterfallAltCounter%6 == 0
+		sampleSecondary = a.waterfallAltCounter%4 == 0
 	}
 	if sampleSecondary {
 		acoustics.BearingWaterfallInto(a.waterfallScratch, a.Engine.Acoustics, player, emitters, sonar, secondary, t)

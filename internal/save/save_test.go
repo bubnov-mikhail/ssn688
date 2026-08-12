@@ -50,6 +50,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	enemySub.LastPingTime = 88.5
 	enemySub.LastPingPower = 0.6
 	enemySub.LengthFt = 300
+	enemySub.CrewSkill = 33
 
 	enemyShip.X, enemyShip.Y = -3000, 5000
 	enemyShip.HeadingDeg = 45
@@ -61,6 +62,10 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	enemyShip.WreckNoiseUntil = 500
 	enemyShip.AIState = "SEARCH"
 	enemyShip.LengthFt = 235
+	enemyShip.CrewSkill = 55
+	enemyShip.AIProsecuting = true
+	enemyShip.AILostContactSec = 12.5
+	enemyShip.AIEngageCooldownUntil = 200.0
 
 	eng.Clock.GameTime = 120.25
 	eng.Clock.TimeScale = 2
@@ -158,6 +163,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	}
 	assertNear(t, "sub.Ping", gs.LastPingTime, 88.5)
 	assertNear(t, "sub.Len", gs.LengthFt, 300)
+	assertNear(t, "sub.CrewSkill", gs.CrewSkill, 33)
 
 	gship := findEnt(got, "enemy_grisha")
 	if gship.Status != world.StatusSinking {
@@ -167,6 +173,12 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	assertNear(t, "ship.Sink", gship.SinkRateFPM, 35)
 	assertNear(t, "ship.Wreck", gship.WreckNoiseUntil, 500)
 	assertNear(t, "ship.Len", gship.LengthFt, 235)
+	assertNear(t, "ship.CrewSkill", gship.CrewSkill, 55)
+	if !gship.AIProsecuting {
+		t.Fatal("ship AIProsecuting lost")
+	}
+	assertNear(t, "ship.LostContact", gship.AILostContactSec, 12.5)
+	assertNear(t, "ship.EngageCD", gship.AIEngageCooldownUntil, 200)
 
 	if !got.Acoustics.Env.LayerSurveyKnown {
 		t.Fatal("layer survey known lost")

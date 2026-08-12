@@ -1,6 +1,7 @@
 package acoustics
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ssn688/sim/internal/world"
@@ -29,13 +30,17 @@ func TestClassifyClarityRangeHullVsTowed(t *testing.T) {
 	hull := &SonarState{PassiveArray: PassiveArrayHull}
 	towed := &SonarState{PassiveArray: PassiveArrayTowed, TowedCablePct: 1}
 
-	hullBins := SpectrumAtBearing(model, listener, emitters, hull, 90, 10)
-	towedBins := SpectrumAtBearing(model, listener, emitters, towed, 90, 10)
+	hullBins := SpectrumAtBearing(model, listener, emitters, hull, listener.BearingDegTo(emBeam), 10)
+	var towListen world.Entity
+	if !PlaceTowedListener(&towListen, listener, 1) {
+		t.Fatal("towed listener")
+	}
+	towedBins := SpectrumAtBearing(model, listener, emitters, towed, towListen.BearingDegTo(emBeam), 10)
 	hullFilter := AnalyzeClassifyFilter(hullBins, 1)
 	towedFilter := AnalyzeClassifyFilter(towedBins, 1)
 
 	if towedFilter == ClassifyIndistinct {
-		t.Fatalf("towed abeam at 12 kyd should classify Grisha tonals, filter=%v", towedFilter)
+		t.Fatalf("towed abeam at 12 kyd should classify Grisha tonals, filter=%v peak=%.1f", towedFilter, peakOf(towedBins))
 	}
 	hullPeak, towedPeak := peakOf(hullBins), peakOf(towedBins)
 	if towedPeak <= hullPeak+1.5 {
@@ -59,6 +64,46 @@ func TestClassifyClarityRangeHullVsTowed(t *testing.T) {
 	towedNear := AnalyzeClassifyFilter(SpectrumAtBearing(model, listener, emitters, towed, 0, 10), 1)
 	if towedNear == ClassifyIndistinct {
 		t.Fatalf("towed ahead at 6 kyd should still classify (endfire softened), got %v", towedNear)
+	}
+}
+
+// Near-abeam contacts produce large hull↔towed bearing parallax. SPECTRUM look
+// locks to the contact bearing (from the active aperture); beam weights must
+// use that same origin or TOWED looks empty while HULL still shows tonals.
+func TestSpectrumTowedUsesApertureBearingNotHull(t *testing.T) {
+	model := NewModel(DefaultEnvironment())
+	listener := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, SignatureID: "los_angeles",
+		X: 0, Y: 0, DepthFt: 200, SpeedKts: 5, HeadingDeg: 0,
+	}
+	em := &world.Entity{
+		ID: "enemy_grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha",
+		X: 2800, Y: 0, DepthFt: 0, SpeedKts: 14, HeadingDeg: 270,
+	}
+	emitters := []*world.Entity{listener, em}
+	towed := &SonarState{PassiveArray: PassiveArrayTowed, TowedCablePct: 1}
+
+	var aperture world.Entity
+	if !PlaceTowedListener(&aperture, listener, 1) {
+		t.Fatal("towed listener")
+	}
+	hullBrg := listener.BearingDegTo(em)
+	towBrg := aperture.BearingDegTo(em)
+	if math.Abs(AngleDiffDeg(hullBrg, towBrg)) < 8 {
+		t.Fatalf("expected large parallax at 2.8 kyd abeam, hull=%.1f tow=%.1f", hullBrg, towBrg)
+	}
+
+	// Analyzer locked on the towed contact bearing (as the UI does).
+	bins := SpectrumAtBearing(model, listener, emitters, towed, towBrg, 10)
+	if AnalyzeClassifyFilter(bins, 1) == ClassifyIndistinct {
+		t.Fatalf("towed spectrum at aperture bearing %.1f should classify (hull brg was %.1f), peak=%.1f",
+			towBrg, hullBrg, peakOf(bins))
+	}
+	// Looking at the hull bearing while on TOWED must not be required for ID.
+	if peakOf(bins) < 8 {
+		t.Fatalf("expected strong towed peak at aperture brg, got %.1f", peakOf(bins))
 	}
 }
 

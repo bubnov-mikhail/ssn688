@@ -7,11 +7,21 @@ func SurfaceHasRastrub(signatureID string) bool {
 	case "grisha":
 		return false // RBU + tubes only
 	case "udaloy", "krivak", "kresta2":
-		return true
+		return true // Metel / Rastrub
+	case "gorshkov":
+		return true // Otvet PLUR from UKSK (same splash mechanics)
 	default:
 		// Unknown combatant: assume Metel/Rastrub-capable ASW escort.
 		return true
 	}
+}
+
+// SurfaceASWRocketLabel is the player-facing name for UKSK/Metel rocket ASW.
+func SurfaceASWRocketLabel(signatureID string) string {
+	if signatureID == "gorshkov" {
+		return "Otvet"
+	}
+	return "Rastrub"
 }
 
 func SurfaceHasRBU(signatureID string) bool {
@@ -24,6 +34,8 @@ func RastrubMagazineFor(signatureID string) int {
 		return 12
 	case "udaloy", "krivak":
 		return RastrubMagazineDefault
+	case "gorshkov":
+		return 8 // Otvet loadout share of UKSK
 	default:
 		return RastrubMagazineDefault
 	}
@@ -35,6 +47,8 @@ func ShipTubeMagazineFor(signatureID string) int {
 		return 4
 	case "kresta2":
 		return 8
+	case "gorshkov":
+		return 8 // Paket-NK MTT cells
 	default:
 		return ShipTubeMagazineDefault
 	}
@@ -55,6 +69,8 @@ func SAMMagazineFor(signatureID string) int {
 		return 12
 	case "udaloy", "krivak":
 		return SAMMagazineDefault
+	case "gorshkov":
+		return 32 // Poliment-Redut VLS
 	default:
 		return SAMMagazineDefault
 	}
@@ -66,6 +82,8 @@ func CIWSMagazineFor(signatureID string) int {
 		return 6
 	case "kresta2":
 		return 14
+	case "gorshkov":
+		return 16 // Palma / Pantsir-M class PD
 	default:
 		return CIWSBurstDefault
 	}
@@ -75,6 +93,8 @@ func EnemySubMagazineFor(signatureID string) int {
 	switch signatureID {
 	case "victor_iii":
 		return 18
+	case "yasen_m":
+		return 24
 	case "foxtrot":
 		return 10
 	case "kilo":
@@ -87,8 +107,8 @@ func EnemySubMagazineFor(signatureID string) int {
 // HostileTorpedoCruiseKts — heavy fish speed by launcher class.
 func HostileTorpedoCruiseKts(signatureID string) float64 {
 	switch signatureID {
-	case "victor_iii":
-		return 55
+	case "victor_iii", "yasen_m":
+		return 55 // UGST / Fizik-class peer fish
 	case "foxtrot":
 		return 40
 	default:
@@ -101,5 +121,5 @@ func LightweightTorpedoSignature(launcherSig string) string {
 	if launcherSig == "grisha" {
 		return "set40"
 	}
-	return "umgt1"
+	return "umgt1" // includes Paket MTT stand-in for Gorshkov
 }

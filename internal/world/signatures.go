@@ -73,6 +73,30 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 3.6, CavitationDB: 95,
 	},
 	{
+		ID: "yasen_m", Name: "Yasen-M SSN", Class: "Pr.885M", Kind: KindSubmarine,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 45, LevelDB: 96},
+			{LowHz: 45, HighHz: 150, LevelDB: 102},
+			{LowHz: 150, HighHz: 450, LevelDB: 94},
+			{LowHz: 450, HighHz: 1200, LevelDB: 82},
+		},
+		// Modern SSN with pump-jet: quieter than Victor III; sparse plant lines.
+		Tonals: []TonalLine{
+			{FreqHz: 24, RelLevel: 0.55},
+			{FreqHz: 48, RelLevel: 0.72},
+			{FreqHz: 72, RelLevel: 0.68},
+			{FreqHz: 96, RelLevel: 0.90},
+			{FreqHz: 144, RelLevel: 0.78},
+			{FreqHz: 192, RelLevel: 0.70},
+			{FreqHz: 288, RelLevel: 0.58},
+			{FreqHz: 384, RelLevel: 0.48},
+			{FreqHz: 576, RelLevel: 0.40},
+			{FreqHz: 960, RelLevel: 0.32},
+			{FreqHz: 1440, RelLevel: 0.25},
+		},
+		BladeRateHz: 2.4, CavitationDB: 82,
+	},
+	{
 		ID: "foxtrot", Name: "Foxtrot SS", Class: "Pr.641", Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 50, LevelDB: 122},
@@ -141,6 +165,31 @@ var SignatureLibrary = []SignatureProfile{
 			{FreqHz: 1540, RelLevel: 0.32},
 		},
 		BladeRateHz: 2.15, CavitationDB: 102,
+	},
+	{
+		ID: "gorshkov", Name: "Gorshkov FFG", Class: "Pr.22350", Kind: KindSurfaceShip,
+		Bands: []NoiseBand{
+			{LowHz: 20, HighHz: 80, LevelDB: 124},
+			{LowHz: 80, HighHz: 240, LevelDB: 116},
+			{LowHz: 240, HighHz: 700, LevelDB: 106},
+			{LowHz: 700, HighHz: 1800, LevelDB: 94},
+		},
+		// CODAG frigate: quieter mid-band than Udaloy, clean shaft/gear set.
+		Tonals: []TonalLine{
+			{FreqHz: 19, RelLevel: 0.60},
+			{FreqHz: 38, RelLevel: 0.82},
+			{FreqHz: 57, RelLevel: 0.70},
+			{FreqHz: 76, RelLevel: 1.00},
+			{FreqHz: 114, RelLevel: 0.88},
+			{FreqHz: 152, RelLevel: 0.80},
+			{FreqHz: 228, RelLevel: 0.72},
+			{FreqHz: 380, RelLevel: 0.62},
+			{FreqHz: 570, RelLevel: 0.50},
+			{FreqHz: 760, RelLevel: 0.42},
+			{FreqHz: 1140, RelLevel: 0.34},
+			{FreqHz: 1520, RelLevel: 0.28},
+		},
+		BladeRateHz: 1.9, CavitationDB: 104,
 	},
 	{
 		ID: "kresta2", Name: "Kresta II CG", Class: "Pr.1134A", Kind: KindSurfaceShip,
@@ -403,6 +452,8 @@ func SurfaceHullBeamRel(e *Entity) float64 {
 		return 0.82
 	case "udaloy", "kresta2":
 		return 0.72
+	case "gorshkov":
+		return 0.58
 	case "krivak":
 		return 0.55
 	case "grisha":

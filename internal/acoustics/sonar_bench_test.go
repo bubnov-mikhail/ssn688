@@ -24,6 +24,19 @@ func BenchmarkUpdatePassive(b *testing.B) {
 	}
 }
 
+func BenchmarkBearingWaterfallInto(b *testing.B) {
+	sc, _ := benchScenario()
+	emitters := sc.AppendAllEntities(nil)
+	model := NewModel(DefaultEnvironment())
+	sonar := NewSonarState()
+	player := sc.Player
+	dst := make([]float64, BearingWaterfallBins)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		BearingWaterfallInto(dst, model, player, emitters, &sonar, PassiveArrayHull, float64(i)*0.15)
+	}
+}
+
 func BenchmarkSpectrumAtBearingInto(b *testing.B) {
 	sc, dst := benchScenario()
 	emitters := sc.AppendAllEntities(nil)

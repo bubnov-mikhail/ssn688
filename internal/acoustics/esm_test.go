@@ -11,6 +11,7 @@ func TestRadarScanPeriodsByClass(t *testing.T) {
 	cases := map[string]float64{
 		"udaloy":   6.0,  // ~6–12 rpm air/surface
 		"grisha":   4.0,  // ~15 rpm surface search
+		"gorshkov": 4.5,  // Poliment / Furke
 		"merchant": 2.5,  // ~24 rpm nav
 		"tanker":   3.0,
 		"fishing":  2.5,

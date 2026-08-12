@@ -42,6 +42,14 @@ func RadarBySignature(sigID string) (RadarProfile, bool) {
 			ScanPeriodSec: 5.0, BeamHalfDeg: 2.2, PeakPowerKW: 55,
 			MaxRangeYd: 32000, MastDetectYd: 11000,
 		}, true
+	case "gorshkov":
+		// Poliment 5P-20K / Furke-4 class air+surface suite.
+		return RadarProfile{
+			ID: "poliment_furke", Name: "Poliment / Furke-4",
+			ClassLabel: "AIR/SURFACE SEARCH", Band: "S/X",
+			ScanPeriodSec: 4.5, BeamHalfDeg: 1.6, PeakPowerKW: 70,
+			MaxRangeYd: 40000, MastDetectYd: 13000,
+		}, true
 	case "grisha":
 		// Compact coastal ASW — faster surface search (~15 rpm ≈ 4 s).
 		return RadarProfile{

@@ -68,8 +68,8 @@ func TestClassifiedLibraryIDFromConfirmed(t *testing.T) {
 
 func TestLibraryCatalogCoversPlatforms(t *testing.T) {
 	want := []string{
-		"udaloy", "krivak", "kresta2", "grisha",
-		"kilo", "foxtrot", "victor_iii",
+		"udaloy", "krivak", "kresta2", "grisha", "gorshkov",
+		"kilo", "foxtrot", "victor_iii", "yasen_m",
 		"merchant", "tanker", "fishing",
 		"los_angeles",
 	}

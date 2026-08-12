@@ -477,6 +477,7 @@ func (fc *FireControl) Shoot(sub *world.Entity, tubeNum int) *Torpedo {
 }
 
 // SpawnHostileTorpedo launches an AI weapon (wire initially, then search).
+// Gyro / depth come from the firing crew's Track estimate (skill-dependent).
 func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 	if sub == nil || !sub.Alive() || target == nil {
 		return nil
@@ -488,7 +489,24 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 	fc.EnemyMagazine[sub.ID] = left - 1
 	fc.torpedoSeq++
 	ownHead := normalizeAngle(sub.HeadingDeg)
-	brg := sub.BearingDegTo(target)
+	aim := target
+	if sub.Track.Valid {
+		aim = sub.Track.GhostTarget(target.ID)
+	}
+	skill := sub.CrewSkill01()
+	cruise := HostileTorpedoCruiseKts(sub.SignatureID)
+	gyro := sub.BearingDegTo(aim)
+	if course, ok := TorpedoInterceptGyro(sub.X, sub.Y, ownHead, aim.X, aim.Y, aim.HeadingDeg, aim.SpeedKts, cruise); ok {
+		gyro = course
+	}
+	// Green fire-control: smear gyro and depth badly.
+	gyro += (1-skill) * 28 * (hashUnit(sub.ID+aim.ID) - 0.5) * 2
+	gyro = normalizeAngle(gyro)
+	runDepth := math.Max(80, aim.DepthFt)
+	runDepth += (1 - skill) * 90 * (hashUnit(sub.ID+"depth") - 0.5) * 2
+	if runDepth < 60 {
+		runDepth = 60
+	}
 	rad := ownHead * math.Pi / 180
 	torp := &Torpedo{
 		ID:                     fmt.Sprintf("ETORP-%d", fc.torpedoSeq),
@@ -501,10 +519,10 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 		HeadingDeg:             ownHead,
 		OrderedHead:            ownHead,
 		LaunchHeadDeg:          ownHead,
-		GyroCourseDeg:          brg,
+		GyroCourseDeg:          gyro,
 		SpeedKts:               18,
-		CruiseKts:              HostileTorpedoCruiseKts(sub.SignatureID),
-		RunDepthFt:             math.Max(80, target.DepthFt),
+		CruiseKts:              cruise,
+		RunDepthFt:             runDepth,
 		SeekerOn:               false,
 		Armed:                  true,
 		Mode:                   ModeWire,
@@ -514,6 +532,17 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 	}
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
 	return torp
+}
+
+func hashUnit(s string) float64 {
+	h := 0
+	for i := 0; i < len(s); i++ {
+		h = h*31 + int(s[i])
+	}
+	if h < 0 {
+		h = -h
+	}
+	return float64(h%1000) / 1000.0
 }
 
 func (fc *FireControl) enemyAmmo(sub *world.Entity) int {

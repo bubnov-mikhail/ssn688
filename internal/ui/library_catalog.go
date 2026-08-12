@@ -177,6 +177,42 @@ var libraryCatalog = []libraryEntry{
 		},
 	},
 	{
+		ID: "gorshkov", Allegiance: libHostile, Kind: world.KindSurfaceShip,
+		Title:     "Gorshkov FFG — Project 22350 Admiral Gorshkov",
+		ImageFile: "gorshkov.jpg",
+		Credit:    "Photo: Russian MoD / CC BY 4.0 (Wikimedia)",
+		Summary: []string{
+			"Modern multipurpose frigate: Poliment-Redut air defense, UKSK strike/ASW cells, and Paket-NK lightweight ASW. Quieter CODAG plant than Cold War destroyers, but still a strong mid-band surface source.",
+			"Not in the demo mission yet. ASW rocket employment is Otvet (UKSK) using the same splash→lightweight fish model as Metel.",
+		},
+		Specs: []string{
+			"Displacement ~5,400 t full load",
+			"Length ~135 m  |  Speed ~29–30 kn",
+			"Crew ~210  |  Helicopter: Ka-27 capable",
+			"Acoustic: CODAG shaft/gear cluster; blade ~1.9 Hz",
+			"Radar: Poliment / Furke-4 — S/X air+surface, ~4.5 s/scan",
+			"Mast detect (calm): ~13 kyd vs raised ESM/periscope stalk",
+		},
+		Offense: []string{
+			"Otvet ASW missile (UKSK) — magazine ~8; splash → UMGT-1",
+			"Paket-NK ship tubes — UMGT-1 stand-in (magazine ~8)",
+			"No RBU; UKSK AShM (Kalibr/Oniks/Zircon) not modeled vs player",
+		},
+		Defense: []string{
+			"Poliment-Redut SAM — deep magazine (~32)",
+			"Palma / Pantsir-M class CIWS (~16 bursts)",
+			"Frigate hull: typically 1–2 Mk48 hits; Harpoon contested by PD",
+		},
+		Neutralize: []string{
+			"Mk48 from outside Otvet comfort; respect Redut vs Harpoon.",
+			"Quiet approach — his search radar will paint a raised mast.",
+		},
+		Evade: []string{
+			"Deep / under layer vs Otvet splash fish; CM on CPA.",
+			"Avoid mast exposure while he has a solid track.",
+		},
+	},
+	{
 		ID: "kilo", Allegiance: libHostile, Kind: world.KindSubmarine,
 		Title:     "Kilo SS — Project 877 Paltus",
 		ImageFile: "kilo.jpg",
@@ -270,6 +306,39 @@ var libraryCatalog = []libraryEntry{
 		Evade: []string{
 			"He can outrun poor geometry — prioritize early CM + radical course/depth.",
 			"Do not sprint needlessly; his sensors punish cavitation.",
+		},
+	},
+	{
+		ID: "yasen_m", Allegiance: libHostile, Kind: world.KindSubmarine,
+		Title:     "Yasen-M SSN — Project 885M Yaseny",
+		ImageFile: "yasen_m.jpg",
+		Credit:    "Photo: kremlin.ru / CC BY 4.0 (Wikimedia) — K-560 Severodvinsk class stand-in",
+		Summary: []string{
+			"Newest Russian multipurpose nuclear boat: pump-jet quieting, sparse plant tonals, and a deep mixed magazine. Harder to classify than Victor III and closer to a 688 acoustic problem.",
+			"Not in the demo mission yet — treat as a future peer threat once spawned in custom scenarios.",
+		},
+		Specs: []string{
+			"Displacement ~13,800 t submerged (class figures)",
+			"Length ~139 m  |  Speed ~31 kn submerged (sim)",
+			"Tubes: 10 × 533 mm  |  Mag ~24 heavy fish  |  Cruise ~55 kn",
+			"Acoustic: quiet nuclear + pump-jet; blade ~2.4 Hz",
+			"UKSK VLS (Kalibr/Oniks/Zircon) — not modeled as AI weapons in this build",
+		},
+		Offense: []string{
+			"UGST / Fizik-class heavy torpedoes — peer speed, large magazine",
+			"Sticky prosecute AI once contact is held",
+		},
+		Defense: []string{
+			"Soft-kill CM; high submerged mobility",
+			"No SAMs — Mk48 remains the kill weapon",
+		},
+		Neutralize: []string{
+			"Invest in TMA; he is quieter — do not shoot on a weak class call.",
+			"Expect counterfire from a deep magazine if you are noisy.",
+		},
+		Evade: []string{
+			"His fish are fast — early CM + depth/course change on CPA.",
+			"Layer denial and own quieting matter more than vs Foxtrot.",
 		},
 	},
 	{

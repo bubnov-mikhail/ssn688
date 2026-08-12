@@ -76,6 +76,17 @@ func (s Spectrum) AddScalar(db float64) Spectrum {
 	return out
 }
 
+// combineDeltaLUT[i] ≈ 10*log10(1+10^(-d/10)) where d = i/4 dB (0..25).
+var combineDeltaLUT [101]float64
+
+func init() {
+	for i := range combineDeltaLUT {
+		d := float64(i) / 4.0
+		combineDeltaLUT[i] = 10 * math.Log10(1+math.Pow(10, -d/10))
+	}
+}
+
+// combineDB merges two power levels without per-call Pow/Log10.
 func combineDB(a, b float64) float64 {
 	if a < -150 {
 		return b
@@ -83,9 +94,21 @@ func combineDB(a, b float64) float64 {
 	if b < -150 {
 		return a
 	}
-	pa := math.Pow(10, a/10)
-	pb := math.Pow(10, b/10)
-	return 10 * math.Log10(pa+pb)
+	if a < b {
+		a, b = b, a
+	}
+	d := a - b
+	if d >= 25 {
+		return a // weaker contributes <0.3%
+	}
+	idx := int(d*4 + 0.5)
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(combineDeltaLUT) {
+		idx = len(combineDeltaLUT) - 1
+	}
+	return a + combineDeltaLUT[idx]
 }
 
 // NormalizeShape scales spectrum to 0..1 per-band shape for correlation.

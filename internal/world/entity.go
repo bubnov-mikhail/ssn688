@@ -15,9 +15,9 @@ const (
 	// Edward L. Beach / NSL: routine ~10°, normal dive limit ~15°, battle ~30°.
 	// USNA / USNI: planes dominate; large angles restricted at high speed.
 	// Aggressive diesel drills: ~250–350 ft/min sustained (e.g. 400→PD in ~90 s).
-	DepthAngleRoutineDeg = 10.0 // modern routine acceptance (~Beach)
-	DepthAngleMaxDeg     = 15.0 // normal dive limit (Amberjack doctrine)
-	DepthRateMinFPM      = 35.0 // trim/pump crawl when nearly stopped
+	DepthAngleRoutineDeg = 10.0  // modern routine acceptance (~Beach)
+	DepthAngleMaxDeg     = 15.0  // normal dive limit (Amberjack doctrine)
+	DepthRateMinFPM      = 35.0  // trim/pump crawl when nearly stopped
 	DepthRateMaxFPM      = 320.0 // aggressive tactical ceiling (~drill figures)
 )
 
@@ -42,6 +42,14 @@ type Entity struct {
 	LastPingPower float64 // 0..1 transmit power of last active ping
 	AIState       string
 	Defcon        int // enemy alert 0–3; see world/defcon.go
+	// CrewSkill 0..100 — enemy crew proficiency (classification, TMA, fire control).
+	CrewSkill float64
+	// Track is the crew's estimated player solution (enemies only).
+	Track AITrack
+	// Surface ASW sticky prosecute — avoid detect↔patrol thrashing.
+	AIProsecuting         bool
+	AILostContactSec      float64 // time without sense while prosecuting
+	AIEngageCooldownUntil float64 // GameTime; no new CLOSING until then
 	// RouteID / RouteWP drive PATROL/CRUISE navigation; empty RouteID = no route.
 	RouteID         string
 	RouteWP         int  // index of the waypoint currently being approached
@@ -61,6 +69,9 @@ type Entity struct {
 	// HullFireUntil is GameTime while peri IR should show burning wreckage on
 	// a surface ship after a warhead hit (persists after the blast flash).
 	HullFireUntil float64
+	// PassiveDetectCache* — short TTL for AI CanDetectPlayerPassive (avoids full Detect each tick).
+	PassiveDetectCacheAt float64
+	PassiveDetectCached  bool
 }
 
 func (e *Entity) Alive() bool {
@@ -174,13 +185,15 @@ func (e *Entity) Advance(dt float64) {
 			e.OrderedHead = e.HeadingDeg
 		}
 	} else {
-		turnScale := e.TurnRateScale()
+		turnScale := e.TurnRateScale() * RudderEffectiveness(e)
 		maxRate := MaxTurnRateDegPerSec(e) * turnScale
 		// Soft lag scales with yaw authority so large hulls don't "snap" the last degrees.
 		soft := maxRate / 12
-		diff := shortestAngleDiff(e.HeadingDeg, e.OrderedHead)
-		e.HeadingDeg += clamp(diff*dt*soft, -dt*maxRate, dt*maxRate)
-		e.HeadingDeg = normalizeAngle(e.HeadingDeg)
+		if maxRate > 1e-6 {
+			diff := shortestAngleDiff(e.HeadingDeg, e.OrderedHead)
+			e.HeadingDeg += clamp(diff*dt*soft, -dt*maxRate, dt*maxRate)
+			e.HeadingDeg = normalizeAngle(e.HeadingDeg)
+		}
 	}
 
 	rad := e.HeadingDeg * math.Pi / 180
@@ -213,9 +226,43 @@ func MaxSpeedAccelKtsPerSec(e *Entity) float64 {
 	}
 }
 
-// MaxTurnRateDegPerSec is hard yaw-rate authority (°/s) before steering damage.
-// Large / heavy hulls (tanker, merchant) turn much slower than fishing craft;
-// combatants sit between destroyer agility and merchant inertia.
+// RudderEffectiveness is 0..1 hydrodynamic rudder authority from longitudinal
+// speed. Platforms have no thrusters: zero way-on → no yaw. Astern flow also
+// feeds the rudder (use |SpeedKts|).
+func RudderEffectiveness(e *Entity) float64 {
+	if e == nil {
+		return 0
+	}
+	spd := math.Abs(e.SpeedKts)
+	var dead, full float64
+	switch e.Kind {
+	case KindTorpedo:
+		return 1
+	case KindSubmarine:
+		// No bow/stern thrusters: need way for control surfaces.
+		dead, full = 1.5, 8.0
+	case KindSurfaceShip:
+		// Conventional rudder; small craft get authority a bit earlier.
+		dead, full = 0.8, 7.0
+		if e.LengthFt > 0 && e.LengthFt < 200 {
+			dead, full = 0.5, 5.0
+		}
+	default:
+		dead, full = 1.0, 8.0
+	}
+	if spd <= dead {
+		return 0
+	}
+	if spd >= full {
+		return 1
+	}
+	return (spd - dead) / (full - dead)
+}
+
+// MaxTurnRateDegPerSec is hard yaw-rate authority (°/s) before steering damage
+// and before RudderEffectiveness. Large / heavy hulls (tanker, merchant) turn
+// much slower than fishing craft; combatants sit between destroyer agility
+// and merchant inertia.
 func MaxTurnRateDegPerSec(e *Entity) float64 {
 	if e == nil {
 		return 2.5
@@ -235,7 +282,7 @@ func MaxTurnRateDegPerSec(e *Entity) float64 {
 			return 3.4
 		case "udaloy", "kresta2":
 			return 1.9
-		case "krivak":
+		case "gorshkov", "krivak":
 			return 2.2
 		case "grisha":
 			return 2.6
