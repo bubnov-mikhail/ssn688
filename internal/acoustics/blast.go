@@ -10,6 +10,8 @@ import (
 // ApplyDetonationDeaf blinds the listener within blast radius and stamps washout.
 // Surface-ship (incl. neutral) detonations couple strongly into the water column —
 // longer-range washout so distant merchants still light up the passive display.
+// Acoustic effects (waterfall, deaf, SFX) are delayed by one-way sound travel;
+// peri IR uses LastBlastDetonateAt and remains instant (light).
 func ApplyDetonationDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTime float64, hit *world.Entity) {
 	if sonar == nil || listener == nil {
 		return
@@ -43,23 +45,40 @@ func ApplyCookOffDeaf(sonar *SonarState, listener *world.Entity, x, y, gameTime 
 }
 
 func stampBlastWashout(sonar *SonarState, listener *world.Entity, x, y, gameTime, washRange, deafRange, flashSec float64, hit *world.Entity) {
-	sonar.LastBlastAt = gameTime
-	sonar.LastBlastX = x
-	sonar.LastBlastY = y
+	bx, by := x, y
+	if hit != nil {
+		// Anchor to the hull so the visual follows a moving/sinking target.
+		bx, by = hit.X, hit.Y
+	}
+	dist := math.Hypot(listener.X-bx, listener.Y-by)
+	travel := 0.0
+	if dist > 0 {
+		travel = dist / SoundSpeedYdPerSec
+	}
+	arrive := gameTime + travel
+
+	sonar.LastBlastDetonateAt = gameTime
+	sonar.LastBlastAt = arrive
+	sonar.LastBlastX = bx
+	sonar.LastBlastY = by
 	sonar.LastBlastRangeYd = washRange
 	sonar.LastBlastFlashSec = flashSec
 	sonar.LastBlastEntityID = ""
 	if hit != nil {
 		sonar.LastBlastEntityID = hit.ID
-		// Anchor to the hull so the visual follows a moving/sinking target.
-		sonar.LastBlastX = hit.X
-		sonar.LastBlastY = hit.Y
 	}
-	dist := math.Hypot(listener.X-x, listener.Y-y)
 	if dist <= deafRange {
-		until := gameTime + weapons.BlastDeafDurationSec*(0.35+0.45*(1-dist/deafRange))
+		until := arrive + weapons.BlastDeafDurationSec*(0.35+0.45*(1-dist/deafRange))
 		if until > sonar.SonarDeafUntil {
 			sonar.SonarDeafUntil = until
 		}
 	}
+}
+
+// OneWaySoundTravelSec is range / seawater sound speed (yards → seconds).
+func OneWaySoundTravelSec(rangeYd float64) float64 {
+	if rangeYd <= 0 {
+		return 0
+	}
+	return rangeYd / SoundSpeedYdPerSec
 }

@@ -49,8 +49,8 @@ func TestTowedArraySNRBonus(t *testing.T) {
 	s := NewSonarState()
 	s.PassiveArray = PassiveArrayTowed
 	s.TowedCablePct = 1
-	if s.passiveSNRBonusDB() != 8 {
-		t.Fatalf("expected +8 dB bonus, got %.1f", s.passiveSNRBonusDB())
+	if s.passiveSNRBonusDB() != 11 {
+		t.Fatalf("expected +11 dB bonus, got %.1f", s.passiveSNRBonusDB())
 	}
 	s.PassiveArray = PassiveArrayHull
 	if s.passiveSNRBonusDB() != 0 {

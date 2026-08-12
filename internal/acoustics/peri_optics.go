@@ -69,10 +69,8 @@ func AngleDiffSigned(a, b float64) float64 {
 	return d - 180
 }
 
-// BearingToViewX maps a true bearing into a horizontal pixel in a frame of
-// width W looking along lookBrg with horizontal FOV fovDeg. ok is false when
-// outside the FOV.
-func BearingToViewX(brgDeg, lookBrgDeg, fovDeg float64, width int) (x int, ok bool) {
+// BearingToViewXF maps a true bearing into a fractional horizontal pixel.
+func BearingToViewXF(brgDeg, lookBrgDeg, fovDeg float64, width int) (x float64, ok bool) {
 	if width <= 0 || fovDeg <= 0 {
 		return 0, false
 	}
@@ -82,7 +80,26 @@ func BearingToViewX(brgDeg, lookBrgDeg, fovDeg float64, width int) (x int, ok bo
 		return 0, false
 	}
 	t := (rel + half) / fovDeg
-	x = int(t * float64(width))
+	x = t * float64(width)
+	if x < 0 {
+		x = 0
+	}
+	max := float64(width) - 1e-6
+	if x > max {
+		x = max
+	}
+	return x, true
+}
+
+// BearingToViewX maps a true bearing into a horizontal pixel in a frame of
+// width W looking along lookBrg with horizontal FOV fovDeg. ok is false when
+// outside the FOV.
+func BearingToViewX(brgDeg, lookBrgDeg, fovDeg float64, width int) (x int, ok bool) {
+	xf, ok := BearingToViewXF(brgDeg, lookBrgDeg, fovDeg, width)
+	if !ok {
+		return 0, false
+	}
+	x = int(math.Floor(xf))
 	if x < 0 {
 		x = 0
 	}
@@ -102,26 +119,29 @@ func ViewXToBearing(x, width int, lookBrgDeg, fovDeg float64) float64 {
 	return normalizeDeg360(lookBrgDeg + rel)
 }
 
-// ShipAspectDeg is the acute angle (0..90) between LOS and the ship's heading
-// (0 = bow/stern-on, 90 = beam-on).
+// ShipAspectDeg is which face of the ship points at the observer (0..180):
+// 0 = bow toward us, 90 = beam, 180 = stern toward us.
+// losBearingDeg is eye→ship; we compare heading to the opposite (ship→eye).
 func ShipAspectDeg(losBearingDeg, shipHeadingDeg float64) float64 {
-	rel := math.Abs(AngleDiffSigned(losBearingDeg, shipHeadingDeg))
-	if rel > 90 {
-		rel = 180 - rel
-	}
-	return rel
+	toEye := normalizeDeg360(losBearingDeg + 180)
+	return math.Abs(AngleDiffSigned(toEye, shipHeadingDeg))
 }
 
-// ShipAspectBin5 quantizes aspect to the nearest 5° bin in [0, 90].
-func ShipAspectBin5(aspectDeg float64) int {
-	b := int(math.Round(aspectDeg/5.0)) * 5
+// ShipAspectBin quantizes aspect to the nearest 1° bin in [0, 180].
+func ShipAspectBin(aspectDeg float64) int {
+	b := int(math.Round(aspectDeg))
 	if b < 0 {
 		b = 0
 	}
-	if b > 90 {
-		b = 90
+	if b > 180 {
+		b = 180
 	}
 	return b
+}
+
+// ShipAspectBin5 is kept as an alias for older call sites (now 1° quantization).
+func ShipAspectBin5(aspectDeg float64) int {
+	return ShipAspectBin(aspectDeg)
 }
 
 // ShipBeamAspect01 is 0 for bow/stern-on silhouette and 1 for full beam-on,
@@ -187,14 +207,14 @@ func maxInt(a, b int) int {
 
 // PeriShipProj is a projected surface-ship silhouette for the IR frame.
 type PeriShipProj struct {
-	CenterX    int
-	WaterY     int // waterline pixel row
+	CenterX    float64 // fractional pixel — avoids staircase crawl when upscaled
+	WaterY     int     // waterline pixel row
 	RangeYd    float64
 	WidthPx    int
 	HullHPx    int
 	SuperHPx   int
 	Aspect01   float64
-	AspectDeg  float64 // 0..90, for 5° silhouette bins
+	AspectDeg  float64 // 0..180, for 1° silhouette bins (bow→beam→stern)
 	Brightness float64 // 0..1 after haze
 	Signature  string
 	Sinking    bool
@@ -271,7 +291,7 @@ func ProjectSurfaceShip(
 	if brg < 0 {
 		brg += 360
 	}
-	cx, ok := BearingToViewX(brg, lookBrgDeg, fovDeg, frameW)
+	cx, ok := BearingToViewXF(brg, lookBrgDeg, fovDeg, frameW)
 	if !ok {
 		return out, false
 	}

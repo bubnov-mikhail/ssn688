@@ -389,3 +389,28 @@ func ProfileByID(id string) (SignatureProfile, bool) {
 	}
 	return SignatureProfile{}, false
 }
+
+// SurfaceHullBeamRel is a relative beam (hull breadth) factor for surface ships
+// used by listen FX (bow wash). Tanker ≈ 1, fishing ≈ 0.3; non-surface → 0.
+func SurfaceHullBeamRel(e *Entity) float64 {
+	if e == nil || e.Kind != KindSurfaceShip {
+		return 0
+	}
+	switch e.SignatureID {
+	case "tanker":
+		return 1.0
+	case "merchant":
+		return 0.82
+	case "udaloy", "kresta2":
+		return 0.72
+	case "krivak":
+		return 0.55
+	case "grisha":
+		return 0.42
+	case "fishing":
+		return 0.30
+	default:
+		return 0.50
+	}
+}
+

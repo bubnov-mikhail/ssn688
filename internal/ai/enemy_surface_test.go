@@ -19,7 +19,7 @@ func TestSurfaceAIHoldsRastrubStandoff(t *testing.T) {
 		Status: world.StatusActive, X: 0, Y: 5500, DepthFt: 200, SpeedKts: 6,
 	}
 	model := acoustics.NewModel(acoustics.DefaultEnvironment())
-	updateSurfaceAI(ship, player, 100, model, nil, EvadeContext{})
+	updateSurfaceAI(ship, player, 100, model, nil, EvadeContext{}, nil)
 	if ship.AIState != "RASTRUB" {
 		t.Fatalf("expected RASTRUB, got %s", ship.AIState)
 	}
@@ -39,7 +39,7 @@ func TestSurfaceAIShipTubeBand(t *testing.T) {
 		Status: world.StatusActive, X: 0, Y: 1600, DepthFt: 180,
 	}
 	model := acoustics.NewModel(acoustics.DefaultEnvironment())
-	updateSurfaceAI(ship, player, 50, model, nil, EvadeContext{})
+	updateSurfaceAI(ship, player, 50, model, nil, EvadeContext{}, nil)
 	if ship.AIState != "SHIP_TUBE" {
 		t.Fatalf("expected SHIP_TUBE, got %s", ship.AIState)
 	}

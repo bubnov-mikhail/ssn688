@@ -6,7 +6,7 @@ Usage (repo root):
       tools/gen_peri_ship_sprites_blender.py
 
 Outputs: assets/peri_ships/{class}_{aspect:03d}.png
-  aspect 0..90 step 5 (bow-on → beam).
+  aspect 0..180 step 1 (bow-on → beam → stern-on).
 
 IR: two styles via SHIP_CFG['ir_style']:
   zones  — flat EEVEE emission by hull/deck/super/engine/stack/radar
@@ -87,8 +87,9 @@ SHIP_CFG = {
     },
 }
 
-ASPECT_STEP = 5
-ASPECT_MAX = 90
+ASPECT_STEP = 1
+ASPECT_MIN = 0
+ASPECT_MAX = 180
 RES_X, RES_Y = 512, 160
 # Render larger then downsample for softer IR edges.
 SUPERSAMPLE = 3
@@ -520,7 +521,7 @@ def set_waterline(meshes: list[bpy.types.Object], waterline_z: float) -> None:
 
 
 def rotate_aspect(meshes: list[bpy.types.Object], aspect_deg: float) -> None:
-    """rot_z = 90 - aspect  (0=bow-on, 90=beam)."""
+    """rot_z = 90 - aspect  (0=bow-on, 90=beam, 180=stern-on)."""
     apply_world_matrix(meshes, Matrix.Rotation(math.radians(90.0 - aspect_deg), 4, "Z"))
 
 
@@ -667,22 +668,28 @@ def render_aspects(
     frame_top_z: float,
     soft_blur: bool = True,
     crush_thresh: float = 0.025,
+    aspect_min: int = ASPECT_MIN,
+    aspect_max: int = ASPECT_MAX,
+    skip_existing: bool = False,
 ) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     rest = {o.name: o.matrix_world.copy() for o in base_meshes}
     # Rest pose is beam (length on X) — fix zoom from that so yaw doesn't rezoom.
     vis0 = [m for m in base_meshes if not m.hide_render]
     ortho = compute_fixed_ortho(vis0, frame_top_z)
-    print(f"fixed_ortho {class_name}={ortho:.3f}")
+    print(f"fixed_ortho {class_name}={ortho:.3f} aspects={aspect_min}..{aspect_max}")
     src_w, src_h = RES_X * SUPERSAMPLE, RES_Y * SUPERSAMPLE
-    for aspect in range(0, ASPECT_MAX + 1, ASPECT_STEP):
+    for aspect in range(aspect_min, aspect_max + 1, ASPECT_STEP):
+        out = OUT_DIR / f"{class_name}_{aspect:03d}.png"
+        if skip_existing and out.is_file():
+            print(f"skip existing {out.name}")
+            continue
         for o in base_meshes:
             o.matrix_world = rest[o.name].copy()
         bpy.context.view_layer.update()
         rotate_aspect(base_meshes, aspect)
         vis = [m for m in base_meshes if not m.hide_render]
         frame_camera(cam, vis, frame_top_z, ortho)
-        out = OUT_DIR / f"{class_name}_{aspect:03d}.png"
         bpy.context.scene.render.filepath = str(out)
         bpy.ops.render.render(write_still=True)
         if SUPERSAMPLE > 1:
@@ -691,7 +698,12 @@ def render_aspects(
         print(f"wrote {out}")
 
 
-def process_class(class_name: str) -> None:
+def process_class(
+    class_name: str,
+    aspect_min: int = ASPECT_MIN,
+    aspect_max: int = ASPECT_MAX,
+    skip_existing: bool = False,
+) -> None:
     clear_scene()
     setup_world_black()
     cfg = SHIP_CFG[class_name]
@@ -735,6 +747,9 @@ def process_class(class_name: str) -> None:
         cfg["frame_top_z"],
         soft_blur=soft_blur,
         crush_thresh=crush_thresh,
+        aspect_min=aspect_min,
+        aspect_max=aspect_max,
+        skip_existing=skip_existing,
     )
 
 
@@ -745,12 +760,26 @@ def main() -> None:
         print("Models directory missing — abort")
         sys.exit(1)
     only = []
+    aspect_min = ASPECT_MIN
+    aspect_max = ASPECT_MAX
+    skip_existing = False
     if "--" in sys.argv:
         after = sys.argv[sys.argv.index("--") + 1 :]
         only = [a for a in after if a in MODEL_FILES]
+        if "--stern" in after:
+            # Missing quarters: beam→stern (95..180). Bow→beam already on disk.
+            aspect_min = 95
+            aspect_max = 180
+        if "--skip-existing" in after:
+            skip_existing = True
+        for i, a in enumerate(after):
+            if a == "--from" and i + 1 < len(after):
+                aspect_min = int(after[i + 1])
+            if a == "--to" and i + 1 < len(after):
+                aspect_max = int(after[i + 1])
     classes = only or ["merchant", "tanker", "fishing", "combatant"]
     for cls in classes:
-        process_class(cls)
+        process_class(cls, aspect_min=aspect_min, aspect_max=aspect_max, skip_existing=skip_existing)
     print("done")
 
 

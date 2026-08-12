@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"sync"
 
 	"github.com/ssn688/sim/assets"
 )
 
 const (
-	periSpriteAspectStep = 5
-	periSpriteAspectMax  = 90
+	periSpriteAspectStep = 1
+	periSpriteAspectMax  = 180
 	periSpriteAlphaMin   = uint8(10) // below this = empty background
 )
 
@@ -42,7 +43,7 @@ func periShipClassName(c periShipClass) string {
 
 func ensurePeriShipSprites() {
 	periShipSpriteOnce.Do(func() {
-		periShipSpriteMap = make(map[string]*periShipSprite, 80)
+		periShipSpriteMap = make(map[string]*periShipSprite, 750)
 		classes := []string{"merchant", "tanker", "fishing", "combatant"}
 		for _, cls := range classes {
 			for aspect := 0; aspect <= periSpriteAspectMax; aspect += periSpriteAspectStep {
@@ -120,8 +121,8 @@ func pickPeriShipSprite(class periShipClass, aspectDeg float64) *periShipSprite 
 	if aspectDeg < 0 {
 		aspectDeg = 0
 	}
-	if aspectDeg > 90 {
-		aspectDeg = 90
+	if aspectDeg > float64(periSpriteAspectMax) {
+		aspectDeg = float64(periSpriteAspectMax)
 	}
 	bin := int(aspectDeg/periSpriteAspectStep+0.5) * periSpriteAspectStep
 	if bin > periSpriteAspectMax {
@@ -185,8 +186,9 @@ func periShipSpriteFitDest(sp *periShipSprite, boxW, boxH int) (destW, destH int
 // from projected length × air draft; the blit may be smaller on one axis.
 // sinkFrac (0..1) lowers the sprite into the sea and clips pixels at waterY.
 // Sprites are authored with bow toward −X (left); flipX puts bow toward +X.
+// depth is a per-pixel closest-range buffer (0 = empty); nearer RangeYd wins.
 // Returns the destination AABB of the *visible* stub (for bloom/fire).
-func blitPeriShipSprite(pix []byte, frameW, frameH int, sp *periShipSprite, centerX, waterY, boxW, boxH int, flipX bool, brightness, sinkFrac float64) (dstX0, dstY0, dstX1, dstY1 int, ok bool) {
+func blitPeriShipSprite(pix []byte, depth []float32, frameW, frameH int, sp *periShipSprite, centerX float64, waterY, boxW, boxH int, flipX bool, brightness, sinkFrac, rangeYd float64) (dstX0, dstY0, dstX1, dstY1 int, ok bool) {
 	if sp == nil || boxW < 2 {
 		return 0, 0, 0, 0, false
 	}
@@ -209,8 +211,11 @@ func blitPeriShipSprite(pix []byte, frameW, frameH int, sp *periShipSprite, cent
 	if sinkPx >= destH {
 		return 0, 0, 0, 0, false
 	}
-	dstX0 = centerX - destW/2
-	dstX1 = dstX0 + destW
+	// Fractional center: subpixel shift in source sampling softens crawl between IR columns.
+	dstX0f := centerX - float64(destW)/2
+	dstX0 = int(math.Floor(dstX0f))
+	dstX1 = dstX0 + destW + 1
+	subX := dstX0f - float64(dstX0) // [0,1)
 	// Full sprite maps to [waterY-destH+sinkPx, waterY+sinkPx); clip at waterY.
 	dstY0 = waterY - destH + sinkPx
 	dstY1 = waterY
@@ -219,6 +224,10 @@ func blitPeriShipSprite(pix []byte, frameW, frameH int, sp *periShipSprite, cent
 	}
 	if brightness > 1.4 {
 		brightness = 1.4
+	}
+	rangeF := float32(rangeYd)
+	if rangeF < 1 {
+		rangeF = 1
 	}
 
 	visTop := waterY
@@ -233,11 +242,18 @@ func blitPeriShipSprite(pix []byte, frameW, frameH int, sp *periShipSprite, cent
 			sy = sp.y1 - 1
 		}
 		for dx := 0; dx < destW; dx++ {
-			sxOff := dx
+			// Sample with horizontal subpixel offset.
+			sxOffF := float64(dx) + subX
 			if flipX {
-				sxOff = destW - 1 - dx
+				sxOffF = float64(destW-1) - (float64(dx) + subX)
 			}
-			sx := sp.x0 + sxOff*sw/destW
+			if sxOffF < 0 {
+				sxOffF = 0
+			}
+			if sxOffF > float64(destW-1) {
+				sxOffF = float64(destW - 1)
+			}
+			sx := sp.x0 + int(sxOffF*float64(sw)/float64(destW))
 			if sx >= sp.x1 {
 				sx = sp.x1 - 1
 			}
@@ -249,8 +265,9 @@ func blitPeriShipSprite(pix []byte, frameW, frameH int, sp *periShipSprite, cent
 			if xx < 0 || xx >= frameW {
 				continue
 			}
-			// Opaque write — periBrighten only lifts brighter-than-bg pixels and
-			// made Workbench hulls look like ghosts against the IR sky/sea.
+			if !periDepthTry(depth, frameW, xx, yy, rangeF) {
+				continue
+			}
 			g := int(float64(v) * brightness)
 			periSetGray(pix, frameW, xx, yy, uint8(min255(g)))
 			lit = true
@@ -262,13 +279,13 @@ func blitPeriShipSprite(pix []byte, frameW, frameH int, sp *periShipSprite, cent
 	if !lit {
 		return 0, 0, 0, 0, false
 	}
-	return dstX0, visTop, dstX1, dstY1, true
+	return dstX0, visTop, dstX0 + destW, dstY1, true
 }
 
 // periShipSpriteOpaqueAt mirrors blitPeriShipSprite's dest→source mapping:
 // true only for opaque ship pixels of this aspect sprite (not sky/sea gaps).
 // boxW/boxH are the same optic bounds passed to blit (uniform fit applied here).
-func periShipSpriteOpaqueAt(sp *periShipSprite, centerX, waterY, boxW, boxH int, flipX bool, sinkFrac float64, xx, yy int) bool {
+func periShipSpriteOpaqueAt(sp *periShipSprite, centerX float64, waterY, boxW, boxH int, flipX bool, sinkFrac float64, xx, yy int) bool {
 	if sp == nil || boxW < 2 {
 		return false
 	}
@@ -289,7 +306,9 @@ func periShipSpriteOpaqueAt(sp *periShipSprite, centerX, waterY, boxW, boxH int,
 	if yy >= waterY {
 		return false
 	}
-	dstX0 := centerX - destW/2
+	dstX0f := centerX - float64(destW)/2
+	dstX0 := int(math.Floor(dstX0f))
+	subX := dstX0f - float64(dstX0)
 	dstY0 := waterY - destH + sinkPx
 	dx := xx - dstX0
 	dy := yy - dstY0
@@ -301,11 +320,17 @@ func periShipSpriteOpaqueAt(sp *periShipSprite, centerX, waterY, boxW, boxH int,
 	if sw < 1 || sh < 1 {
 		return false
 	}
-	sxOff := dx
+	sxOffF := float64(dx) + subX
 	if flipX {
-		sxOff = destW - 1 - dx
+		sxOffF = float64(destW-1) - (float64(dx) + subX)
 	}
-	sx := sp.x0 + sxOff*sw/destW
+	if sxOffF < 0 {
+		sxOffF = 0
+	}
+	if sxOffF > float64(destW-1) {
+		sxOffF = float64(destW - 1)
+	}
+	sx := sp.x0 + int(sxOffF*float64(sw)/float64(destW))
 	sy := sp.y0 + dy*sh/destH
 	if sx >= sp.x1 {
 		sx = sp.x1 - 1

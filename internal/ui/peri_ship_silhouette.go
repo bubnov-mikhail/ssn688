@@ -6,7 +6,8 @@ import (
 	"github.com/ssn688/sim/internal/acoustics"
 )
 
-// Ship silhouette profiles are sampled every 5° of aspect (0=bow-on … 90=beam).
+// Ship silhouette profiles are sampled continuously (procedural); raster sprites
+// cover 0..180° at 1° steps.
 // Each sample is a vertical slice height in [0,1] of total ship height (hull+super),
 // plus a superstructure fraction of that height. Drawn as white-hot IR with
 // hotspots, bloom, waterline reflection and wake — inspired by FLIR/MWIR feeds.
@@ -39,31 +40,28 @@ func periShipClassOf(sig string) periShipClass {
 	}
 }
 
-// periProfileAt returns (hullFrac, superFrac) of total height at horizontal
-// position u in [-1,1] where +u is toward the bow.
+// periProfileAt interpolates hull/super fractions. aspectDeg may be 0..180;
+// the procedural profile is symmetric about beam (stern uses 180−aspect).
+// u in [-1,1] where +u is toward the bow.
 func periProfileAt(class periShipClass, aspectDeg float64, u float64) (hullFrac, superFrac float64) {
-	bin := acoustics.ShipAspectBin5(aspectDeg)
-	lo := bin
-	if aspectDeg < float64(bin) {
-		lo = bin - 5
+	if aspectDeg > 90 {
+		aspectDeg = 180 - aspectDeg
 	}
-	if lo < 0 {
-		lo = 0
+	if aspectDeg < 0 {
+		aspectDeg = 0
 	}
-	hi := lo + 5
+	if aspectDeg > 90 {
+		aspectDeg = 90
+	}
+	lo := int(math.Floor(aspectDeg))
+	hi := lo + 1
 	if hi > 90 {
 		hi = 90
-		lo = 85
+		lo = 89
 	}
-	t := 0.0
-	if hi > lo {
-		t = (aspectDeg - float64(lo)) / float64(hi-lo)
-		if t < 0 {
-			t = 0
-		}
-		if t > 1 {
-			t = 1
-		}
+	t := aspectDeg - float64(lo)
+	if lo == hi {
+		t = 0
 	}
 	h0, s0 := periProfileBin(class, lo, u)
 	h1, s1 := periProfileBin(class, hi, u)
@@ -146,7 +144,7 @@ func periProfileBin(class periShipClass, aspectBin int, u float64) (hullFrac, su
 	}
 }
 
-func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
+func drawPeriShipSilhouette(pix []byte, depth []float32, w, h int, p acoustics.PeriShipProj) {
 	halfW := p.WidthPx / 2
 	if halfW < 1 {
 		halfW = 1
@@ -182,20 +180,20 @@ func drawPeriShipSilhouette(pix []byte, w, h int, p acoustics.PeriShipProj) {
 			br = 1.35
 		}
 		// Angular width × air-draft height (stable vs aspect-bin PNG crop).
-		x0, y0, x1, y1, ok := blitPeriShipSprite(pix, w, h, sp, p.CenterX, p.WaterY, p.WidthPx, totalH, flipX, br, p.SinkFrac)
+		x0, y0, x1, y1, ok := blitPeriShipSprite(pix, depth, w, h, sp, p.CenterX, p.WaterY, p.WidthPx, totalH, flipX, br, p.SinkFrac, p.RangeYd)
 		if ok {
 			drawPeriShipBloomRect(pix, w, h, x0, y0, x1, y1, p.WaterY, base)
 			if p.Fire01 > 0.05 {
 				mask := func(xx, yy int) bool {
 					return periShipSpriteOpaqueAt(sp, p.CenterX, p.WaterY, p.WidthPx, totalH, flipX, p.SinkFrac, xx, yy)
 				}
-				drawPeriShipHullFire(pix, w, h, x0, y0, x1, y1, p.WaterY, p.Fire01, p.CenterX, p.FirePhase, mask)
+				drawPeriShipHullFire(pix, w, h, x0, y0, x1, y1, p.WaterY, p.Fire01, int(p.CenterX), p.FirePhase, mask)
 			}
 			return
 		}
 	}
 
-	drawPeriShipSilhouetteProcedural(pix, w, h, p, class, aspect, bowSign, base, halfW, totalH)
+	drawPeriShipSilhouetteProcedural(pix, depth, w, h, p, class, aspect, bowSign, base, halfW, totalH)
 }
 
 // drawPeriShipHullFire paints a few concentrated MWIR fire foci on hull pixels.
@@ -276,7 +274,7 @@ func drawPeriShipHullFire(pix []byte, w, h, x0, y0, x1, y1, waterY int, fire01 f
 	}
 }
 
-func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShipProj, class periShipClass, aspect, bowSign float64, base, halfW, totalH int) {
+func drawPeriShipSilhouetteProcedural(pix []byte, depth []float32, w, h int, p acoustics.PeriShipProj, class periShipClass, aspect, bowSign float64, base, halfW, totalH int) {
 	cols := make([]periShipCol, 0, halfW*2+1)
 	sinkPx := int(float64(totalH)*p.SinkFrac + 0.5)
 	if sinkPx < 0 {
@@ -285,9 +283,14 @@ func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShip
 	if sinkPx >= totalH {
 		return
 	}
+	rangeYd := float32(p.RangeYd)
+	if rangeYd < 1 {
+		rangeYd = 1
+	}
+	cx := int(math.Round(p.CenterX))
 
 	for dx := -halfW; dx <= halfW; dx++ {
-		x := p.CenterX + dx
+		x := cx + dx
 		if x < 0 || x >= w {
 			continue
 		}
@@ -312,6 +315,9 @@ func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShip
 		})
 
 		for y := hullTop; y < p.WaterY && y < h; y++ {
+			if !periDepthTry(depth, w, x, y, rangeYd) {
+				continue
+			}
 			frac := float64(y-hullTop) / float64(hullPx+1)
 			tone := base - 18 + int(frac*12) + hotBoost/3
 			if (dx+halfW)%3 == 0 {
@@ -320,7 +326,7 @@ func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShip
 			if y >= p.WaterY-2 {
 				tone += 18 + hotBoost/4
 			}
-			periBrighten(pix, w, x, y, uint8(min255(tone)))
+			periSetGray(pix, w, x, y, uint8(min255(tone)))
 		}
 
 		if superPx <= 0 {
@@ -333,6 +339,9 @@ func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShip
 		cols[len(cols)-1].superTop = superTop
 
 		for y := superTop; y < hullTop && y < h && y < p.WaterY; y++ {
+			if !periDepthTry(depth, w, x, y, rangeYd) {
+				continue
+			}
 			vFrac := float64(y-superTop) / float64(superPx+1)
 			tone := base + 22 + hotBoost
 			if class != periClassFishing && vFrac > 0.35 && vFrac < 0.55 {
@@ -344,14 +353,17 @@ func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShip
 			if periShipFunnelZone(class, u) && vFrac < 0.45 {
 				tone = min255(tone + 40)
 			}
-			periBrighten(pix, w, x, y, uint8(min255(tone)))
+			periSetGray(pix, w, x, y, uint8(min255(tone)))
 		}
 
 		if class == periClassCombatant && aspect > 35 {
 			if (u > 0.45 && u < 0.75) || (u > -0.7 && u < -0.45) {
 				gunH := 1 + superPx/5
 				for y := hullTop - gunH; y < hullTop && y >= 0 && y < p.WaterY; y++ {
-					periBrighten(pix, w, x, y, uint8(min255(base+35)))
+					if !periDepthTry(depth, w, x, y, rangeYd) {
+						continue
+					}
+					periSetGray(pix, w, x, y, uint8(min255(base+35)))
 				}
 			}
 		}
@@ -365,7 +377,7 @@ func drawPeriShipSilhouetteProcedural(pix []byte, w, h int, p acoustics.PeriShip
 			half = 1
 		}
 		mask := periProceduralShipMask(p, class, aspect, bowSign, half, totalH)
-		drawPeriShipHullFire(pix, w, h, p.CenterX-half, p.WaterY-(p.HullHPx+p.SuperHPx), p.CenterX+half, p.WaterY, p.WaterY, p.Fire01, p.CenterX, p.FirePhase, mask)
+		drawPeriShipHullFire(pix, w, h, cx-half, p.WaterY-(p.HullHPx+p.SuperHPx), cx+half, p.WaterY, p.WaterY, p.Fire01, cx, p.FirePhase, mask)
 	}
 }
 
@@ -379,7 +391,7 @@ func periProceduralShipMask(p acoustics.PeriShipProj, class periShipClass, aspec
 		if yy < 0 || yy >= p.WaterY {
 			return false
 		}
-		dx := xx - p.CenterX
+		dx := xx - int(math.Round(p.CenterX))
 		if dx < -halfW || dx > halfW || halfW < 1 {
 			return false
 		}
@@ -458,8 +470,12 @@ func periShipHotBoost(class periShipClass, u, aspectDeg float64) int {
 			boost = int(26 * (1 - math.Abs(u-0.15)/0.5))
 		}
 	}
-	// End-on: concentrate heat in the narrow silhouette.
-	if aspectDeg < 25 {
+	// End-on (bow or stern): concentrate heat in the narrow silhouette.
+	endOn := aspectDeg
+	if endOn > 90 {
+		endOn = 180 - endOn
+	}
+	if endOn < 25 {
 		boost = boost*2/3 + 10
 	}
 	return boost

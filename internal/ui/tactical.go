@@ -574,7 +574,11 @@ func contactDisplaySide(c *acoustics.Contact) world.Side {
 func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
 	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
-	render.DrawScreenTitle(screen, "TACTICAL PLOT", tacticalPanelX+20, tacticalPanelY+28)
+	title := "TACTICAL PLOT"
+	if a.Settings.Debug {
+		title = "TACTICAL PLOT · DEBUG"
+	}
+	render.DrawScreenTitle(screen, title, tacticalPanelX+20, tacticalPanelY+28)
 	render.DrawText(screen, "LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPlateLabel, true)
 
 	for _, b := range a.tacticalButtons() {
@@ -586,7 +590,11 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 	mapW := tacticalPanelW - 16
 	mapH := tacticalPanelH - 52
 	render.DrawMonitor(screen, mapX, mapY, mapW, mapH)
-	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH, tacticalMapOpts{showSelection: true, showChrome: true})
+	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH, tacticalMapOpts{
+		showSelection: true,
+		showChrome:    true,
+		debugOverlay:  a.Settings.Debug,
+	})
 
 	if a.uiTooltip != "" {
 		mx, my := ebiten.CursorPosition()

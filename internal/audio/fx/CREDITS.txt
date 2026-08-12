@@ -1,0 +1,80 @@
+Ships Propeller Hydrophone / surface combatant loop
+Source file (user-provided): under-water-in-a-submarine.ogg
+Game embed: ~11.6s mono 44.1 kHz seamless loop (fx/propeller_hydrophone.wav)
+Used for surface combatants (Grisha, etc.) on PASSIVE listen.
+
+---
+
+Submarine propeller / torpedo-room atmosphere
+Source file (user-provided): german-submarine-u1---torpedo-room-atmosphere.ogg
+Game embed: ~27.4s mono 44.1 kHz seamless loop (fx/propeller_submarine.wav)
+Used for submarine propeller listen.
+
+---
+
+Fishing vessel underwater motor
+Source file (user-provided): underwater-motor-sound-material.ogg
+Game embed: ~17.6s mono 44.1 kHz seamless loop (fx/propeller_fishing.wav)
+
+---
+
+Merchant freighter machinery
+Source file (user-provided): 13200_98071837_1.mp3
+Game embed: ~17.6s mono 44.1 kHz seamless loop (fx/propeller_merchant.wav)
+
+---
+
+Tanker deck / hull machinery
+Source file (user-provided): z_uki-paluba-korablya.mp3
+Game embed: ~19.5s mono 44.1 kHz seamless loop (fx/propeller_tanker.wav)
+
+---
+
+Bow wash (surface under prop)
+Author: timsc
+Source: https://freesound.org/people/timsc/sounds/274491/
+License: Creative Commons 0 (CC0).
+Game embed: fx/bow_wash.wav
+
+---
+
+PASSIVE ambient
+Author: klankbeeld
+Source: https://freesound.org/people/klankbeeld/sounds/609037/
+License: Creative Commons Attribution 4.0 (CC BY 4.0).
+Attribution required: credit klankbeeld and freesound.org.
+Game embed: fx/passive_ambient.wav
+
+---
+
+Torpedo run
+Author: craigsmith
+Source: https://freesound.org/people/craigsmith/sounds/675798/
+License: Creative Commons 0 (CC0).
+Game embed: ~5.8s mono seamless loop (fx/torpedo_run.wav); soft edges trimmed, 180ms acrossfade, no end fade-out.
+
+---
+
+Torpedo launch
+Source file (user-provided): german-submarine-u1---torpedo-launch.ogg
+Game embed: 6s mono fade-out (fx/torpedo_launch.wav)
+
+---
+
+Underwater explosion
+Source file (user-provided): underwater-explosion.ogg (second half)
+Game embed: fx/underwater_explosion.wav
+Played on any screen after one-way sound travel delay.
+
+---
+
+Tube outer door open / close
+Source file (user-provided): small-hydraulic-mechanism.mp3
+Game embed: first 0–3s → fx/tube_door_open.wav;
+time-reversed copy → fx/tube_door_close.wav.
+
+---
+
+Mast raise / lower (ESM, COMM, periscope)
+Source file (user-provided): hydraulic-mechanism-on-off.ogg
+Game embed: 3–7s with fade from 4s → fx/mast_hydraulic.wav.

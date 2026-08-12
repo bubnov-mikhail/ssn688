@@ -1,6 +1,7 @@
 package acoustics
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ssn688/sim/internal/world"
@@ -9,7 +10,12 @@ import (
 func TestBlastWashoutFadesSmoothly(t *testing.T) {
 	sonar := NewSonarState()
 	listener := &world.Entity{ID: "p", X: 0, Y: 0, HeadingDeg: 0, Status: world.StatusActive, SpeedKts: 5}
-	ApplyDetonationDeaf(&sonar, listener, 800, 0, 10, &world.Entity{Kind: world.KindSurfaceShip})
+	ApplyDetonationDeaf(&sonar, listener, 800, 0, 10, &world.Entity{Kind: world.KindSurfaceShip, X: 800, Y: 0})
+
+	arrive := sonar.LastBlastAt
+	if arrive <= 10 {
+		t.Fatalf("acoustic arrival should be after detonation: arrive=%.3f detonate=%.3f", arrive, sonar.LastBlastDetonateAt)
+	}
 
 	atBearing := func(gameTime float64) float64 {
 		bins := make([]float64, BearingWaterfallBins)
@@ -32,9 +38,14 @@ func TestBlastWashoutFadesSmoothly(t *testing.T) {
 		return peak
 	}
 
-	p0 := atBearing(10.4)
-	p1 := atBearing(10 + sonar.LastBlastFlashSec*0.55)
-	p2 := atBearing(10 + sonar.LastBlastFlashSec*0.92)
+	// Before sound arrives — no acoustic washout on waterfall.
+	if p := atBearing(10.05); p > 15 {
+		t.Fatalf("waterfall washout before travel delay: %.1f", p)
+	}
+
+	p0 := atBearing(arrive + 0.4)
+	p1 := atBearing(arrive + sonar.LastBlastFlashSec*0.55)
+	p2 := atBearing(arrive + sonar.LastBlastFlashSec*0.92)
 	if p0 < 25 {
 		t.Fatalf("early washout too weak: %.1f", p0)
 	}
@@ -44,6 +55,20 @@ func TestBlastWashoutFadesSmoothly(t *testing.T) {
 	// Late in the window energy should be near ambient (no hard cliff from a still-bright flash).
 	if p2 > p0*0.35 {
 		t.Fatalf("late washout should be faint vs early: early=%.1f late=%.1f", p0, p2)
+	}
+}
+
+func TestBlastAcousticDelayMatchesSoundSpeed(t *testing.T) {
+	sonar := NewSonarState()
+	listener := &world.Entity{ID: "p", X: 0, Y: 0, Status: world.StatusActive}
+	const rangeYd = 3238.0 // exactly 2s at SoundSpeedYdPerSec
+	ApplyDetonationDeaf(&sonar, listener, rangeYd, 0, 100, nil)
+	if sonar.LastBlastDetonateAt != 100 {
+		t.Fatalf("detonate at: got %.3f", sonar.LastBlastDetonateAt)
+	}
+	wantArrive := 100 + rangeYd/SoundSpeedYdPerSec
+	if math.Abs(sonar.LastBlastAt-wantArrive) > 0.01 {
+		t.Fatalf("arrive=%.3f want %.3f", sonar.LastBlastAt, wantArrive)
 	}
 }
 

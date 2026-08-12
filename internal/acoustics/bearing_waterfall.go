@@ -272,16 +272,19 @@ func arraySensitivity(array PassiveArrayKind, relativeBearingDeg, towedPct float
 	abs := math.Abs(relativeBearingDeg)
 	switch array {
 	case PassiveArrayTowed:
-		// Stowed / short cable: nearly deaf. Fully streamed: strong abeam/astern, weak endfire ahead.
+		// Stowed / short cable: nearly deaf. Fully streamed: best abeam/astern.
+		// Endfire ahead is weaker than beam but must still beat a close-in hull
+		// look for LOFAR work — open sources put TAS classification ahead of
+		// spherical arrays even on forward contacts once the cable is streamed.
 		effect := 0.08 + 0.92*towedPct
 		if towedPct < 0.15 {
 			return effect * 0.2
 		}
 		switch {
-		case abs < 18: // endfire null ahead of tow
-			return effect * 0.22
-		case abs < 35:
+		case abs < 18: // endfire ahead of tow — reduced, not deaf
 			return effect * 0.55
+		case abs < 35:
+			return effect * 0.78
 		case abs > 155: // strong aft of beam
 			return effect * 1.08
 		default:

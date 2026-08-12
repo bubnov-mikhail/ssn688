@@ -12,9 +12,6 @@ const (
 // for DEFCON escalation (approx. tactical Mk48 envelope).
 const DefconTorpedoRangeYd = 10000.0
 
-// SubmergedDepthFt — player deeper than this is treated as submerged for radio-block rules.
-const SubmergedDepthFt = 45.0
-
 // RaiseDefcon sets alert level if higher than current (monotonic).
 func (e *Entity) RaiseDefcon(level int) {
 	if e == nil || level < 0 || level > DefconWeaponsFree {

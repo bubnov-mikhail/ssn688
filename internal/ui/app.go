@@ -91,6 +91,7 @@ type App struct {
 	waterfallChipCacheKey  uint64
 	sonarBtnScratch        []sonarUIButton
 	enemyPingHeardAt       map[string]float64
+	blastHeardAt           float64 // LastBlastAt already played as explosion SFX
 	lastPingPlayed         float64
 	uiHoverID              string
 	uiHoverSince           time.Time
@@ -132,6 +133,7 @@ type App struct {
 	periLandHitTmp         []float64
 	periLandElevTmp        []float64
 	periLandOKTmp          []bool
+	periDepth              []float32 // per-pixel closest ship range (0 = empty)
 	librarySelectedID      string
 	libraryCatalogScroll   int
 	libraryDetailScroll    int
@@ -140,6 +142,12 @@ type App struct {
 	wepsMapZoom            float64
 	wepsMapImg             *ebiten.Image
 	wepsOrdnanceMenuTube   int // 0 = closed; 1–4 open dropdown
+
+	// Ownship hit feedback (wall-clock; cheap overlays, no steady-state cost).
+	hitVignetteAt time.Time
+	hitShakeAt    time.Time
+	hitShakeBuf   *ebiten.Image
+	dcTabAlert    bool // blink DC nav until player opens Damage Control
 }
 
 func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
@@ -253,6 +261,7 @@ func (a *App) updateGame() {
 			}
 		}
 	}
+	a.clearDCTabAlertIfOnDamage()
 
 	a.tryDebugPeriAccidentHit()
 	a.handleScreenInput()
@@ -304,6 +313,9 @@ func (a *App) updateGame() {
 			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, "Unable. Mast limits exceeded.")
 		}
 		a.playOwnshipCasualtyVoice(ev)
+		if isOwnshipDamageFXEvent(ev) {
+			a.triggerOwnshipHitFX()
+		}
 		if ev == "Torpedo launch detected (hostile)" {
 			a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, "Torpedo in the water.")
 			a.markLatestHostileTorpedoReported()
@@ -344,10 +356,102 @@ func (a *App) updateGame() {
 		a.lastPingPlayed = a.Engine.Sonar.LastPingTime
 	}
 	a.updateEnemyPingAudio()
+	a.updateBlastExplosionAudio()
+	a.updateContactPropellerAudio()
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyS) && ebiten.IsKeyPressed(ebiten.KeyControl) {
 		a.quickSave()
 	}
+}
+
+// updateContactPropellerAudio loops hydrophone listen FX while the player is
+// on PASSIVE. Ambient sea noise always plays on that screen; contact propeller
+// / bow wash / torpedo run layer on top when a moving contact is selected.
+// Contact track loudness tracks sonar SNR (waterfall brightness).
+func (a *App) updateContactPropellerAudio() {
+	if a.Audio == nil {
+		return
+	}
+	ambient := 0.0
+	gCombatant := 0.0
+	gFishing := 0.0
+	gMerchant := 0.0
+	gTanker := 0.0
+	subProp := 0.0
+	bowGain := 0.0
+	torpRun := 0.0
+	propSpeed := 1.0
+	bowSpeed := 1.0
+	torpSpeed := 1.0
+	onPassive := a.Mode == ModeGame && a.Engine != nil && !a.Engine.Clock.Paused &&
+		a.CurrentScreen == ScreenPassive && a.Engine.Scenario != nil
+	if onPassive {
+		ambient = 0.32 // under contact tracks; present with no selection
+		c := a.selectedContact(&a.Engine.Sonar)
+		if c != nil && c.SourceEntityID != "" {
+			var ent *world.Entity
+			for _, e := range a.Engine.AcousticEmitters() {
+				if e != nil && e.ID == c.SourceEntityID {
+					ent = e
+					break
+				}
+			}
+			if ent != nil && ent.InWater() {
+				gain := listenGainFromContactSNR(c.SNR)
+				switch {
+				case ent.Kind == world.KindTorpedo || c.Kind == world.KindTorpedo:
+					if ent.SpeedKts >= 0.5 {
+						torpRun = gain
+						torpSpeed = audio.TorpedoListenSpeed(ent.SpeedKts)
+					}
+				case ent.Kind == world.KindSurfaceShip:
+					if ent.SpeedKts >= audio.PropellerMinSpeedKts {
+						propSpeed = audio.PropellerListenSpeed(ent.SpeedKts, ent.SignatureID)
+						bowSpeed = propSpeed
+						switch ent.SignatureID {
+						case "fishing":
+							gFishing = gain
+						case "merchant":
+							gMerchant = gain
+						case "tanker":
+							gTanker = gain
+						default:
+							gCombatant = gain
+						}
+						if beam := world.SurfaceHullBeamRel(ent); beam > 0 {
+							// Bow wash under propeller (~18–32% of prop gain by hull beam).
+							bowGain = gain * (0.18 + 0.14*beam)
+						}
+					}
+				case ent.Kind == world.KindSubmarine:
+					if ent.SpeedKts >= audio.PropellerMinSpeedKts {
+						subProp = gain
+						propSpeed = audio.PropellerListenSpeed(ent.SpeedKts, ent.SignatureID)
+					}
+				}
+			}
+		}
+	}
+	a.Audio.SetLoopingFX(audio.FXPassiveAmbient, ambient, 1)
+	a.Audio.SetLoopingFX(audio.FXPropellerHydrophone, gCombatant, propSpeed)
+	a.Audio.SetLoopingFX(audio.FXPropellerFishing, gFishing, propSpeed)
+	a.Audio.SetLoopingFX(audio.FXPropellerMerchant, gMerchant, propSpeed)
+	a.Audio.SetLoopingFX(audio.FXPropellerTanker, gTanker, propSpeed)
+	a.Audio.SetLoopingFX(audio.FXPropellerSubmarine, subProp, propSpeed)
+	a.Audio.SetLoopingFX(audio.FXBowWash, bowGain, bowSpeed)
+	a.Audio.SetLoopingFX(audio.FXTorpedoRun, torpRun, torpSpeed)
+}
+
+// listenGainFromContactSNR maps track PeakSNR to phone loudness so faint
+// waterfall traces whisper and hot red lines dominate.
+func listenGainFromContactSNR(snr float64) float64 {
+	clarity := acoustics.SpectrumClarity01(snr)
+	// Floor keeps a barely-held contact audible when selected; ceiling at 1.
+	g := 0.08 + 0.92*clarity
+	if g > 1 {
+		return 1
+	}
+	return g
 }
 
 // updateSimulationUI runs lightweight background UI state that must stay warm
@@ -392,6 +496,42 @@ func (a *App) updateEnemyPingAudio() {
 		a.Audio.PlayEnemyPing()
 		a.enemyPingHeardAt[ent.ID] = ent.LastPingTime
 	}
+}
+
+// updateBlastExplosionAudio plays the underwater blast one-shot on any screen
+// when the acoustic wave arrives (LastBlastAt already includes travel delay).
+func (a *App) updateBlastExplosionAudio() {
+	if a.Engine == nil || a.Audio == nil || a.Mode != ModeGame {
+		return
+	}
+	if a.Engine.Clock.Paused {
+		return
+	}
+	sonar := &a.Engine.Sonar
+	arrive := sonar.LastBlastAt
+	if arrive <= 0 || arrive <= a.blastHeardAt {
+		return
+	}
+	now := a.Engine.Clock.GameTime
+	if now < arrive {
+		return
+	}
+	player := a.Engine.Scenario.Player
+	gain := 0.85
+	if player != nil {
+		dist := math.Hypot(player.X-sonar.LastBlastX, player.Y-sonar.LastBlastY)
+		// Same hear bubble as blast transient (~12 kyd).
+		if dist > 12000 {
+			a.blastHeardAt = arrive
+			return
+		}
+		gain = 0.35 + 0.65*(1-dist/12000)
+		if gain > 1 {
+			gain = 1
+		}
+	}
+	a.Audio.PlayUnderwaterExplosion(gain)
+	a.blastHeardAt = arrive
 }
 
 func (a *App) cycleSpeedDown() {
@@ -509,7 +649,7 @@ func (a *App) Draw(screen *ebiten.Image) {
 		a.drawLoad(screen)
 	case ModeGame, ModePaused:
 		screen.Fill(render.ColorBG)
-		a.drawGame(screen)
+		a.drawGameWithHitFX(screen)
 	}
 }
 

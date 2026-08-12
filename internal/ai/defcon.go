@@ -130,7 +130,6 @@ func checkPlayerTorpedoLaunches(ctx DefconContext) {
 	if player == nil {
 		return
 	}
-	submerged := player.DepthFt > world.SubmergedDepthFt
 	for _, t := range ctx.Torps {
 		if t == nil || !t.Alive || t.Side != player.Side {
 			continue
@@ -141,12 +140,11 @@ func checkPlayerTorpedoLaunches(ctx DefconContext) {
 		if !playerTorpedoThreatensHostile(t, player, ctx.Entities) {
 			continue
 		}
+		// Torpedo aimed at a combatant → weapons free for all combatants.
+		// (No "submerged radio silence" pacifism: a DD under Mk48 fire must shoot back.)
 		for _, ent := range ctx.Entities {
 			if ent == nil || !ent.Alive() || !world.IsCombatant(ent) {
 				continue
-			}
-			if submerged && ent.Kind == world.KindSurfaceShip {
-				continue // submerged launch — no radio warning to surface units
 			}
 			ent.RaiseDefcon(world.DefconWeaponsFree)
 		}

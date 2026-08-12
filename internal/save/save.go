@@ -89,6 +89,7 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "towed_damaged=%t\n", engine.Sonar.TowedDamaged)
 	fmt.Fprintf(w, "listen_band=%d\n", engine.Sonar.ListenBand)
 	fmt.Fprintf(w, "sonar_deaf_until=%.3f\n", engine.Sonar.SonarDeafUntil)
+	fmt.Fprintf(w, "last_blast_detonate_at=%.3f\n", engine.Sonar.LastBlastDetonateAt)
 	fmt.Fprintf(w, "last_blast_at=%.3f\n", engine.Sonar.LastBlastAt)
 	fmt.Fprintf(w, "last_blast_x=%.3f\n", engine.Sonar.LastBlastX)
 	fmt.Fprintf(w, "last_blast_y=%.3f\n", engine.Sonar.LastBlastY)
@@ -254,6 +255,10 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "last_ping_time=%.3f\n", e.LastPingTime)
 	fmt.Fprintf(w, "last_ping_power=%.3f\n", e.LastPingPower)
 	fmt.Fprintf(w, "ai_state=%s\n", e.AIState)
+	fmt.Fprintf(w, "route_id=%s\n", e.RouteID)
+	fmt.Fprintf(w, "route_wp=%d\n", e.RouteWP)
+	fmt.Fprintf(w, "route_dir=%d\n", e.RouteDir)
+	fmt.Fprintf(w, "route_need_resume=%t\n", e.RouteNeedResume)
 	fmt.Fprintf(w, "defcon=%d\n", e.Defcon)
 	fmt.Fprintf(w, "sink_rate_fpm=%.3f\n", e.SinkRateFPM)
 	fmt.Fprintf(w, "wreck_noise_until=%.3f\n", e.WreckNoiseUntil)
@@ -441,6 +446,8 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.Sonar.ListenBand = acoustics.ListenBand(n)
 			case "sonar_deaf_until":
 				engine.Sonar.SonarDeafUntil, _ = strconv.ParseFloat(val, 64)
+			case "last_blast_detonate_at":
+				engine.Sonar.LastBlastDetonateAt, _ = strconv.ParseFloat(val, 64)
 			case "last_blast_at":
 				engine.Sonar.LastBlastAt, _ = strconv.ParseFloat(val, 64)
 			case "last_blast_x":
@@ -710,6 +717,14 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.LastPingPower, _ = strconv.ParseFloat(val, 64)
 	case "ai_state":
 		e.AIState = val
+	case "route_id":
+		e.RouteID = val
+	case "route_wp":
+		e.RouteWP, _ = strconv.Atoi(val)
+	case "route_dir":
+		e.RouteDir, _ = strconv.Atoi(val)
+	case "route_need_resume":
+		e.RouteNeedResume, _ = strconv.ParseBool(val)
 	case "defcon":
 		e.Defcon, _ = strconv.Atoi(val)
 	case "sink_rate_fpm":

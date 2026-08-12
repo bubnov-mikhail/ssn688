@@ -9,29 +9,33 @@ import (
 )
 
 // UpdateEnemyAI drives hostile unit behavior using the unified acoustic model.
-func UpdateEnemyAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext) {
+func UpdateEnemyAI(entities []*world.Entity, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext, bathy *world.Bathymetry, routes []*world.Route) {
+	all := trafficUniverse(entities, player)
 	for _, e := range entities {
 		if !e.Alive() || e.Side != world.SideEnemy {
 			continue
 		}
 		switch e.Kind {
 		case world.KindSurfaceShip:
-			updateSurfaceAI(e, player, gameTime, model, torps, evade)
+			updateSurfaceAI(e, player, gameTime, model, torps, evade, routes)
+			applyColregsTraffic(e, all)
+			applyShoreAvoidance(e, bathy)
 		case world.KindSubmarine:
-			updateSubAI(e, player, gameTime, model, torps, evade)
+			updateSubAI(e, player, gameTime, model, torps, evade, routes)
 		}
 	}
 }
 
-func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext) {
+func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext, routes []*world.Route) {
 	if tryEvadeTorpedo(ship, torps, evade) {
+		markRouteInterrupted(ship)
 		return
 	}
 	ship.EnsureDamage()
 
-	// DEFCON 0 — patrol only; ignore player.
+	// DEFCON 0 — patrol route only; ignore player.
 	if ship.Defcon < world.DefconAware {
-		surfacePatrol(ship, gameTime)
+		surfacePatrol(ship, routes)
 		ship.ActiveSonar = false
 		return
 	}
@@ -67,11 +71,13 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 	// DEFCON 1 — may ping / hold contact; no intercept geometry.
 	if !ship.CanDefconManeuver() {
 		if heardPing && !detected {
+			markRouteInterrupted(ship)
 			ship.AIState = "PING_ALERT"
 		} else if detected {
+			markRouteInterrupted(ship)
 			ship.AIState = "TRACKING"
 		} else {
-			surfacePatrol(ship, gameTime)
+			surfacePatrol(ship, routes)
 		}
 		return
 	}
@@ -85,6 +91,7 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 		engageHorizon = weapons.RBUMaxRangeYd + 800
 	}
 	if heardPing || detected || radarMast || rangeYd < engageHorizon {
+		markRouteInterrupted(ship)
 		if radarMast && detected {
 			ship.AIState = "RADAR_TRACK"
 		} else if heardPing && !detected {
@@ -174,35 +181,26 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime float64, model acousti
 		return
 	}
 
-	surfacePatrol(ship, gameTime)
+	surfacePatrol(ship, routes)
 }
 
-func surfacePatrol(ship *world.Entity, gameTime float64) {
-	leg := int(gameTime/60) % 4
-	if !ship.Damage.Destroyed(world.SysSteering) {
-		switch leg {
-		case 0:
-			ship.OrderedHead = 45
-		case 1:
-			ship.OrderedHead = 135
-		case 2:
-			ship.OrderedHead = 225
-		default:
-			ship.OrderedHead = 315
-		}
+func surfacePatrol(ship *world.Entity, routes []*world.Route) {
+	if followAssignedRoute(ship, routes, "PATROL", routeCruiseSpeed(ship)) {
+		return
 	}
 	ship.OrderedSpeed = math.Min(14, ship.MaxSpeedKts())
-	ship.AIState = "SEARCH"
+	ship.AIState = "PATROL"
 }
 
-func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext) {
+func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext, routes []*world.Route) {
 	if tryEvadeTorpedo(sub, torps, evade) {
+		markRouteInterrupted(sub)
 		return
 	}
 	sub.EnsureDamage()
 
 	if sub.Defcon < world.DefconAware {
-		subPatrol(sub, gameTime)
+		subPatrol(sub, routes)
 		sub.ActiveSonar = false
 		return
 	}
@@ -221,11 +219,13 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 	}
 
 	if sub.CanDefconManeuver() && (passiveDetected || active.Detected) {
+		markRouteInterrupted(sub)
 		applySubShadowTactics(sub, player, gameTime, rangeYd, bearing)
 		return
 	}
 
 	if sub.CanDefconManeuver() && heardPing {
+		markRouteInterrupted(sub)
 		sub.AIState = "EVADE"
 		if !sub.Damage.Destroyed(world.SysSteering) {
 			sub.OrderedHead = normalizeHead(bearing + 180)
@@ -248,27 +248,26 @@ func updateSubAI(sub, player *world.Entity, gameTime float64, model acoustics.Mo
 		sub.ActiveSonar = false
 	}
 
-	subPatrol(sub, gameTime)
+	subPatrol(sub, routes)
 }
 
-func subPatrol(sub *world.Entity, gameTime float64) {
-	patrol := 6.0
-	switch sub.SignatureID {
-	case "foxtrot":
-		patrol = 5.0
-	case "victor_iii":
-		patrol = 8.0
+func subPatrol(sub *world.Entity, routes []*world.Route) {
+	spd := routeCruiseSpeed(sub)
+	if followAssignedRoute(sub, routes, "PATROL", spd) {
+		if !sub.Damage.Destroyed(world.SysDepth) {
+			sub.OrderedDepth = 160
+			if sub.SignatureID == "victor_iii" {
+				sub.OrderedDepth = 220
+			}
+		}
+		return
 	}
-	sub.OrderedSpeed = math.Min(patrol, sub.MaxSpeedKts())
+	sub.OrderedSpeed = math.Min(spd, sub.MaxSpeedKts())
 	if !sub.Damage.Destroyed(world.SysDepth) {
 		sub.OrderedDepth = 160
 		if sub.SignatureID == "victor_iii" {
 			sub.OrderedDepth = 220
 		}
-	}
-	if !sub.Damage.Destroyed(world.SysSteering) {
-		leg := int(gameTime/45) % 3
-		sub.OrderedHead = float64(leg * 120)
 	}
 	sub.AIState = "PATROL"
 }

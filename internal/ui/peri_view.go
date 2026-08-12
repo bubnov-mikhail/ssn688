@@ -14,11 +14,86 @@ import (
 )
 
 const (
-	periIRW          = 360
-	periIRH          = 200
+	// periIRW × periIRH matches the wide MAST periscope optic (see periIRH init).
+	periIRW          = 720
+	periOpticPad     = 10
+	periOpticHdr     = 18 // below IR SENSOR line in drawPeriscopeOptic
 	periLandStepYd   = 100.0
 	periLandInlandYd = 400.0
 )
+
+// periIRH is set in init() from mastPeriscopeViewRect so upscale is 1:1 (wide FOV, no stretch).
+var periIRH int
+
+func init() {
+	periIRH = periIRHForMastOptic()
+}
+
+func mastPeriscopeViewRectStatic() (x, y, w, h int) {
+	x = mastMainX + 20
+	y = mastPeriY + 68
+	w = mastMainW - 40
+	h = (mastMainY + mastMainH) - y - 12
+	if h < 120 {
+		h = 120
+	}
+	return x, y, w, h
+}
+
+func periOpticInnerSize() (ow, oh int) {
+	_, _, vw, vh := mastPeriscopeViewRectStatic()
+	ow = vw - 2*periOpticPad
+	oh = vh - 2*periOpticPad - periOpticHdr
+	if ow < 40 {
+		ow = 40
+	}
+	if oh < 40 {
+		oh = 40
+	}
+	return ow, oh
+}
+
+func periIRHForMastOptic() int {
+	ow, oh := periOpticInnerSize()
+	h := int(float64(periIRW)*float64(oh)/float64(ow) + 0.5)
+	if h < 80 {
+		return 80
+	}
+	return h
+}
+
+// periOpticLayout maps the fixed-aspect IR frame into the UI optic rect
+// with uniform scale (no axis stretch on display).
+type periOpticLayout struct {
+	IX, IY, IW, IH int
+	Scale          float64
+}
+
+func periOpticLetterbox(ox, oy, ow, oh int) periOpticLayout {
+	scale := float64(ow) / float64(periIRW)
+	if s := float64(oh) / float64(periIRH); s < scale {
+		scale = s
+	}
+	iw := int(float64(periIRW)*scale + 0.5)
+	ih := int(float64(periIRH)*scale + 0.5)
+	if iw < 1 {
+		iw = 1
+	}
+	if ih < 1 {
+		ih = 1
+	}
+	return periOpticLayout{
+		IX:    ox + (ow-iw)/2,
+		IY:    oy + (oh-ih)/2,
+		IW:    iw,
+		IH:    ih,
+		Scale: scale,
+	}
+}
+
+func (lb periOpticLayout) irXToScreen(px int) int {
+	return lb.IX + int(float64(px)*lb.Scale+0.5)
+}
 
 // periBGCacheEnabled reuses the sky/sea/land plate. Benches may disable it.
 var periBGCacheEnabled = true
@@ -76,9 +151,9 @@ func (a *App) drawPeriscopeOptic(screen *ebiten.Image, x, y, w, h int, peri *aco
 	render.FillRect(screen, x, y, 1, h, border)
 	render.FillRect(screen, x+w-1, y, 1, h, border)
 
-	pad := 10
-	ox, oy := x+pad, y+pad+18
-	ow, oh := w-2*pad, h-2*pad-18
+	pad := periOpticPad
+	ox, oy := x+pad, y+pad+periOpticHdr
+	ow, oh := w-2*pad, h-2*pad-periOpticHdr
 	if ow < 40 || oh < 40 {
 		return
 	}
@@ -124,22 +199,25 @@ func (a *App) drawPeriscopeOptic(screen *ebiten.Image, x, y, w, h int, peri *aco
 	a.renderPeriscopeIRFrame(player, peri, weather, gt)
 	a.periImg.WritePixels(a.periPix)
 
+	layout := periOpticLetterbox(ox, oy, ow, oh)
+	render.FillRect(screen, ox, oy, ow, oh, color.RGBA{8, 10, 12, 255})
+
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterLinear
-	sx := float64(ow) / float64(periIRW)
-	sy := float64(oh) / float64(periIRH)
-	op.GeoM.Scale(sx, sy)
-	op.GeoM.Translate(float64(ox), float64(oy))
+	op.GeoM.Scale(layout.Scale, layout.Scale)
+	op.GeoM.Translate(float64(layout.IX), float64(layout.IY))
 	screen.DrawImage(a.periImg, op)
 
 	// Reticule + FOV scale over the live picture.
-	render.DrawLine(screen, float64(ox+8), float64(cy), float64(ox+ow-8), float64(cy), color.RGBA{40, 70, 55, 120})
-	render.DrawLine(screen, float64(cx), float64(oy+8), float64(cx), float64(oy+oh-8), color.RGBA{50, 90, 70, 100})
+	cx = layout.IX + layout.IW/2
+	cy = layout.IY + layout.IH/2
+	render.DrawLine(screen, float64(layout.IX+8), float64(cy), float64(layout.IX+layout.IW-8), float64(cy), color.RGBA{40, 70, 55, 120})
+	render.DrawLine(screen, float64(cx), float64(layout.IY+8), float64(cx), float64(layout.IY+layout.IH-8), color.RGBA{50, 90, 70, 100})
 	render.FillRect(screen, cx-10, cy-1, 20, 2, render.ColorPhosphor)
 	render.FillRect(screen, cx-1, cy-10, 2, 20, render.ColorPhosphor)
 
 	half := fov / 2
-	scaleHalf := ow/2 - 16
+	scaleHalf := layout.IW/2 - 16
 	if scaleHalf < 20 {
 		scaleHalf = 20
 	}
@@ -163,12 +241,12 @@ func (a *App) drawPeriscopeOptic(screen *ebiten.Image, x, y, w, h int, peri *aco
 		}
 	}
 
-	a.drawPeriTargetMarkers(screen, ox, oy, ow, oh, peri, player, trueBrg, fov)
+	a.drawPeriTargetMarkers(screen, layout, peri, player, trueBrg, fov)
 }
 
 // drawPeriTargetMarkers places waterfall-style contact chips under contacts
 // visible in the current FOV (bottom of the optic picture).
-func (a *App) drawPeriTargetMarkers(screen *ebiten.Image, ox, oy, ow, oh int, peri *acoustics.PeriscopeState, player *world.Entity, lookBrg, fov float64) {
+func (a *App) drawPeriTargetMarkers(screen *ebiten.Image, layout periOpticLayout, peri *acoustics.PeriscopeState, player *world.Entity, lookBrg, fov float64) {
 	a.periMarkerHits = a.periMarkerHits[:0]
 	if a.Engine == nil || peri == nil || player == nil {
 		return
@@ -178,9 +256,9 @@ func (a *App) drawPeriTargetMarkers(screen *ebiten.Image, ox, oy, ow, oh int, pe
 		chipH = 16
 		gap   = 4
 	)
-	chipY := oy + oh - chipH - 2
-	if chipY < oy {
-		chipY = oy
+	chipY := layout.IY + layout.IH - chipH - 2
+	if chipY < layout.IY {
+		chipY = layout.IY
 	}
 
 	type pending struct {
@@ -202,7 +280,7 @@ func (a *App) drawPeriTargetMarkers(screen *ebiten.Image, ox, oy, ow, oh int, pe
 				break
 			}
 		}
-		px, ok := acoustics.BearingToViewX(brg, lookBrg, fov, ow)
+		px, ok := acoustics.BearingToViewX(brg, lookBrg, fov, periIRW)
 		if !ok {
 			continue
 		}
@@ -210,28 +288,28 @@ func (a *App) drawPeriTargetMarkers(screen *ebiten.Image, ox, oy, ow, oh int, pe
 		if cw < 22 {
 			cw = 22
 		}
-		items = append(items, pending{srcID: c.SourceEntityID, label: c.ID, cx: ox + px, w: cw})
+		items = append(items, pending{srcID: c.SourceEntityID, label: c.ID, cx: layout.irXToScreen(px), w: cw})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].cx < items[j].cx })
 
 	mx, my := ebiten.CursorPosition()
-	rowEnd := ox - gap
+	rowEnd := layout.IX - gap
 	for _, it := range items {
 		chipX := it.cx - it.w/2
-		if chipX < ox {
-			chipX = ox
+		if chipX < layout.IX {
+			chipX = layout.IX
 		}
-		if chipX+it.w > ox+ow {
-			chipX = ox + ow - it.w
+		if chipX+it.w > layout.IX+layout.IW {
+			chipX = layout.IX + layout.IW - it.w
 		}
 		if chipX < rowEnd+gap {
 			chipX = rowEnd + gap
-			if chipX+it.w > ox+ow {
-				chipX = ox + ow - it.w
+			if chipX+it.w > layout.IX+layout.IW {
+				chipX = layout.IX + layout.IW - it.w
 			}
 		}
-		if chipX < ox {
-			chipX = ox
+		if chipX < layout.IX {
+			chipX = layout.IX
 		}
 
 		selected := it.srcID == a.selectedContactID || (peri.Locked() && peri.LockEntityID == it.srcID)
@@ -459,7 +537,8 @@ func (a *App) composePeriscopeIRForeground(player *world.Entity, peri *acoustics
 	// so hulls sit on top of the water plate without thrashing the land BG cache.
 	drawPeriSeaFoam(pix, w, h, horizonY, look, gameTime, weather)
 
-	// --- Ships (far → near) ---
+	// --- Ships: depth buffer so nearer hulls always occlude farther ones
+	// (sprite alpha holes must not let a far ship paint over a near hull). ---
 	a.periShipScratch = a.periShipScratch[:0]
 	if a.Engine != nil && a.Engine.Scenario != nil {
 		for _, e := range a.Engine.Scenario.Entities {
@@ -472,11 +551,23 @@ func (a *App) composePeriscopeIRForeground(player *world.Entity, peri *acoustics
 			a.periShipScratch = append(a.periShipScratch, periShipDraw{proj: proj, waterY: proj.WaterY})
 		}
 	}
+	// Far → near (horizon / larger range first) so bloom settles under closer hulls.
 	sort.Slice(a.periShipScratch, func(i, j int) bool {
-		return a.periShipScratch[i].proj.RangeYd > a.periShipScratch[j].proj.RangeYd
+		pi, pj := &a.periShipScratch[i].proj, &a.periShipScratch[j].proj
+		if pi.WaterY != pj.WaterY {
+			return pi.WaterY < pj.WaterY // nearer horizon (= farther) first
+		}
+		return pi.RangeYd > pj.RangeYd
 	})
+	nPix := w * h
+	if cap(a.periDepth) < nPix {
+		a.periDepth = make([]float32, nPix)
+	} else {
+		a.periDepth = a.periDepth[:nPix]
+	}
+	clear(a.periDepth)
 	for i := range a.periShipScratch {
-		drawPeriShipSilhouette(pix, w, h, a.periShipScratch[i].proj)
+		drawPeriShipSilhouette(pix, a.periDepth, w, h, a.periShipScratch[i].proj)
 	}
 
 	// --- Harpoon missiles (airborne) + surface blast flashes ---
@@ -552,10 +643,14 @@ func (a *App) applyPeriOpticAccommodation(player *world.Entity, peri *acoustics.
 		return
 	}
 	sonar := &a.Engine.Sonar
-	if sonar.LastBlastAt <= 0 {
+	detAt := sonar.LastBlastDetonateAt
+	if detAt <= 0 {
+		detAt = sonar.LastBlastAt
+	}
+	if detAt <= 0 {
 		return
 	}
-	age := gameTime - sonar.LastBlastAt
+	age := gameTime - detAt
 	if age < 0 || age > 5.0 {
 		return
 	}
@@ -753,10 +848,14 @@ func (a *App) drawPeriTransientFX(pix []byte, w, h, horizonY int, player *world.
 
 	// Surface / near-surface detonations (torpedo, Harpoon hit, cook-off).
 	sonar := &a.Engine.Sonar
-	if sonar.LastBlastAt <= 0 {
+	detAt := sonar.LastBlastDetonateAt
+	if detAt <= 0 {
+		detAt = sonar.LastBlastAt
+	}
+	if detAt <= 0 {
 		return
 	}
-	age := gameTime - sonar.LastBlastAt
+	age := gameTime - detAt
 	// IR water column outlives acoustic washout — gate on column lifetime below.
 	if age < 0 {
 		return
@@ -801,7 +900,7 @@ func (a *App) drawPeriTransientFX(pix []byte, w, h, horizonY int, player *world.
 	shipW := 0
 	if hit != nil && hit.Kind == world.KindSurfaceShip {
 		if proj, pok := acoustics.ProjectSurfaceShip(player.X, player.Y, look, fov, w, h, horizonY, maxR*1.2, eyeH, hit); pok {
-			cx = proj.CenterX
+			cx = int(math.Round(proj.CenterX))
 			waterY = proj.WaterY
 			shipW = proj.WidthPx
 		}
@@ -833,7 +932,7 @@ func (a *App) drawPeriTransientFX(pix []byte, w, h, horizonY int, player *world.
 	if scale < 0.05 || life < 0.02 {
 		return
 	}
-	seed := uint32(sonar.LastBlastAt*1009) ^ uint32(int(bx)*733) ^ uint32(int(by)*997)
+	seed := uint32(detAt*1009) ^ uint32(int(bx)*733) ^ uint32(int(by)*997)
 	drawPeriBlastIR(pix, w, h, cx, waterY, shipW, scale, life, age, seed)
 }
 
@@ -1307,6 +1406,24 @@ func periBrighten(pix []byte, w, x, y int, g uint8) {
 	if g > pix[i] {
 		periSetGray(pix, w, x, y, g)
 	}
+}
+
+// periDepthTry records rangeYd at (x,y) when empty or farther than this ship.
+// Returns true when the caller may write the pixel (this ship is closest so far).
+func periDepthTry(depth []float32, w, x, y int, rangeYd float32) bool {
+	if depth == nil || x < 0 || y < 0 {
+		return true
+	}
+	i := y*w + x
+	if i < 0 || i >= len(depth) {
+		return true
+	}
+	prev := depth[i]
+	if prev != 0 && prev < rangeYd {
+		return false // nearer ship already owns this pixel
+	}
+	depth[i] = rangeYd
+	return true
 }
 
 func periBlastNoise01(seed uint32, x, y int) float64 {

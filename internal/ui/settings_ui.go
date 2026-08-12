@@ -243,7 +243,7 @@ func (a *App) settingsHoverTooltip(mx, my int) string {
 		return "Borderless full-screen display"
 	}
 	if a.settingsHitToggle(4, false) || a.settingsHitToggle(4, true) {
-		return "Show all units on minimap at true positions (PLOT · DEBUG)"
+		return "Show true unit positions, headings, and AI routes on PLOT / minimap (DEBUG)"
 	}
 	for row := 1; row <= 3; row++ {
 		if a.settingsHitVolDec(row) || a.settingsHitVolInc(row) || a.settingsHitVolTrack(row) {

@@ -33,16 +33,17 @@ func Classify(signal Spectrum, peakSNR, rangeYd float64) Classification {
 		dist := spectralDistance(signal, template)
 
 		conf := math.Max(0.3, 1.0-dist/35) + blade*0.1
-		if peakSNR > 12 {
+		if peakSNR > 10 {
 			conf += 0.04
 		}
-		if rangeYd < 6000 {
+		// Favor fingerprints inside typical LOFAR class ranges (~5 nm / ~10 kyd).
+		if rangeYd < 10000 {
 			conf += 0.03
 		}
 		// Weak waterfall-class SNR: tonals are unreliable — suppress auto-ID.
 		clarity := SpectrumClarity01(peakSNR)
-		conf *= 0.35 + 0.65*clarity
-		if peakSNR < 9 {
+		conf *= 0.40 + 0.60*clarity
+		if peakSNR < 8 {
 			conf = math.Min(conf, 0.42)
 		}
 		if conf > 0.96 {

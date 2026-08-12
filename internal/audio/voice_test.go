@@ -28,6 +28,79 @@ func TestLoadVoiceClips(t *testing.T) {
 	}
 }
 
+func TestLoadFXClipsPropeller(t *testing.T) {
+	fx, err := LoadFXClips(44100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pcm, ok := fx[FXPropellerHydrophone]
+	if !ok {
+		t.Fatal("missing propeller hydrophone FX")
+	}
+	// ~14s mono int16 @ 44.1kHz.
+	if len(pcm) < 44100*2*5 {
+		t.Fatalf("propeller loop too short: %d bytes", len(pcm))
+	}
+	sub, ok := fx[FXPropellerSubmarine]
+	if !ok {
+		t.Fatal("missing submarine propeller FX")
+	}
+	if len(sub) < 44100*2*1 {
+		t.Fatalf("submarine propeller loop too short: %d bytes", len(sub))
+	}
+	bow, ok := fx[FXBowWash]
+	if !ok {
+		t.Fatal("missing bow wash FX")
+	}
+	if len(bow) < 44100*2*5 {
+		t.Fatalf("bow wash loop too short: %d bytes", len(bow))
+	}
+	amb, ok := fx[FXPassiveAmbient]
+	if !ok {
+		t.Fatal("missing passive ambient FX")
+	}
+	if len(amb) < 44100*2*5 {
+		t.Fatalf("passive ambient loop too short: %d bytes", len(amb))
+	}
+	run, ok := fx[FXTorpedoRun]
+	if !ok {
+		t.Fatal("missing torpedo run FX")
+	}
+	if len(run) < 44100*2*2 {
+		t.Fatalf("torpedo run loop too short: %d bytes", len(run))
+	}
+	for _, id := range []FXID{
+		FXPropellerFishing, FXPropellerMerchant, FXPropellerTanker,
+		FXTorpedoLaunch, FXUnderwaterExplosion,
+		FXTubeDoorOpen, FXTubeDoorClose, FXMastHydraulic,
+	} {
+		if pcm, ok := fx[id]; !ok || len(pcm) < 44100 {
+			t.Fatalf("missing or short FX %s", id)
+		}
+	}
+}
+
+func TestSetLoopingFXIndependentTracks(t *testing.T) {
+	m := newTestManager()
+	m.SetLoopingFX(FXPropellerHydrophone, 0.8, 1)
+	m.SetLoopingFX(FXBowWash, 0.25, 1)
+	m.mu.Lock()
+	if len(m.loops) != 2 {
+		m.mu.Unlock()
+		t.Fatalf("want 2 loop tracks, got %d", len(m.loops))
+	}
+	m.mu.Unlock()
+	m.SetLoopingFX(FXBowWash, 0, 1)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.loops[FXBowWash]; ok {
+		t.Fatal("bow wash should stop when gain is 0")
+	}
+	if _, ok := m.loops[FXPropellerHydrophone]; !ok {
+		t.Fatal("propeller should keep looping after bow wash stop")
+	}
+}
+
 func newTestManager() *Manager {
 	m := &Manager{
 		sampleRate: 44100,
@@ -35,6 +108,7 @@ func newTestManager() *Manager {
 		voiceVol:   0.9,
 		fxVol:      0.7,
 		clips:      MustLoadVoiceClips(44100),
+		fxClips:    MustLoadFXClips(44100),
 	}
 	return m
 }

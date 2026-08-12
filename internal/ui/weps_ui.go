@@ -465,25 +465,37 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 			if st == weapons.TubeDoorOpen || st == weapons.TubeFired {
 				if fc.CloseOuterDoor(tube, gameTime) {
 					a.Engine.EmitTubeTransient(player, gameTime, false)
-					a.Audio.PlayClip(audio.ClipWepsOuterDoorClosed, "")
+					if a.Audio != nil {
+						a.Audio.PlayTubeDoorClose()
+						a.Audio.PlayClip(audio.ClipWepsOuterDoorClosed, "")
+					}
 				}
 			} else {
 				if fc.OpenOuterDoor(tube) {
 					a.Engine.EmitTubeTransient(player, gameTime, true)
-					a.Audio.PlayClip(audio.TubeClip("outer_door_open", tube),
-						fmt.Sprintf("Outer door open, tube %d.", tube))
+					if a.Audio != nil {
+						a.Audio.PlayTubeDoorOpen()
+						a.Audio.PlayClip(audio.TubeClip("outer_door_open", tube),
+							fmt.Sprintf("Outer door open, tube %d.", tube))
+					}
 				}
 			}
 		case "open":
 			if fc.OpenOuterDoor(tube) {
 				a.Engine.EmitTubeTransient(player, gameTime, true)
-				a.Audio.PlayClip(audio.TubeClip("outer_door_open", tube),
-					fmt.Sprintf("Outer door open, tube %d.", tube))
+				if a.Audio != nil {
+					a.Audio.PlayTubeDoorOpen()
+					a.Audio.PlayClip(audio.TubeClip("outer_door_open", tube),
+						fmt.Sprintf("Outer door open, tube %d.", tube))
+				}
 			}
 		case "close":
 			if fc.CloseOuterDoor(tube, gameTime) {
 				a.Engine.EmitTubeTransient(player, gameTime, false)
-				a.Audio.PlayClip(audio.ClipWepsOuterDoorClosed, "")
+				if a.Audio != nil {
+					a.Audio.PlayTubeDoorClose()
+					a.Audio.PlayClip(audio.ClipWepsOuterDoorClosed, "")
+				}
 			}
 		case "fire":
 			a.wepsFireTube(fc, player, tube, gameTime)

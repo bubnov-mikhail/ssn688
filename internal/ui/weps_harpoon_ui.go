@@ -179,17 +179,22 @@ func (a *App) wepsFireTube(fc *weapons.FireControl, player *world.Entity, tube i
 	if ord == weapons.OrdnanceHarpoon {
 		if h := fc.ShootHarpoon(player, tube); h != nil {
 			a.Engine.EmitHarpoonLaunch(player, gameTime)
-			a.Audio.PlayTorpedoLaunch()
-			a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
-				fmt.Sprintf("Harpoon away, tube %d.", tube))
+			if a.Audio != nil {
+				a.Audio.PlayTorpedoLaunch()
+				a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
+					fmt.Sprintf("Harpoon away, tube %d.", tube))
+			}
 		}
 		return
 	}
 	if torp := fc.Shoot(player, tube); torp != nil {
 		a.markOwnTorpedo(torp.ID)
-		a.Audio.PlayTorpedoLaunch()
-		a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
-			fmt.Sprintf("Torpedo away, tube %d.", tube))
+		if a.Audio != nil {
+			// Launch FX on WEPS Fire (any screen context); voice callout follows.
+			a.Audio.PlayTorpedoLaunch()
+			a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
+				fmt.Sprintf("Torpedo away, tube %d.", tube))
+		}
 	} else {
 		a.StatusMessage = "Cannot fire — open outer door first."
 	}

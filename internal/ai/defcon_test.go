@@ -40,7 +40,7 @@ func TestProximityRaisesToHostile(t *testing.T) {
 	}
 }
 
-func TestSubmergedTorpedoOnlyAlertsSubs(t *testing.T) {
+func TestSubmergedTorpedoAlertsSurfaceAndSubs(t *testing.T) {
 	dd := &world.Entity{
 		ID: "dd", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
 		Status: world.StatusActive, X: 5000, Y: 0, Defcon: world.DefconAware,
@@ -64,8 +64,8 @@ func TestSubmergedTorpedoOnlyAlertsSubs(t *testing.T) {
 		GameTime: 5,
 		Dt:       0.1,
 	})
-	if dd.Defcon >= world.DefconWeaponsFree {
-		t.Fatalf("surface should not jump to weapons free on submerged launch: %d", dd.Defcon)
+	if dd.Defcon < world.DefconWeaponsFree {
+		t.Fatalf("surface under aimed Mk48 should be weapons free: %d", dd.Defcon)
 	}
 	if ss.Defcon < world.DefconWeaponsFree {
 		t.Fatalf("hostile sub should be weapons free: %d", ss.Defcon)

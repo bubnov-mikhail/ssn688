@@ -49,6 +49,7 @@ func (a *App) releaseSessionCaches() {
 	a.tactical = tacticalState{}
 	a.disposePeriscopeImage()
 	a.periShipScratch = nil
+	a.periDepth = nil
 
 	a.bearingWaterfalls.Reset()
 	a.lastWaterfallSample = 0
@@ -99,6 +100,10 @@ func (a *App) releaseSessionCaches() {
 	a.uiPressedID = ""
 	a.navHoverIdx = -1
 	a.navTooltip = ""
+	a.hitVignetteAt = time.Time{}
+	a.hitShakeAt = time.Time{}
+	a.dcTabAlert = false
+	disposeImage(&a.hitShakeBuf)
 }
 
 // exitToMenu returns to the main menu and drops the running scenario from memory.

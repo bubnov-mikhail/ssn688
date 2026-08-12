@@ -73,6 +73,9 @@ func (a *App) updateMastUI() {
 			return
 		}
 	}
+	if a.trySelectESMRFContact(mx, my) {
+		return
+	}
 	for _, b := range btns {
 		if !b.contains(mx, my) {
 			continue
@@ -82,6 +85,59 @@ func (a *App) updateMastUI() {
 		a.handleMastButton(b.ID)
 		return
 	}
+}
+
+const mastESMRFRowH = 22
+
+func (a *App) mastESMRFTableRect() (x, y, w, h, maxRows int) {
+	tableY := mastSideY + (mastSideH*3)/5
+	x = mastSideX + 8
+	y = tableY + 48
+	w = mastSideW - 16
+	maxRows = (mastSideY + mastSideH - 20 - y) / mastESMRFRowH
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	h = maxRows * mastESMRFRowH
+	return x, y, w, h, maxRows
+}
+
+// mastESMRFContacts lists sonar contacts with a recent RF paint (ESM intercept log order).
+func (a *App) mastESMRFContacts() []*acoustics.Contact {
+	if a.Engine == nil {
+		return nil
+	}
+	sonar := &a.Engine.Sonar
+	esm := &a.Engine.ESM
+	gt := a.Engine.Clock.GameTime
+	out := make([]*acoustics.Contact, 0, 8)
+	for i := range sonar.Contacts {
+		c := &sonar.Contacts[i]
+		if esm.HasRecentRF(c.SourceEntityID, gt) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (a *App) trySelectESMRFContact(mx, my int) bool {
+	if a.Engine == nil || !a.Engine.ESM.MastUp() {
+		return false
+	}
+	x, y, w, _, maxRows := a.mastESMRFTableRect()
+	contacts := a.mastESMRFContacts()
+	if len(contacts) > maxRows {
+		contacts = contacts[:maxRows]
+	}
+	if mx < x || mx >= x+w || my < y || my >= y+len(contacts)*mastESMRFRowH {
+		return false
+	}
+	row := (my - y) / mastESMRFRowH
+	if row < 0 || row >= len(contacts) {
+		return false
+	}
+	a.selectContact(&a.Engine.Sonar, contacts[row])
+	return true
 }
 
 func (a *App) mastButtons() []uiButton {
@@ -99,7 +155,7 @@ func (a *App) mastButtons() []uiButton {
 		{ID: "esm_lower", Label: "LOWER ESM", Tooltip: "Stow ESM mast", X: mastMainX + 172, Y: y, W: 140, H: 36},
 		{ID: "comm_raise", Label: "RAISE", Tooltip: "Raise COMM mast", X: cx, Y: cy, W: 100, H: 32},
 		{ID: "comm_lower", Label: "LOWER", Tooltip: "Stow COMM mast", X: cx + 108, Y: cy, W: 100, H: 32},
-		{ID: "comm_report", Label: "REPORT", Tooltip: "Transmit mission status report", X: cx + 216, Y: cy, W: 110, H: 32},
+		{ID: "comm_report", Label: "REPORT", Tooltip: "Transmit mission status (COMM mast must be raised)", X: cx + 216, Y: cy, W: 110, H: 32},
 		{ID: "peri_raise", Label: "RAISE", Tooltip: "Raise periscope", X: px, Y: py, W: 90, H: 32},
 		{ID: "peri_lower", Label: "LOWER", Tooltip: "Stow periscope", X: px + 98, Y: py, W: 90, H: 32},
 		{ID: "peri_left", Label: "< LEFT", Tooltip: fmt.Sprintf("Train periscope left %.0f°", step), X: px + 210, Y: py, W: 90, H: 32},
@@ -118,33 +174,49 @@ func (a *App) handleMastButton(id string) {
 	case "esm_raise":
 		ok, msg := esm.OrderRaiseESM(player)
 		a.StatusMessage = msg
-		if !ok && a.Audio != nil {
+		if ok {
+			a.playMastHydraulicFX()
+		} else if a.Audio != nil {
 			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, msg)
 		}
 	case "esm_lower":
 		a.StatusMessage = esm.OrderLowerESM()
+		a.playMastHydraulicFX()
 	case "comm_raise":
 		ok, msg := comm.OrderRaiseCOMM(player)
 		a.StatusMessage = msg
-		if !ok && a.Audio != nil {
+		if ok {
+			a.playMastHydraulicFX()
+		} else if a.Audio != nil {
 			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, msg)
 		}
 	case "comm_lower":
 		a.StatusMessage = comm.OrderLowerCOMM()
+		a.playMastHydraulicFX()
 	case "comm_report":
+		if !comm.MastUp() {
+			a.StatusMessage = "Unable to transmit — raise COMM mast first."
+			if a.Audio != nil {
+				a.Audio.PlayClip(audio.ClipDiveUnableDeeper, a.StatusMessage)
+			}
+			break
+		}
 		gt := a.Engine.Clock.GameTime
 		report := a.Engine.Scenario.MissionStatusReport()
 		comm.AppendLocalTraffic(gt, report)
-		a.StatusMessage = "Mission status entered in COMM traffic."
+		a.StatusMessage = "Mission status transmitted on COMM."
 		a.mastCommScroll = 1 << 20
 	case "peri_raise":
 		ok, msg := peri.OrderRaise(player)
 		a.StatusMessage = msg
-		if !ok && a.Audio != nil {
+		if ok {
+			a.playMastHydraulicFX()
+		} else if a.Audio != nil {
 			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, msg)
 		}
 	case "peri_lower":
 		a.StatusMessage = peri.OrderLower()
+		a.playMastHydraulicFX()
 	case "peri_left":
 		peri.TrainLeft()
 		a.StatusMessage = fmt.Sprintf("Periscope train %+.0f° rel / %03.0f°T", peri.TrainRelDeg, peri.TrueBearingDeg(player.HeadingDeg))
@@ -157,6 +229,12 @@ func (a *App) handleMastButton(id string) {
 	case "peri_zoom_out":
 		peri.ZoomOut()
 		a.StatusMessage = "Periscope zoom " + peri.ZoomLabel()
+	}
+}
+
+func (a *App) playMastHydraulicFX() {
+	if a.Audio != nil {
+		a.Audio.PlayMastHydraulic()
 	}
 }
 
@@ -553,7 +631,6 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	if a.Engine == nil {
 		return
 	}
-	sonar := &a.Engine.Sonar
 	esm := &a.Engine.ESM
 	comm := &a.Engine.COMM
 	gt := a.Engine.Clock.GameTime
@@ -589,16 +666,24 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 		hover := b.contains(mx, my)
 		pressed := a.uiPressedID == b.ID && time.Since(a.uiPressedAt) < 120*time.Millisecond
 		latched := false
+		disabled := false
 		switch b.ID {
 		case "comm_raise":
 			latched = comm.Order == acoustics.COMMMastRaise && !comm.Sheared
 		case "comm_lower":
 			latched = comm.Order == acoustics.COMMMastStow
+		case "comm_report":
+			disabled = !comm.MastUp()
 		}
 		if latched {
 			render.FillRect(screen, b.X-2, b.Y-2, b.W+4, b.H+4, render.ColorAmber)
 		}
-		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
+		if disabled {
+			render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, false, false)
+			render.FillRect(screen, b.X, b.Y, b.W, b.H, color.RGBA{0, 0, 0, 110})
+		} else {
+			render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
+		}
 	}
 
 	// —— Scrollable message traffic ——
@@ -638,17 +723,14 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	render.DrawText(screen, "LAST", wx+278, tableY+18, render.ColorPhosphorDim, true)
 	render.DrawText(screen, "SGNL", wx+278, tableY+32, render.ColorPhosphorDim, true)
 
-	rowY := tableY + 48
-	maxRows := (mastSideY + mastSideH - 20 - rowY) / 22
-	n := 0
-	for i := range sonar.Contacts {
-		if n >= maxRows {
-			break
-		}
-		c := &sonar.Contacts[i]
-		if !esm.HasRecentRF(c.SourceEntityID, gt) {
-			continue
-		}
+	tx, rowY0, tw, _, maxRows := a.mastESMRFTableRect()
+	contacts := a.mastESMRFContacts()
+	if len(contacts) > maxRows {
+		contacts = contacts[:maxRows]
+	}
+	clickable := esm.MastUp()
+	rowY := rowY0
+	for _, c := range contacts {
 		rf := 0.0
 		if esm.RFConfidence != nil {
 			rf = esm.RFConfidence[c.SourceEntityID]
@@ -661,20 +743,33 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 				clr = render.ColorAmber
 			}
 		}
+		selected := c.SourceEntityID == a.selectedContactID
+		hover := clickable && mx >= tx && mx < tx+tw && my >= rowY && my < rowY+mastESMRFRowH
+		if selected {
+			render.FillRect(screen, tx, rowY, tw, mastESMRFRowH, color.RGBA{80, 60, 0, 180})
+			clr = render.ColorAmber
+		} else if hover {
+			render.FillRect(screen, tx, rowY, tw, mastESMRFRowH, render.ColorPanelMid)
+		}
 		brg := esm.FrozenRFBearing(c.SourceEntityID, c.BearingDeg)
 		src := trunc(c.DetectedBy, 6)
 		age := esm.SecondsSinceRF(c.SourceEntityID, gt)
-		render.DrawText(screen, c.ID, wx, rowY, clr, true)
-		render.DrawText(screen, fmt.Sprintf("%03.0f", brg), wx+36, rowY, clr, true)
-		render.DrawText(screen, src, wx+72, rowY, clr, true)
-		render.DrawText(screen, equip, wx+118, rowY, clr, true)
-		render.DrawText(screen, fmt.Sprintf("%.0f", rf*100), wx+230, rowY, clr, true)
-		render.DrawText(screen, fmt.Sprintf("%.0fs", age), wx+278, rowY, clr, true)
-		rowY += 22
-		n++
+		// DrawText y is baseline — inset into the row like PASSIVE contact list.
+		ty := rowY + 16
+		render.DrawText(screen, c.ID, wx, ty, clr, true)
+		render.DrawText(screen, fmt.Sprintf("%03.0f", brg), wx+36, ty, clr, true)
+		render.DrawText(screen, src, wx+72, ty, clr, true)
+		render.DrawText(screen, equip, wx+118, ty, clr, true)
+		render.DrawText(screen, fmt.Sprintf("%.0f", rf*100), wx+230, ty, clr, true)
+		render.DrawText(screen, fmt.Sprintf("%.0fs", age), wx+278, ty, clr, true)
+		rowY += mastESMRFRowH
 	}
-	if n == 0 {
-		render.DrawText(screen, "No RF intercepts", wx, rowY, render.ColorDim, true)
+	if len(contacts) == 0 {
+		hint := "No RF intercepts"
+		if !clickable {
+			hint = "Raise ESM for intercepts"
+		}
+		render.DrawText(screen, hint, wx, rowY0+16, render.ColorDim, true)
 	}
 }
 

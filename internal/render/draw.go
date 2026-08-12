@@ -50,6 +50,24 @@ func ButtonLabelWidth(label string) int {
 	return len(label) * 6
 }
 
+// SmallLabelWidth returns the pixel width of a small (nav bar) label.
+func SmallLabelWidth(label string) int {
+	if faceSmall != nil {
+		return font.MeasureString(faceSmall, label).Ceil()
+	}
+	return len(label) * 6
+}
+
+// SmallLabelBaseline returns the text baseline Y that vertically centers a
+// small-font label inside a box of height h starting at boxY.
+func SmallLabelBaseline(boxY, boxH int) int {
+	if faceSmall == nil {
+		return boxY + boxH/2 + 4
+	}
+	m := faceSmall.Metrics()
+	return boxY + (boxH+m.Ascent.Ceil()-m.Descent.Ceil())/2
+}
+
 // ButtonLabelBaseline returns the text baseline Y that vertically centers a
 // button-font label inside a box of height h starting at boxY.
 func ButtonLabelBaseline(boxY, boxH int) int {
@@ -150,10 +168,12 @@ var (
 	ColorActive    = color.RGBA{100, 200, 255, 255}
 	ColorGrid          = color.RGBA{0, 70, 55, 255}
 	ColorHighlight = color.RGBA{255, 255, 100, 255}
-	ColorDebugCalm    = color.RGBA{60, 200, 80, 255}
-	ColorDebugSearch  = color.RGBA{255, 210, 50, 255}
-	ColorDebugAttack  = color.RGBA{255, 60, 40, 255}
+	ColorDebugCalm     = color.RGBA{60, 200, 80, 255}
+	ColorDebugSearch   = color.RGBA{255, 210, 50, 255}
+	ColorDebugAttack   = color.RGBA{255, 60, 40, 255}
 	ColorDebugInactive = color.RGBA{100, 110, 120, 255}
-	ColorDebugPlayer  = color.RGBA{80, 220, 255, 255}
+	ColorDebugPlayer   = color.RGBA{80, 220, 255, 255}
 	ColorDebugPanel    = color.RGBA{18, 18, 20, 220}
+	ColorDebugRoute    = color.RGBA{190, 190, 200, 160}
+	ColorDebugRouteWP  = color.RGBA{210, 210, 220, 200}
 )

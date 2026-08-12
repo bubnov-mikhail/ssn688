@@ -9,8 +9,8 @@ import (
 
 func TestPeriShipSpritesLoaded(t *testing.T) {
 	ensurePeriShipSprites()
-	if len(periShipSpriteMap) < 76 {
-		t.Fatalf("expected 76 sprites (4×19 @5°), got %d", len(periShipSpriteMap))
+	if len(periShipSpriteMap) < 700 {
+		t.Fatalf("expected 724 sprites (4×181 @1° 0..180), got %d", len(periShipSpriteMap))
 	}
 	for _, cls := range []periShipClass{periClassMerchant, periClassTanker, periClassFishing, periClassCombatant} {
 		sp := pickPeriShipSprite(cls, 90)
@@ -19,6 +19,14 @@ func TestPeriShipSpritesLoaded(t *testing.T) {
 		}
 		if sp.x1 <= sp.x0 || sp.y1 <= sp.y0 {
 			t.Fatalf("empty bbox for %s", periShipClassName(cls))
+		}
+		stern := pickPeriShipSprite(cls, 180)
+		if stern == nil {
+			t.Fatalf("missing stern sprite for %s", periShipClassName(cls))
+		}
+		q := pickPeriShipSprite(cls, 135)
+		if q == nil {
+			t.Fatalf("missing stern-quarter sprite for %s", periShipClassName(cls))
 		}
 	}
 }
@@ -51,7 +59,7 @@ func TestBlitPeriShipSprite(t *testing.T) {
 	if fitW > boxW || fitH > boxH {
 		t.Fatalf("fit exceeds box: %dx%d in %dx%d", fitW, fitH, boxW, boxH)
 	}
-	x0, y0, x1, y1, ok := blitPeriShipSprite(pix, fw, fh, sp, 60, waterY, boxW, boxH, false, 1, 0)
+	x0, y0, x1, y1, ok := blitPeriShipSprite(pix, nil, fw, fh, sp, 60, waterY, boxW, boxH, false, 1, 0, 1000)
 	if !ok {
 		t.Fatal("blit failed")
 	}
@@ -98,7 +106,7 @@ func TestBlitPeriShipSprite(t *testing.T) {
 
 	// Half-sunk: fewer pixels, still clipped at waterline.
 	pix2 := make([]byte, fw*fh*4)
-	_, _, _, _, ok = blitPeriShipSprite(pix2, fw, fh, sp, 60, waterY, boxW, boxH, false, 1, 0.55)
+	_, _, _, _, ok = blitPeriShipSprite(pix2, nil, fw, fh, sp, 60, waterY, boxW, boxH, false, 1, 0.55, 1000)
 	if !ok {
 		t.Fatal("half-sunk blit failed")
 	}
@@ -111,13 +119,13 @@ func TestBlitPeriShipSprite(t *testing.T) {
 	if lit2 >= lit {
 		t.Fatalf("sinking should show less ship: lit %d vs floating %d", lit2, lit)
 	}
-	_, _, _, _, ok = blitPeriShipSprite(pix2, fw, fh, sp, 60, waterY, boxW, boxH, false, 1, 1)
+	_, _, _, _, ok = blitPeriShipSprite(pix2, nil, fw, fh, sp, 60, waterY, boxW, boxH, false, 1, 1, 1000)
 	if ok {
 		t.Fatal("fully submerged blit should fail")
 	}
 
-	drawPeriShipSilhouette(pix, fw, fh, acoustics.PeriShipProj{
-		CenterX: 60, WaterY: 50, WidthPx: 40, HullHPx: 8, SuperHPx: 12,
+	drawPeriShipSilhouette(pix, nil, fw, fh, acoustics.PeriShipProj{
+		CenterX: 60, WaterY: 50, WidthPx: 40, HullHPx: 8, SuperHPx: 12, RangeYd: 1000,
 		AspectDeg: 90, Brightness: 1, Signature: "udaloy", BowRight: true, SpeedKts: 12,
 	})
 }
@@ -133,7 +141,7 @@ func TestPeriShipSpriteOpaqueMatchesBlit(t *testing.T) {
 	for i := 0; i < len(pix); i += 4 {
 		pix[i+3] = 255
 	}
-	_, _, _, _, ok := blitPeriShipSprite(pix, fw, fh, sp, cx, waterY, destW, destH, true, 1, 0)
+	_, _, _, _, ok := blitPeriShipSprite(pix, nil, fw, fh, sp, cx, waterY, destW, destH, true, 1, 0, 1000)
 	if !ok {
 		t.Fatal("blit failed")
 	}

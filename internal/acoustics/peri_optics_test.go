@@ -45,12 +45,42 @@ func TestBearingToViewX(t *testing.T) {
 	}
 }
 
+func TestBearingToViewXFSmooth(t *testing.T) {
+	x0, ok := BearingToViewXF(90, 90, 32, 320)
+	if !ok || math.Abs(x0-160) > 1 {
+		t.Fatalf("center xf=%v ok=%v", x0, ok)
+	}
+	x1, _ := BearingToViewXF(90.05, 90, 32, 320)
+	if x1 <= x0 {
+		t.Fatalf("expected fractional advance: %v → %v", x0, x1)
+	}
+	if x1-x0 > 2 {
+		t.Fatalf("0.05° step too large: %v", x1-x0)
+	}
+}
+
+
 func TestShipBeamAspect(t *testing.T) {
+	// Heading parallel to LOS: ship going away → stern toward eye.
 	if ShipBeamAspect01(90, 90) > 0.05 {
-		t.Fatal("bow-on should be near 0")
+		t.Fatal("end-on (going away) should be near 0 beam aspect")
 	}
 	if ShipBeamAspect01(90, 0) < 0.95 {
 		t.Fatal("beam-on should be near 1")
+	}
+	// Ship north of eye (LOS 0°): heading 0° = going away → stern (180).
+	if math.Abs(ShipAspectDeg(0, 0)-180) > 1 {
+		t.Fatalf("going away want stern~180, got %v", ShipAspectDeg(0, 0))
+	}
+	// Heading 180° = coming toward eye → bow (0).
+	if ShipAspectDeg(0, 180) > 1 {
+		t.Fatalf("closing want bow~0, got %v", ShipAspectDeg(0, 180))
+	}
+	if math.Abs(ShipAspectDeg(0, 90)-90) > 1 {
+		t.Fatalf("beam aspect want ~90, got %v", ShipAspectDeg(0, 90))
+	}
+	if ShipBeamAspect01(0, 180) > 0.05 {
+		t.Fatal("bow-on beam aspect should be near 0")
 	}
 }
 

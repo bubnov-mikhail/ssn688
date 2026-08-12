@@ -1,7 +1,8 @@
 # Peri ship sprites (IR)
 
 Grayscale orthographic silhouettes for the MAST periscope IR optic.
-Aspects `0..90` step `5` → `{class}_{aspect:03d}.png` (512×160).
+Aspects `0..180` step `1` → `{class}_{aspect:03d}.png` (512×160).
+`0` = bow-on, `90` = beam, `180` = stern-on.
 
 Rendered with **EEVEE emission** (supersampled). Styles per class in
 `SHIP_CFG['ir_style']`:
@@ -20,9 +21,23 @@ Runtime flips via `PeriShipProj.BowRight`.
 | fishing   | `fishing.obj`     |
 | combatant | `combantant.glb`  |
 
-Re-render:
+Re-render all aspects:
 
 ```bash
 /Applications/Blender.app/Contents/MacOS/Blender --background --python \
   tools/gen_peri_ship_sprites_blender.py
+```
+
+Fill missing 1° frames only (keep existing):
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background --python \
+  tools/gen_peri_ship_sprites_blender.py -- --skip-existing
+```
+
+Stern quarters only (`95..180`):
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background --python \
+  tools/gen_peri_ship_sprites_blender.py -- --stern
 ```

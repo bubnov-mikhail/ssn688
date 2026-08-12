@@ -10,8 +10,9 @@ import (
 type BioTransient struct {
 	BearingDeg float64
 	PeakSNR    float64
+	StartAt    float64 // 0 = audible immediately; else delayed (sound travel)
 	ExpireAt   float64
-	Kind       string  // "whale" | "dolphin"
+	Kind       string  // "whale" | "dolphin" | "blast" | …
 	FreqBiasHz float64 // characteristic frequency for band filtering
 }
 
@@ -66,13 +67,23 @@ func UpdateBiology(sonar *SonarState, gameTime float64, rng *rand.Rand) {
 
 // AddPassiveTransient injects a short-lived waterfall-only transient cue.
 func AddPassiveTransient(sonar *SonarState, bearingDeg, peakSNR, durationSec float64, kind string, freqBiasHz float64, gameTime float64) {
+	AddPassiveTransientAt(sonar, bearingDeg, peakSNR, durationSec, kind, freqBiasHz, gameTime, gameTime)
+}
+
+// AddPassiveTransientAt is like AddPassiveTransient but starts at startAt
+// (e.g. after one-way sound travel from a distant blast).
+func AddPassiveTransientAt(sonar *SonarState, bearingDeg, peakSNR, durationSec float64, kind string, freqBiasHz, startAt, gameTime float64) {
 	if sonar == nil || durationSec <= 0 || peakSNR <= 0 {
 		return
+	}
+	if startAt < gameTime {
+		startAt = gameTime
 	}
 	sonar.BioTransients = append(sonar.BioTransients, BioTransient{
 		BearingDeg: bearingDeg,
 		PeakSNR:    peakSNR,
-		ExpireAt:   gameTime + durationSec,
+		StartAt:    startAt,
+		ExpireAt:   startAt + durationSec,
 		Kind:       kind,
 		FreqBiasHz: freqBiasHz,
 	})
@@ -80,6 +91,9 @@ func AddPassiveTransient(sonar *SonarState, bearingDeg, peakSNR, durationSec flo
 
 // BioWaterfallContribution returns display energy for a bio transient under the listen band.
 func BioWaterfallContribution(b BioTransient, band ListenBand, gameTime float64) float64 {
+	if b.StartAt > 0 && gameTime < b.StartAt {
+		return 0
+	}
 	remain := b.ExpireAt - gameTime
 	if remain <= 0 {
 		return 0
@@ -93,6 +107,9 @@ func BioWaterfallContribution(b BioTransient, band ListenBand, gameTime float64)
 		total = remain + 1
 	}
 	lived := total - remain
+	if b.StartAt > 0 {
+		lived = gameTime - b.StartAt
+	}
 	ageFade := 1.0
 	if lived < 2 {
 		ageFade = math.Max(0.15, lived/2)

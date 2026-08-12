@@ -112,16 +112,22 @@ func ObservedPeaksFromBins(bins []float64) []SpectrumPeak {
 }
 
 // SpectrumClarity01 maps peak analyzer SNR to 0..1 tonal readability.
-// Aligned with waterfall visibility: faint traces stay muddy longer.
+//
+// Open-source LOFAR/DEMON guidance (harbor DEMON lines to ~7 km; hull passive
+// often a few nm for useful lines; LF towed arrays much farther for the same
+// machinery fingerprint). Tuned so ClassifyClarityMin (~0.18) is reached near:
+//   noisy ASW corvette ~8–10 kyd on HULL / ~15–18 kyd on full TOWED,
+//   merchant / noisy diesel ~5–8 kyd HULL / ~10–14 kyd TOWED —
+// rather than forcing the operator inside weapons range to read harmonics.
 func SpectrumClarity01(peakSNR float64) float64 {
-	t := (peakSNR - 7.0) / 20.0
+	t := (peakSNR - 5.0) / 22.0
 	if t <= 0 {
 		return 0
 	}
 	if t >= 1 {
 		return 1
 	}
-	return math.Pow(t, 1.28)
+	return math.Pow(t, 1.1)
 }
 
 // DegradeSpectrumBinsForClarity smears and buries weak spectra so distant /
@@ -137,14 +143,14 @@ func DegradeSpectrumBinsForClarity(bins []float64) {
 		}
 	}
 	clarity := SpectrumClarity01(peak)
-	if clarity >= 0.92 {
+	if clarity >= 0.88 {
 		return
 	}
 	mud := 1 - clarity
 	tmp := make([]float64, len(bins))
 	copy(tmp, bins)
 	for i := range bins {
-		// Spatial smear across neighboring bands (lost frequency resolution).
+		// Milder smear — keep LOFAR tips readable once SNR clears the floor.
 		left, right := tmp[i], tmp[i]
 		if i > 0 {
 			left = tmp[i-1]
@@ -152,13 +158,12 @@ func DegradeSpectrumBinsForClarity(bins []float64) {
 		if i < len(tmp)-1 {
 			right = tmp[i+1]
 		}
-		smeared := tmp[i]*(1-0.55*mud) + (left+right)*0.5*(0.55*mud)
-		// Raise / flatten toward a noisy floor.
-		floor := 2.0 + mud*6.0
-		noise := (float64((i*37+11)%17)/17.0 - 0.5) * mud * 4.5
-		v := smeared*(0.35+0.65*clarity) + floor*mud*0.65 + noise
-		if v < floor*0.4 {
-			v = floor * 0.4
+		smeared := tmp[i]*(1-0.40*mud) + (left+right)*0.5*(0.40*mud)
+		floor := 1.5 + mud*4.5
+		noise := (float64((i*37+11)%17)/17.0 - 0.5) * mud * 3.2
+		v := smeared*(0.45+0.55*clarity) + floor*mud*0.50 + noise
+		if v < floor*0.35 {
+			v = floor * 0.35
 		}
 		bins[i] = v
 	}

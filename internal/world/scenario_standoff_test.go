@@ -3,67 +3,48 @@ package world
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/ssn688/sim/assets"
 )
 
-func TestTrainingScenarioSurfaceStandoff(t *testing.T) {
-	for i := 0; i < 20; i++ {
+func TestTrainingScenarioDiagonalPlacement(t *testing.T) {
+	b, err := LoadBathymetry(assets.BathyChart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetDefaultBathymetry(b)
+
+	for i := 0; i < 8; i++ {
 		sc := NewTrainingScenario()
-		var corvette *Entity
-		for _, e := range sc.Entities {
-			if e != nil && e.ID == "enemy_grisha" {
-				corvette = e
-				break
-			}
+		if sc.Player == nil {
+			t.Fatal("missing player")
 		}
-		if corvette == nil {
-			t.Fatal("missing enemy_grisha")
+		if d := MinDistToRoutesYd(sc.Player.X, sc.Player.Y, sc.Routes); d < 500 || d > 3000 {
+			t.Fatalf("attempt %d: player–route=%.0f want ≤3000 yd", i, d)
 		}
-		dist := sc.Player.RangeYardsTo(corvette)
-		// Peri size-compare ring (~1200 yd); allow placeAtBearing nudges.
-		if dist < 800 || dist > 2000 {
-			t.Fatalf("attempt %d: Grisha at %.0f yd (want ~1200 yd peri ring)", i, dist)
-		}
-		if corvette.Defcon != DefconPassive {
-			t.Fatalf("Grisha DEFCON=%d want 0", corvette.Defcon)
-		}
-		var fox *Entity
-		nearCiv := 0
+		var fox, grisha *Entity
+		civs := 0
 		for _, e := range sc.Entities {
 			if e == nil {
 				continue
 			}
-			if e.ID == "enemy_foxtrot" {
+			if e.RouteID == "" {
+				t.Fatalf("%s has no route", e.ID)
+			}
+			switch e.ID {
+			case "enemy_foxtrot":
 				fox = e
-			}
-			if e.Side == SideNeutral && (e.ID == "civ_merchant" || e.ID == "civ_tanker" || e.ID == "civ_trawler") {
-				d := sc.Player.RangeYardsTo(e)
-				if d < 800 || d > 2000 {
-					t.Fatalf("attempt %d: %s at %.0f yd (want ~1200 yd peri ring)", i, e.ID, d)
-				}
-				nearCiv++
+			case "enemy_grisha":
+				grisha = e
+			case "civ_merchant", "civ_tanker", "civ_trawler":
+				civs++
 			}
 		}
-		if nearCiv != 3 {
-			t.Fatalf("want 3 near civilians, got %d", nearCiv)
+		if fox == nil || grisha == nil || civs != 3 {
+			t.Fatalf("units missing fox=%v grisha=%v civs=%d", fox != nil, grisha != nil, civs)
 		}
-		if fox == nil || fox.SignatureID != "foxtrot" {
-			t.Fatal("missing Foxtrot in training scenario")
-		}
-		foxDist := sc.Player.RangeYardsTo(fox)
-		if foxDist < 10000 {
-			t.Fatalf("attempt %d: Foxtrot at %.0f yd (want ≥10 kyd clear of peri ring)", i, foxDist)
-		}
-		if fox.Defcon != DefconPassive {
-			t.Fatalf("Foxtrot DEFCON=%d want 0", fox.Defcon)
-		}
-		nHostile := 0
-		for _, e := range sc.Entities {
-			if e != nil && e.Side == SideEnemy {
-				nHostile++
-			}
-		}
-		if nHostile != 2 {
-			t.Fatalf("want 2 hostiles (Grisha+Foxtrot), got %d", nHostile)
+		if fox.Defcon != DefconPassive || grisha.Defcon != DefconPassive {
+			t.Fatal("hostiles should start passive")
 		}
 	}
 }

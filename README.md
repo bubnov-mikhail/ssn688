@@ -2,7 +2,41 @@
 
 Симулятор подводной лодки в духе **688(I) Hunter/Killer** на **Go** + [Ebiten](https://ebitengine.org/).
 
-Сценарий: Santa Catalina (батиметрия ETOPO), пассив/актив, буксируемая антенна, Mk48 ADCAP с проводом, вражеский AI.
+Сценарий: **Santa Catalina** (батиметрия ETOPO), охота на надводные и подводные цели с пассивом/активом, буксируемой антенной, Mk48 / Harpoon и вражеским ASW AI.
+
+## Возможности
+
+### Сонар и акустика
+- **Пассивный водопад** — Hull / TB-16 towed (~800 yd), пеленг с параллаксом буксира
+- **Listen bands** — Broadband (корабли/ПЛ) и HF (торпеды); пинги видны в обоих режимах
+- **Активный сонар** — PPI, одиночный пинг, эхо по целям
+- **SPECTRUM** — LOFAR/тонали, классификация по профилю (ясность растёт с SNR / towed)
+- **Термоклин, слой, blast washout** после взрывов
+- **TMA** — оценка курса/скорости контакта; луч на PLOT/WEPS при достаточной точности
+
+### Оружие и контрмеры
+- **Mk48 ADCAP** — ТА 1–4, гиро/глубина/скорость, провод, seeker (ModeSearch после отхода от своей ПЛ), обрыв / self-destruct
+- **UGM-84 Harpoon** — подводный выход, крейсер, SRCH/beam/destruct presets; ПВО противника (SAM/CIWS)
+- **Soft-kill CM** — ADC (decoy) и jitter; слышны на пассиве, на PLOT/PPI не рисуются
+- Быстрая панель **OWN SHIP / CM** на ключевых экранах
+
+### Мачты и оптика (MAST, `F8`)
+- **ESM** — перехват облучения радарами противника/нейтралов
+- **COMM** — подъём/спуск мачты, **REPORT** (только при поднятой COMM)
+- **Перископ** — подъём, поворот, IR-вид с аспектными спрайтами судов; риск среза мачт / повреждения
+
+### Корабль и повреждения
+- **HELM (`F6`)** — курс, глубина, машинный телеграф (вперёд / стоп / задний ход)
+- **Damage Control (`F7`)** — системы, трубы, мачты, ремонт
+- Сохранения `.sav` (состояние сима, сонар, торпеды, мачты)
+
+### Тактика и мир
+- **PLOT (`M`)** — тактическая карта, контакты, маркеры, TMA-лучи
+- **LIBRARY (`F4`)** — картотека платформ: Udaloy, Krivak, Kresta II, Grisha, Kilo, Foxtrot, Victor III, гражданские
+- **Вражеский ASW** — DEFCON (Aware → Hostile → Weapons Free); Rastrub→UMGT-1, RBU, корабельные ТА (SET-40/UMGT-1), тяжёлые 53-см рыбы у ПЛ
+- Уклонение AI от торпед, постановка CM по угрозе CPA
+- **Маршруты** гражданских/патрулей (waypoints, PingPong), **COLREGS** для надводного расхождения
+- Голоса офицеров (CAPT / SONAR / WEPS / DIVE / NAV) + FX
 
 ## Запуск
 
@@ -38,10 +72,12 @@ go build -o ssn688 .
 | `F1` | Пассивный сонар |
 | `F2` | Активный сонар |
 | `F3` | Анализатор спектра |
-| `F4` | Картотека «подчерков» |
-| `F5` | Fire Control (WEPS) |
-| `F6` | Маневрирование |
-| `M` | Тактическая карта |
+| `F4` | LIBRARY — картотека угроз |
+| `F5` | WEPS — Fire Control |
+| `F6` | HELM — маневрирование |
+| `F7` | DC — Damage Control |
+| `F8` | MAST — ESM / COMM / перископ |
+| `M` | PLOT — тактическая карта |
 | `Space` | Пауза |
 | `+` / `-` | Ускорение / замедление времени |
 | `Ctrl+S` / кнопка `SAVE` | Быстрое сохранение |
@@ -64,7 +100,7 @@ TB-16 (~800 yd cable): TOWED waterfall uses array position (bearing parallax vs 
 ### Спектр
 - `←` / `→` — пеленг луча
 
-### Fire Control (Mk48)
+### Fire Control (Mk48 / Harpoon / CM)
 | Клавиша | Действие |
 |---------|----------|
 | `1`–`4` | Выбор ТА |
@@ -76,16 +112,17 @@ TB-16 (~800 yd cable): TOWED waterfall uses array position (bearing parallax vs 
 | `←` / `→` | Провод: курс ±10° |
 | `W` | Обрыв провода |
 | `X` | Self-destruct (пока провод жив) |
-| WEPS UI | **COUNTERMEASURES**: счётчики DECOY / JITTER и кнопки запуска |
+| WEPS UI | Harpoon prep · **COUNTERMEASURES**: DECOY / JITTER |
 
-### Маневрирование
+Decoy (ADC) и jitter слышны на пассивном водопаде и соблазняют/путают seeker врага; на PLOT, WEPS-карте и активном PPI не отображаются.
+
+### HELM (маневрирование)
 - `↑` / `↓` — скорость · `Q` / `E` — курс · `PgUp` / `PgDn` — глубина
+- UI: машинный телеграф (вперёд / стоп / задний ход), станции HELM
 
-Decoy (ADC) и jitter (jammer) слышны на пассивном водопаде и соблазняют/путают seeker врага; на PLOT, WEPS-карте и активном PPI не отображаются.
-1. Надводный боевой корабль противника
-2. Подводную лодку противника
-
-Противник ищет, пингует и уклоняется от торпед.
+### MAST
+- ESM raise/lower · COMM raise/lower · **REPORT** (нужна поднятая COMM)
+- Перископ: raise/lower, train left/right, IR optic
 
 ## Сохранения
 
@@ -96,18 +133,18 @@ Decoy (ADC) и jitter (jammer) слышны на пассивном водопа
 
 ```
 internal/
-  acoustics/  — SNR, термоклин, пассив/актив, blast washout
-  ai/         — патруль, атака, уклонение от торпед
+  acoustics/  — SNR, термоклин, пассив/актив, ESM/COMM/peri, blast
+  ai/         — патруль/маршруты, DEFCON, COLREGS, атака, уклонение
   audio/      — голоса офицеров + FX (embed WAV)
   config/     — настройки
   layout/     — координаты панелей UI
   render/     — отрисовка консолей
   save/       — текстовые сохранения
   sim/        — игровой тик
-  weapons/    — Mk48, провод, seeker, decoy/jitter CM
-  world/      — сущности, сценарий, батиметрия, подписи
-  ui/         — экраны и ввод
-assets/       — menu_bg.jpg, bathy.bin (embed)
+  weapons/    — Mk48, Harpoon, Rastrub/RBU, seeker, CM
+  world/      — сущности, маршруты, сценарий, батиметрия, damage
+  ui/         — экраны F1–F8, PLOT, ввод
+assets/       — menu_bg, bathy.bin, library/, peri_ships/ (embed)
 scripts/      — macOS app, генерация голосов
 tools/        — пересборка батиметрии
 ```
@@ -137,6 +174,22 @@ python scripts/generate_voices_kokoro.py
 python scripts/generate_voices_kokoro.py unable_deeper.wav deploy_towed.wav
 ```
 
+## Credits / атрибуция
+
+- **PASSIVE ambient:**
+  [*ship waves hydrophones 03 190617_0038*](https://freesound.org/people/klankbeeld/sounds/609037/)
+  by [klankbeeld](https://freesound.org/people/klankbeeld/) via [freesound.org](https://freesound.org/) (CC BY 4.0).
+- **Bow wash (surface):**
+  [*Under water sounds while scuba diving*](https://freesound.org/people/timsc/sounds/274491/)
+  by [timsc](https://freesound.org/people/timsc/) (CC0).
+- **Torpedo run:**
+  [*S34-38 Torpedo traveling underwater*](https://freesound.org/people/craigsmith/sounds/675798/)
+  by [craigsmith](https://freesound.org/people/craigsmith/) (CC0).
+- **Other PASSIVE / WEPS FX** (launch, explosion, fishing/merchant/tanker/sub/combatant props):
+  user-provided local assets; see `internal/audio/fx/CREDITS.txt`.
+- **LIBRARY photos:** see `assets/library/CREDITS.txt`.
+- **Periscope ship sprites:** see `assets/peri_ships/README.md`.
+
 ## Батиметрия
 
 `assets/bathy.bin` — сетка глубин Catalina (NOAA ETOPO 2022). Пересборка:
@@ -149,8 +202,11 @@ python tools/gen_hormuz_bathy.py
 
 ## Дальнейшее развитие
 
-- [ ] Симуляция перископа
+- [x] Перископ / MAST (ESM, COMM, IR optic)
 - [x] Голосовые реплики офицеров (встроены в бинарник)
-- [x] Акустика: термоклин, listen bands, blast washout
-- [x] WEPS: провод, seeker, tube clear, уклонение AI
-- [ ] Больше сценариев и классов кораблей
+- [x] Акустика: термоклин, listen bands, blast washout, TMA
+- [x] WEPS: Mk48 + провод/seeker, Harpoon, CM soft-kill
+- [x] Damage control, HELM reverse, threat library
+- [x] Вражеский ASW (Rastrub / RBU / ТА / ПЛ) + DEFCON
+- [ ] Больше сценариев и миссий
+- [ ] Расширение классов / арсенала

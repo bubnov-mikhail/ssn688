@@ -22,7 +22,9 @@ const (
 )
 
 // ClassifyClarityMin — below this, harmonics are too buried to classify.
-const ClassifyClarityMin = 0.20
+// Calibrated with SpectrumClarity01 so LOFAR tips become usable near SNR≈9–10 dB
+// (roughly mid-teens kyd on TOWED for a noisy combatant; a few nm closer on HULL).
+const ClassifyClarityMin = 0.18
 
 // AnalyzeClassifyFilter inspects analyzer bins and bearing mix.
 // mixContacts is CountSpectrumMixContacts for the analysis bearing.
@@ -88,7 +90,7 @@ func countClassifyTonals(bins []float64, clarity float64) int {
 		return 0
 	}
 	med := classifyMedian(bins)
-	margin := 2.5 + (1-clarity)*4.0
+	margin := 2.0 + (1-clarity)*3.0
 	n := 0
 	for i := 1; i < len(bins)-1; i++ {
 		v := bins[i]

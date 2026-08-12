@@ -42,7 +42,12 @@ type Entity struct {
 	LastPingPower float64 // 0..1 transmit power of last active ping
 	AIState       string
 	Defcon        int // enemy alert 0–3; see world/defcon.go
-	Damage        PlatformDamage
+	// RouteID / RouteWP drive PATROL/CRUISE navigation; empty RouteID = no route.
+	RouteID         string
+	RouteWP         int  // index of the waypoint currently being approached
+	RouteDir        int  // +1 forward along waypoints, -1 reverse (PingPong routes)
+	RouteNeedResume bool // true after combat/evade/shore — reselect WP on return
+	Damage          PlatformDamage
 	// Short-lived transient signature (tube doors, flooding valves, etc).
 	TransientUntil   float64
 	TransientFreqHz  float64
@@ -170,8 +175,11 @@ func (e *Entity) Advance(dt float64) {
 		}
 	} else {
 		turnScale := e.TurnRateScale()
+		maxRate := MaxTurnRateDegPerSec(e) * turnScale
+		// Soft lag scales with yaw authority so large hulls don't "snap" the last degrees.
+		soft := maxRate / 12
 		diff := shortestAngleDiff(e.HeadingDeg, e.OrderedHead)
-		e.HeadingDeg += clamp(diff*dt*0.25*turnScale, -dt*3*turnScale, dt*3*turnScale)
+		e.HeadingDeg += clamp(diff*dt*soft, -dt*maxRate, dt*maxRate)
 		e.HeadingDeg = normalizeAngle(e.HeadingDeg)
 	}
 
@@ -202,6 +210,55 @@ func MaxSpeedAccelKtsPerSec(e *Entity) float64 {
 		return 0.27 // small craft / fishing
 	default:
 		return 0.22
+	}
+}
+
+// MaxTurnRateDegPerSec is hard yaw-rate authority (°/s) before steering damage.
+// Large / heavy hulls (tanker, merchant) turn much slower than fishing craft;
+// combatants sit between destroyer agility and merchant inertia.
+func MaxTurnRateDegPerSec(e *Entity) float64 {
+	if e == nil {
+		return 2.5
+	}
+	switch e.Kind {
+	case KindTorpedo:
+		return 8.0
+	case KindSubmarine:
+		return 2.8
+	case KindSurfaceShip:
+		switch e.SignatureID {
+		case "tanker":
+			return 0.45 // VLCC — ~3–4 min for 90°
+		case "merchant":
+			return 0.75
+		case "fishing":
+			return 3.4
+		case "udaloy", "kresta2":
+			return 1.9
+		case "krivak":
+			return 2.2
+		case "grisha":
+			return 2.6
+		default:
+			return maxTurnRateFromLength(e.LengthFt)
+		}
+	default:
+		return 2.5
+	}
+}
+
+func maxTurnRateFromLength(lengthFt float64) float64 {
+	switch {
+	case lengthFt >= 700:
+		return 0.5
+	case lengthFt >= 500:
+		return 0.8
+	case lengthFt >= 350:
+		return 1.5
+	case lengthFt >= 200:
+		return 2.3
+	default:
+		return 3.2
 	}
 }
 

@@ -42,13 +42,17 @@ func TestObservedPeaksStrongSNRShowsTonals(t *testing.T) {
 }
 
 func TestSpectrumClarity01(t *testing.T) {
-	if SpectrumClarity01(5) > 0.05 {
-		t.Fatal("below waterfall floor should be ~0 clarity")
+	if SpectrumClarity01(4) > 0.01 {
+		t.Fatal("below LOFAR floor should be ~0 clarity")
 	}
 	if SpectrumClarity01(28) < 0.9 {
 		t.Fatal("strong SNR should be near full clarity")
 	}
 	if SpectrumClarity01(14) <= SpectrumClarity01(9) {
 		t.Fatal("clarity should rise with SNR")
+	}
+	// ~SNR 10 → around ClassifyClarityMin for usable tonals.
+	if c := SpectrumClarity01(10); c < 0.16 || c > 0.28 {
+		t.Fatalf("SNR 10 clarity=%.2f want ~0.18–0.24", c)
 	}
 }

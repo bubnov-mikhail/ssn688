@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	navBarH           = 58
-	navTooltipDelay   = 400 * time.Millisecond
+	navBarH         = 58
+	navIconGap      = 6
+	navSlotPad      = 4
+	navTooltipDelay = 400 * time.Millisecond
 )
 
 type navItem struct {
@@ -51,6 +53,26 @@ func (a *App) navItemRect(index int) (x, y, w, h int) {
 	return
 }
 
+func navItemContentLayout(slotX, slotW, barY int, title string) (iconCX, iconCY, labelX, labelY int) {
+	iconSz := render.NavBarIconSize
+	labelW := render.SmallLabelWidth(title)
+	contentW := iconSz + navIconGap + labelW
+	left := slotX + (slotW-contentW)/2
+	minLeft := slotX + navSlotPad
+	if left < minLeft {
+		left = minLeft
+	}
+	maxLeft := slotX + slotW - navSlotPad - contentW
+	if left > maxLeft {
+		left = maxLeft
+	}
+	iconCX = left + iconSz/2
+	iconCY = barY + navBarH/2
+	labelX = left + iconSz + navIconGap
+	labelY = render.SmallLabelBaseline(barY, navBarH)
+	return
+}
+
 func (a *App) updateNavBar() {
 	if a.Engine == nil {
 		return
@@ -78,6 +100,7 @@ func (a *App) updateNavBar() {
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && hoverIdx >= 0 {
 		a.CurrentScreen = a.navItems()[hoverIdx].Screen
+		a.clearDCTabAlertIfOnDamage()
 	}
 }
 
@@ -99,10 +122,18 @@ func (a *App) drawNavBar(screen *ebiten.Image) {
 		x := i * slotW
 		active := a.CurrentScreen == it.Screen
 		hover := i == a.navHoverIdx && my >= y
+		dcAlert := it.Screen == ScreenDamage && a.dcTabAlert
+		dcBlink := dcAlert && a.dcTabBlinkOn()
 
 		if active {
 			render.FillRect(screen, x+2, y+4, slotW-4, navBarH-6, render.ColorPanelMid)
 			render.DrawLine(screen, float64(x+2), float64(y+4), float64(x+slotW-2), float64(y+4), render.ColorPhosphor)
+		} else if dcBlink {
+			render.FillRect(screen, x+2, y+4, slotW-4, navBarH-6, render.ColorDanger)
+			render.DrawLine(screen, float64(x+2), float64(y+4), float64(x+slotW-2), float64(y+4), render.ColorWarn)
+		} else if dcAlert {
+			render.FillRect(screen, x+4, y+6, slotW-8, navBarH-10, render.ColorPanelMid)
+			render.DrawLine(screen, float64(x+4), float64(y+6), float64(x+slotW-4), float64(y+6), render.ColorDanger)
 		} else if hover {
 			render.FillRect(screen, x+4, y+6, slotW-8, navBarH-10, render.ColorPanelMid)
 		}
@@ -111,13 +142,17 @@ func (a *App) drawNavBar(screen *ebiten.Image) {
 		if active || hover {
 			clr = render.ColorPhosphor
 		}
+		if dcAlert {
+			if dcBlink {
+				clr = render.ColorWarn
+			} else {
+				clr = render.ColorDanger
+			}
+		}
 
-		cx := x + slotW/2
-		cy := y + navBarH/2 - 4
-		render.DrawScreenIcon(screen, it.Icon, cx, cy, 26, clr)
-
-		labelW := len(it.Title) * 6
-		render.DrawText(screen, it.Title, cx-labelW/2, y+navBarH-12, clr, true)
+		iconCX, iconCY, labelX, labelY := navItemContentLayout(x, slotW, y, it.Title)
+		render.DrawScreenIcon(screen, it.Icon, iconCX, iconCY, render.NavBarIconSize, clr)
+		render.DrawText(screen, it.Title, labelX, labelY, clr, true)
 	}
 
 	if a.navTooltip != "" {

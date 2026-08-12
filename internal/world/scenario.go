@@ -24,6 +24,8 @@ type Scenario struct {
 	CommBriefing string
 	// CommSchedule delivers traffic when COMM mast is raised at/after AtSec.
 	CommSchedule []CommScheduledMessage
+	// Routes are coastal / transit lanes assigned to AI units by RouteID.
+	Routes []*Route
 }
 
 // CommScheduledMessage is follow-on traffic gated by game time + raised COMM mast.
@@ -50,53 +52,62 @@ func NewTrainingScenario() *Scenario {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	bathy := DefaultBathy
 
-	// Santa Catalina shelf drops quickly into basin water; keep initial depth conservative.
+	// Coarse NW→SE PingPong lanes with lateral offsets (may cross near the island).
+	type laneSpec struct {
+		id     string
+		offset float64
+		numWP  int
+	}
+	lanes := []laneSpec{
+		{"route_grisha", -3500, 60},
+		{"route_merchant", -1200, 50},
+		{"route_tanker", 800, 50},
+		{"route_trawler", 2200, 60},
+		{"route_foxtrot", 4200, 50},
+	}
+	routes := make([]*Route, 0, len(lanes))
+	for _, ln := range lanes {
+		if r := BuildNWSETransit(&bathy, ln.id, ln.offset, ln.numWP); r != nil {
+			routes = append(routes, r)
+		}
+	}
+
 	player := &Entity{
 		ID: "player", Name: "USS Los Angeles", Kind: KindSubmarine, Side: SidePlayer,
 		Status: StatusActive, SignatureID: "los_angeles",
-		X: 0, Y: 0, DepthFt: 60, HeadingDeg: 90, SpeedKts: 0,
-		OrderedSpeed: 0, OrderedDepth: 60, OrderedHead: 90,
+		X: 0, Y: 0, DepthFt: 60, HeadingDeg: 45, SpeedKts: 0,
+		OrderedSpeed: 0, OrderedDepth: 60, OrderedHead: 45,
 		LengthFt: 360,
 	}
-	placeOnWater(rng, player, 0, 2500, nil, &bathy)
+	// Near SW corner, within 3000 yd of a transit lane (not sitting on it).
+	const minRouteClearYd = 800.0
+	const maxRouteClearYd = 3000.0
+	if !PlaceNearChartCorner(player, &bathy, "SW", routes, minRouteClearYd, maxRouteClearYd) {
+		placeOnWater(rng, player, 0, 4000, nil, &bathy)
+	}
 	clampSubToBottom(player, &bathy)
 
-	placed := []*Entity{player}
-
-	// Surface ships in a tight ring around ownship for peri size comparison
-	// (~0.6 nm). Beam-ish headings from placeAtBearing. Foxtrot stays farther.
 	enemyGrisha := &Entity{
 		ID: "enemy_grisha", Name: "Hostile Corvette", Kind: KindSurfaceShip, Side: SideEnemy,
 		Status: StatusActive, SignatureID: "grisha",
-		DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, OrderedDepth: 0,
-		LengthFt: 235, AIState: "SEARCH", Defcon: DefconPassive,
+		DepthFt: 0, SpeedKts: 14, OrderedSpeed: 14, OrderedDepth: 0,
+		LengthFt: 235, AIState: "PATROL", Defcon: DefconPassive,
 	}
-	nearCivilians := []*Entity{
-		{
-			ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
-			Status: StatusActive, SignatureID: "merchant",
-			DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, LengthFt: 520, AIState: "TRANSIT",
-		},
-		{
-			ID: "civ_tanker", Name: "MT Horizon", Kind: KindSurfaceShip, Side: SideNeutral,
-			Status: StatusActive, SignatureID: "tanker",
-			DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, LengthFt: 900, AIState: "TRANSIT",
-		},
-		{
-			ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
-			Status: StatusActive, SignatureID: "fishing",
-			DepthFt: 0, SpeedKts: 0, OrderedSpeed: 0, LengthFt: 140, AIState: "TRANSIT",
-		},
+	civMerchant := &Entity{
+		ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
+		Status: StatusActive, SignatureID: "merchant",
+		DepthFt: 0, SpeedKts: 11, OrderedSpeed: 11, LengthFt: 520, AIState: "CRUISE",
 	}
-	surfaceNear := append([]*Entity{enemyGrisha}, nearCivilians...)
-	// Cardinal bearings °T; same range so LOA differences read clearly in the optic.
-	const periCompareRangeYd = 1200.0
-	nearBrg := []float64{0, 90, 180, 270}
-	for i, e := range surfaceNear {
-		placeAtBearing(rng, e, player, nearBrg[i], periCompareRangeYd, &bathy)
-		placed = append(placed, e)
+	civTanker := &Entity{
+		ID: "civ_tanker", Name: "MT Horizon", Kind: KindSurfaceShip, Side: SideNeutral,
+		Status: StatusActive, SignatureID: "tanker",
+		DepthFt: 0, SpeedKts: 9, OrderedSpeed: 9, LengthFt: 900, AIState: "CRUISE",
 	}
-
+	civTrawler := &Entity{
+		ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
+		Status: StatusActive, SignatureID: "fishing",
+		DepthFt: 0, SpeedKts: 7, OrderedSpeed: 7, LengthFt: 140, AIState: "CRUISE",
+	}
 	enemyFoxtrot := &Entity{
 		ID: "enemy_foxtrot", Name: "Hostile SS Foxtrot", Kind: KindSubmarine, Side: SideEnemy,
 		Status: StatusActive, SignatureID: "foxtrot",
@@ -104,13 +115,34 @@ func NewTrainingScenario() *Scenario {
 		LengthFt: 300, AIState: "PATROL", Defcon: DefconPassive,
 	}
 	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
-	placeAwayFrom(rng, enemyFoxtrot, player, 12000, 16000, placed[1:], &bathy)
-	clampSubToBottom(enemyFoxtrot, &bathy)
-	placed = append(placed, enemyFoxtrot)
+
+	placeFrac := []struct {
+		e    *Entity
+		id   string
+		frac float64
+	}{
+		{enemyGrisha, "route_grisha", 0.22},
+		{civMerchant, "route_merchant", 0.38},
+		{civTanker, "route_tanker", 0.55},
+		{civTrawler, "route_trawler", 0.70},
+		{enemyFoxtrot, "route_foxtrot", 0.45},
+	}
+	for _, p := range placeFrac {
+		r := FindRoute(routes, p.id)
+		if r == nil || !PlaceOnRouteFraction(p.e, r, p.frac, &bathy) {
+			placeAwayFrom(rng, p.e, player, 2500, 9000, nil, &bathy)
+			if r != nil {
+				AssignRoute(p.e, r)
+			}
+		}
+		if p.e.Kind == KindSubmarine {
+			clampSubToBottom(p.e, &bathy)
+		}
+	}
 
 	hostiles := []*Entity{enemyGrisha, enemyFoxtrot}
 	ents := append([]*Entity{}, hostiles...)
-	ents = append(ents, nearCivilians...)
+	ents = append(ents, civMerchant, civTanker, civTrawler)
 
 	InitCombatantDamage(player)
 	for _, h := range hostiles {
@@ -124,6 +156,7 @@ func NewTrainingScenario() *Scenario {
 		Entities:    ents,
 		Bathy:       &DefaultBathy,
 		Weather:     RandomWeather(rng),
+		Routes:      routes,
 		Objectives: []Objective{
 			{ID: "obj_grisha", Description: "Destroy hostile Grisha corvette", TargetID: "enemy_grisha"},
 			{ID: "obj_foxtrot", Description: "Destroy hostile Foxtrot SS", TargetID: "enemy_foxtrot"},

@@ -210,7 +210,7 @@ func (e *Engine) tick(dt float64) {
 		GameTime: t,
 		Dt:       dt,
 	})
-	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope)
+	ai.UpdateAllAI(e.Scenario.Entities, player, t, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope, e.Scenario.Bathy, e.Scenario.Routes)
 	e.guideEnemyTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
 	e.tryEnemySurfaceWeapons(player, t)
@@ -564,7 +564,8 @@ func (e *Engine) emitBlastTransient(player *world.Entity, det *weapons.Detonatio
 	if peak < 10 {
 		peak = 10
 	}
-	acoustics.AddPassiveTransient(&e.Sonar, bearing, peak, 6.5, "blast", 60, gameTime)
+	arrive := gameTime + acoustics.OneWaySoundTravelSec(dist)
+	acoustics.AddPassiveTransientAt(&e.Sonar, bearing, peak, 6.5, "blast", 60, arrive, gameTime)
 }
 
 func (e *Engine) emitCookOffTransient(player, wreck *world.Entity, gameTime float64) {
@@ -588,7 +589,8 @@ func (e *Engine) emitCookOffTransient(player, wreck *world.Entity, gameTime floa
 		peak = 8
 	}
 	dur := 3.5 + e.cookOffRng().Float64()*2.5
-	acoustics.AddPassiveTransient(&e.Sonar, bearing, peak, dur, "cookoff", 80, gameTime)
+	arrive := gameTime + acoustics.OneWaySoundTravelSec(dist)
+	acoustics.AddPassiveTransientAt(&e.Sonar, bearing, peak, dur, "cookoff", 80, arrive, gameTime)
 }
 
 func (e *Engine) beginSinking(ent *world.Entity, gameTime float64) {
@@ -910,7 +912,8 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			continue
 		}
 		switch ent.AIState {
-		case "RASTRUB", "RBU", "SHIP_TUBE", "INTERCEPT", "PING_ALERT":
+		case "RASTRUB", "RBU", "SHIP_TUBE", "INTERCEPT", "PING_ALERT",
+			"TORPEDO_EVADE", "CLOSING", "RADAR_TRACK", "TRACKING":
 		default:
 			continue
 		}

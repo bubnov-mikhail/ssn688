@@ -78,6 +78,8 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 		return
 	}
 
+	a.drawDebugRoutes(screen, view)
+
 	for _, e := range a.Engine.Scenario.Entities {
 		a.drawDebugEntityAt(screen, view, e.X, e.Y, e.HeadingDeg, e.SpeedKts, debugEntityColor(e), e.Alive(), a.debugEntityLabel(e))
 		if e.Side == world.SideEnemy && e.Alive() {
@@ -124,6 +126,48 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 			label = "HSM RDR"
 		}
 		a.drawDebugEntityAt(screen, view, h.X, h.Y, h.HeadingDeg, h.SpeedKts, clr, true, label)
+	}
+}
+
+func (a *App) drawDebugRoutes(screen *ebiten.Image, view tacticalMapView) {
+	routes := a.Engine.Scenario.Routes
+	if len(routes) == 0 {
+		return
+	}
+	lineClr := render.ColorDebugRoute
+	wpClr := render.ColorDebugRouteWP
+	for _, r := range routes {
+		if r == nil || len(r.Waypoints) < 2 {
+			continue
+		}
+		n := r.UniqueCount()
+		for i := 1; i < n; i++ {
+			a0, a1 := r.Waypoints[i-1], r.Waypoints[i]
+			x0, y0 := view.worldToScreen(a0.X, a0.Y)
+			x1, y1 := view.worldToScreen(a1.X, a1.Y)
+			render.DrawLine(screen, x0, y0, x1, y1, lineClr)
+		}
+		if r.Looped && !r.PingPong && n >= 2 {
+			a0, a1 := r.Waypoints[n-1], r.Waypoints[0]
+			x0, y0 := view.worldToScreen(a0.X, a0.Y)
+			x1, y1 := view.worldToScreen(a1.X, a1.Y)
+			render.DrawLine(screen, x0, y0, x1, y1, lineClr)
+		}
+		for i := 0; i < n; i++ {
+			wp := r.Waypoints[i]
+			sx, sy := view.worldToScreen(wp.X, wp.Y)
+			if !view.containsScreen(int(sx), int(sy)) {
+				continue
+			}
+			render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, wpClr)
+			if i == 0 || (r.PingPong && i == n-1) {
+				label := r.ID
+				if r.PingPong && i == n-1 && i != 0 {
+					label = r.ID + "⇄"
+				}
+				render.DrawText(screen, label, int(sx)+6, int(sy)-4, lineClr, true)
+			}
+		}
 	}
 }
 
@@ -182,9 +226,9 @@ func debugEntityColor(e *world.Entity) color.Color {
 		return color.RGBA{180, 180, 200, 255}
 	}
 	switch e.AIState {
-	case "INTERCEPT", "ATTACK", "FIRING", "SHADOW", "CLOSING", "OPENING":
+	case "INTERCEPT", "ATTACK", "FIRING", "SHADOW", "CLOSING", "OPENING", "TORPEDO_EVADE", "RBU", "RASTRUB", "SHIP_TUBE":
 		return render.ColorDebugAttack
-	case "SEARCH", "PINGING", "ACTIVE_SEARCH":
+	case "SEARCH", "PINGING", "ACTIVE_SEARCH", "PING_ALERT", "TRACKING", "RADAR_TRACK":
 		return render.ColorDebugSearch
 	default:
 		return render.ColorDebugCalm

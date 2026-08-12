@@ -94,13 +94,14 @@ type SonarState struct {
 	BioTransients   []BioTransient
 	nextBioAt       float64
 	// SonarDeafUntil — temporary washout after nearby underwater detonation.
-	SonarDeafUntil    float64
-	LastBlastAt         float64
+	SonarDeafUntil      float64
+	LastBlastDetonateAt float64 // warhead time (peri IR flash is optical — instant)
+	LastBlastAt         float64 // acoustic arrival at ownship (waterfall / deaf / SFX)
 	LastBlastX          float64
 	LastBlastY          float64
 	LastBlastRangeYd    float64 // washout visibility radius for this event
 	LastBlastFlashSec   float64
-	LastBlastEntityID   string  // hit platform — peri IR flash tracks this hull
+	LastBlastEntityID   string // hit platform — peri IR flash tracks this hull
 	contactSeq          int
 	// activeEchoDone marks SourceEntityIDs already processed for the current ping.
 	activeEchoDone map[string]bool
@@ -144,7 +145,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		existing[c.SourceEntityID] = i
 	}
 
-	deafActive := gameTime < sonar.SonarDeafUntil && sonar.LastBlastAt > 0
+	deafActive := gameTime >= sonar.LastBlastAt && gameTime < sonar.SonarDeafUntil && sonar.LastBlastAt > 0
 	var blastBrg float64
 	if deafActive {
 		blastBrg = math.Atan2(sonar.LastBlastX-listener.X, sonar.LastBlastY-listener.Y) * 180 / math.Pi
@@ -535,6 +536,13 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 	}
 	nStrong := 0
 
+	acoustic := listener
+	var towedListen world.Entity
+	if sonar != nil && sonar.PassiveArray == PassiveArrayTowed && !sonar.TowedDamaged &&
+		PlaceTowedListener(&towedListen, listener, sonar.TowedCablePct) {
+		acoustic = &towedListen
+	}
+
 	for _, em := range emitters {
 		if em == nil || !em.Alive() || em.ID == listener.ID {
 			continue
@@ -545,7 +553,7 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 			continue
 		}
 		src := SourceSpectrum(em)
-		recv := Propagate(model.Env, src, em, listener)
+		recv := Propagate(model.Env, src, em, acoustic)
 		snr := recv.SubNoise(selfNoise)
 		bonus := sonar.passiveSNRBonusDB()
 		rel := AngleDiffDeg(b, listener.HeadingDeg)

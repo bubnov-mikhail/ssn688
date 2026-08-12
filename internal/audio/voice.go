@@ -36,9 +36,11 @@ type Manager struct {
 	voiceVol     float64
 	fxVol        float64
 	clips        map[ClipID][]byte
+	fxClips      map[FXID][]byte
 	mu           sync.Mutex
 	voicePlaying []*playerVoice // officer lines only
 	fxPlaying    []*playerVoice // pings / launch FX — never block voice queue
+	loops        map[FXID]*loopTrack
 	queue        []queuedVoice
 	pending      *pendingClip
 	activeClipID ClipID
@@ -68,6 +70,39 @@ type playerVoice struct {
 	volume float64
 }
 
+// loopTrack is one ambient FX loop mixed under voices (propeller, bow wash, …).
+// Defined in loop_stretch.go.
+
+// SetLoopingFX starts/updates one ambient FX loop track (others keep playing).
+// gain is 0..1 relative to Effects volume; speed is pitch-neutral playback rate (1 = nominal).
+// gain<=0 or unknown id stops that track.
+func (m *Manager) SetLoopingFX(id FXID, gain, speed float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.loops == nil {
+		m.loops = make(map[FXID]*loopTrack)
+	}
+	if id == "" || gain <= 0.001 {
+		delete(m.loops, id)
+		return
+	}
+	pcm, ok := m.fxClips[id]
+	if !ok || len(pcm) < 4 {
+		delete(m.loops, id)
+		return
+	}
+	if gain > 1 {
+		gain = 1
+	}
+	speed = clampLoopSpeed(speed)
+	if tr, ok := m.loops[id]; ok && tr != nil {
+		tr.gain = gain
+		tr.speed = speed
+		return
+	}
+	m.loops[id] = newLoopTrack(pcm, gain, speed)
+}
+
 func init() {
 	wavDecoder = func(sampleRate int, r io.Reader) (io.Reader, error) {
 		stream, err := wav.DecodeWithSampleRate(sampleRate, r)
@@ -86,6 +121,7 @@ func NewManager(sampleRate int) *Manager {
 		voiceVol:   0.9,
 		fxVol:      0.7,
 		clips:      MustLoadVoiceClips(sampleRate),
+		fxClips:    MustLoadFXClips(sampleRate),
 	}
 }
 
@@ -267,7 +303,65 @@ func (m *Manager) PlayEnemyPing() {
 func (m *Manager) PlayTorpedoLaunch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if pcm, ok := m.fxClips[FXTorpedoLaunch]; ok && len(pcm) >= 4 {
+		dup := make([]byte, len(pcm))
+		copy(dup, pcm)
+		m.playFXLocked(dup, m.fxVol*m.masterVol*1.0)
+		return
+	}
 	m.playFXLocked(generateSweepWAV(m.sampleRate, 200, 80, 0.5), m.fxVol*m.masterVol)
+}
+
+// PlayUnderwaterExplosion is a one-shot blast FX (any screen) after sound arrival.
+func (m *Manager) PlayUnderwaterExplosion(gain float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if gain <= 0.001 {
+		return
+	}
+	if gain > 1 {
+		gain = 1
+	}
+	pcm, ok := m.fxClips[FXUnderwaterExplosion]
+	if !ok || len(pcm) < 4 {
+		return
+	}
+	dup := make([]byte, len(pcm))
+	copy(dup, pcm)
+	m.playFXLocked(dup, m.fxVol*m.masterVol*gain)
+}
+
+// PlayTubeDoorOpen plays the hydraulic outer-door open FX (WEPS).
+func (m *Manager) PlayTubeDoorOpen() {
+	m.playOneShotFX(FXTubeDoorOpen, 0.85)
+}
+
+// PlayTubeDoorClose plays the time-reversed hydraulic outer-door close FX (WEPS).
+func (m *Manager) PlayTubeDoorClose() {
+	m.playOneShotFX(FXTubeDoorClose, 0.85)
+}
+
+// PlayMastHydraulic plays the shared raise/lower FX for ESM, COMM, or periscope.
+func (m *Manager) PlayMastHydraulic() {
+	m.playOneShotFX(FXMastHydraulic, 0.8)
+}
+
+func (m *Manager) playOneShotFX(id FXID, gain float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if gain <= 0.001 {
+		return
+	}
+	if gain > 1 {
+		gain = 1
+	}
+	pcm, ok := m.fxClips[id]
+	if !ok || len(pcm) < 4 {
+		return
+	}
+	dup := make([]byte, len(pcm))
+	copy(dup, pcm)
+	m.playFXLocked(dup, m.fxVol*m.masterVol*gain)
 }
 
 // PlayESMHit is a short RWR-style chirp when a search radar main beam paints the mast.
@@ -283,6 +377,7 @@ func (m *Manager) StopAll() {
 	defer m.mu.Unlock()
 	m.voicePlaying = nil
 	m.fxPlaying = nil
+	m.loops = nil
 	m.queue = nil
 	m.pending = nil
 	m.activeClipID = ""
@@ -331,6 +426,13 @@ func mixPlayers(list []*playerVoice) float64 {
 	return sample
 }
 
+func mixLooping(tr *loopTrack, volume float64) float64 {
+	if tr == nil || volume <= 0 {
+		return 0
+	}
+	return tr.nextSample() * volume
+}
+
 func (s *streamPlayer) Read(buf []byte) (int, error) {
 	s.m.mu.Lock()
 	defer s.m.mu.Unlock()
@@ -340,6 +442,13 @@ func (s *streamPlayer) Read(buf []byte) (int, error) {
 	// Ebiten expects stereo 16-bit PCM; mono samples are duplicated to L/R.
 	for i := 0; i < len(buf); i += 4 {
 		sample := mixPlayers(s.m.voicePlaying) + mixPlayers(s.m.fxPlaying)
+		for _, tr := range s.m.loops {
+			if tr == nil || tr.gain <= 0 || len(tr.pcm) < 4 {
+				continue
+			}
+			vol := tr.gain * s.m.fxVol * s.m.masterVol
+			sample += mixLooping(tr, vol)
+		}
 		s.m.voicePlaying = advancePlayers(s.m.voicePlaying)
 		s.m.fxPlaying = advancePlayers(s.m.fxPlaying)
 

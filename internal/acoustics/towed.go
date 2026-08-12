@@ -109,11 +109,15 @@ func (s *SonarState) towedEffectiveness() float64 {
 }
 
 func (s *SonarState) passiveSNRBonusDB() float64 {
-	return s.towedEffectiveness() * 8.0
+	// Full TB-16 stream: ~+11 dB vs hull for LF machinery lines (self-noise
+	// stand-off + aperture). Open sources put TAS detection far beyond hull;
+	// classification of harmonics is shorter than detection but still clearly
+	// favors the towed array — keep a solid edge without god-mode ID at 20 kyd.
+	return s.towedEffectiveness() * 11.0
 }
 
 func (s *SonarState) passiveSelfNoiseCutDB() float64 {
-	return s.towedEffectiveness() * 6.0
+	return s.towedEffectiveness() * 7.0
 }
 
 func (s *SonarState) passiveBearingSigmaScale() float64 {
