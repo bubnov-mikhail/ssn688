@@ -10,18 +10,24 @@ func SurfaceHasRastrub(signatureID string) bool {
 		return true // Metel / Rastrub
 	case "gorshkov":
 		return true // Otvet PLUR from UKSK (same splash mechanics)
+	case "spruance":
+		return true // ASROC (same splash mechanics)
 	default:
 		// Unknown combatant: assume Metel/Rastrub-capable ASW escort.
 		return true
 	}
 }
 
-// SurfaceASWRocketLabel is the player-facing name for UKSK/Metel rocket ASW.
+// SurfaceASWRocketLabel is the player-facing name for UKSK/Metel/ASROC rocket ASW.
 func SurfaceASWRocketLabel(signatureID string) string {
-	if signatureID == "gorshkov" {
+	switch signatureID {
+	case "gorshkov":
 		return "Otvet"
+	case "spruance":
+		return "ASROC"
+	default:
+		return "Rastrub"
 	}
-	return "Rastrub"
 }
 
 func SurfaceHasRBU(signatureID string) bool {
@@ -36,6 +42,8 @@ func RastrubMagazineFor(signatureID string) int {
 		return RastrubMagazineDefault
 	case "gorshkov":
 		return 8 // Otvet loadout share of UKSK
+	case "spruance":
+		return 8 // ASROC cells / reload set in sim
 	default:
 		return RastrubMagazineDefault
 	}
@@ -49,6 +57,8 @@ func ShipTubeMagazineFor(signatureID string) int {
 		return 8
 	case "gorshkov":
 		return 8 // Paket-NK MTT cells
+	case "spruance":
+		return 6 // Mk32 SVTT / Nulka-era tubes stand-in
 	default:
 		return ShipTubeMagazineDefault
 	}
@@ -71,6 +81,8 @@ func SAMMagazineFor(signatureID string) int {
 		return SAMMagazineDefault
 	case "gorshkov":
 		return 32 // Poliment-Redut VLS
+	case "spruance":
+		return 24 // NATO Sea Sparrow / VLS era stand-in
 	default:
 		return SAMMagazineDefault
 	}
@@ -84,6 +96,8 @@ func CIWSMagazineFor(signatureID string) int {
 		return 14
 	case "gorshkov":
 		return 16 // Palma / Pantsir-M class PD
+	case "spruance":
+		return 12 // Phalanx bursts
 	default:
 		return CIWSBurstDefault
 	}
@@ -95,6 +109,8 @@ func EnemySubMagazineFor(signatureID string) int {
 		return 18
 	case "yasen_m":
 		return 24
+	case "los_angeles":
+		return 22
 	case "foxtrot":
 		return 10
 	case "kilo":
@@ -107,8 +123,8 @@ func EnemySubMagazineFor(signatureID string) int {
 // HostileTorpedoCruiseKts — heavy fish speed by launcher class.
 func HostileTorpedoCruiseKts(signatureID string) float64 {
 	switch signatureID {
-	case "victor_iii", "yasen_m":
-		return 55 // UGST / Fizik-class peer fish
+	case "victor_iii", "yasen_m", "los_angeles":
+		return 55
 	case "foxtrot":
 		return 40
 	default:
@@ -118,8 +134,12 @@ func HostileTorpedoCruiseKts(signatureID string) float64 {
 
 // LightweightTorpedoSignature for ship-tube / Rastrub splash fish.
 func LightweightTorpedoSignature(launcherSig string) string {
-	if launcherSig == "grisha" {
+	switch launcherSig {
+	case "grisha":
 		return "set40"
+	case "spruance":
+		return "mk46"
+	default:
+		return "umgt1" // includes Paket MTT stand-in for Gorshkov
 	}
-	return "umgt1" // includes Paket MTT stand-in for Gorshkov
 }

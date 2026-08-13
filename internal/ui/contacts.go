@@ -8,6 +8,9 @@ import (
 )
 
 func contactClassLabel(c *acoustics.Contact) string {
+	if c.Identified && c.ConfirmedClass != "" {
+		return c.ConfirmedClass
+	}
 	if c.ConfirmedClass != "" {
 		return c.ConfirmedClass
 	}

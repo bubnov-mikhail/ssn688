@@ -149,9 +149,9 @@ func propellerRefSpeedKts(signatureID string) float64 {
 		return 11
 	case "kilo", "victor", "turbinia", "whiskey":
 		return 11
-	case "grisha", "krivak", "udaloy", "kresta2", "gorshkov":
+	case "grisha", "krivak", "udaloy", "kresta2", "gorshkov", "spruance":
 		return 20
-	case "yasen_m", "victor_iii":
+	case "yasen_m", "victor_iii", "los_angeles":
 		return 12
 	default:
 		return 15

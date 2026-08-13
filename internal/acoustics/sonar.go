@@ -33,6 +33,13 @@ type Contact struct {
 	// LastClassifyAt — throttle expensive Classify() on warm tracks.
 	LastClassifyAt float64
 
+	// Successful identification (visual <800 yd or 80% harmonic hold ≥2 min).
+	Identified        bool
+	IdentifiedBy      string // visual | acoustic
+	IdentifiedAt      float64
+	HarmonicMatch     float64 // last 0..1 match vs true library fingerprint
+	HarmonicHoldSec   float64 // accumulated time at ≥80% match
+
 	// Last active range-bearing snapshot (held for ActiveFixHoldSec on the plot).
 	LastActiveBearingDeg float64
 	LastActiveRangeYd    float64
@@ -246,8 +253,9 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			reclass = false
 			class = classificationFromContact(&sonar.Contacts[idx])
 		}
+		classifySig := result.SignalForClassify
 		if reclass {
-			classifySig := ContaminateClassifySignal(result.SignalForClassify, model, listener, em.ID, emitters, result.BearingDeg, sonar)
+			classifySig = ContaminateClassifySignal(result.SignalForClassify, model, listener, em.ID, emitters, result.BearingDeg, sonar)
 			class = Classify(classifySig, result.PeakSNR, result.TrueRangeYd)
 		}
 		bearing := bearingWithError(result.BearingDeg, result.PeakSNR, result.BandsAbove, sonar.passiveBearingSigmaScale())
@@ -255,12 +263,14 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 
 		if idx, ok := existing[em.ID]; ok {
 			c := &sonar.Contacts[idx]
+			prevUpdate := c.LastUpdate
 			updateContactTrack(c, bearing, estRange, result.PeakSNR, result.BandsAbove, class, gameTime, em)
 			if reclass {
 				c.LastClassifyAt = gameTime
 			}
 			updateContactTMA(c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(c)))
 			TryAutoClassifyTorpedo(c, class)
+			tryAcousticIdentify(c, classifySig, em, gameTime-prevUpdate, gameTime)
 			if c.ConfirmedClass == "" {
 				if k := KindFromMatch(class); k >= 0 {
 					c.Kind = k
@@ -296,6 +306,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		initContactUncertainty(&c)
 		updateContactTMA(&c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(&c)))
 		TryAutoClassifyTorpedo(&c, class)
+		tryAcousticIdentify(&c, classifySig, em, 0.1, gameTime)
 		if baseline >= 80 {
 			relHull := AngleDiffDeg(listener.BearingDegTo(em), listener.HeadingDeg)
 			ApplyTriangulationBonus(&c, baseline, c.EstimatedRangeYd, relHull)

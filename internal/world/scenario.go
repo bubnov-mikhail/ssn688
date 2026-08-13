@@ -42,10 +42,14 @@ type CommInboxEntry struct {
 }
 
 type Objective struct {
-	ID          string
-	Description string
-	Complete    bool
-	TargetID    string
+	ID           string
+	Description  string
+	Complete     bool
+	TargetID     string
+	Primary      bool // true = primary task
+	NeedIdentify bool // must successfully ID the target
+	NeedDestroy  bool // must sink / destroy the target
+	Identified   bool
 }
 
 func NewTrainingScenario() *Scenario {
@@ -118,6 +122,27 @@ func NewTrainingScenario() *Scenario {
 	}
 	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
 
+	allySpruance := &Entity{
+		ID: "ally_spruance", Name: "USS Spruance", Kind: KindSurfaceShip, Side: SidePlayer,
+		Status: StatusActive, SignatureID: "spruance",
+		DepthFt: 0, SpeedKts: 12, OrderedSpeed: 12, OrderedDepth: 0,
+		LengthFt: 563, AIState: "PATROL", Defcon: DefconHostile,
+		CrewSkill: RandomCrewSkill(70, 15, rng.Float64()),
+	}
+	allySSN := &Entity{
+		ID: "ally_688", Name: "USS Bremerton", Kind: KindSubmarine, Side: SidePlayer,
+		Status: StatusActive, SignatureID: "los_angeles",
+		DepthFt: 140 + rng.Float64()*40, SpeedKts: 5, OrderedSpeed: 5,
+		LengthFt: 360, AIState: "PATROL", Defcon: DefconHostile,
+		CrewSkill: RandomCrewSkill(75, 10, rng.Float64()),
+	}
+	allySSN.OrderedDepth = allySSN.DepthFt
+
+	// Ally edge patrol: SE → SW along bottom, then up the west edge to NW.
+	if allyRoute := BuildAllyEdgePatrol(&bathy, "route_ally_edge", 24); allyRoute != nil {
+		routes = append(routes, allyRoute)
+	}
+
 	placeFrac := []struct {
 		e    *Entity
 		id   string
@@ -128,13 +153,25 @@ func NewTrainingScenario() *Scenario {
 		{civTanker, "route_tanker", 0.55},
 		{civTrawler, "route_trawler", 0.70},
 		{enemyFoxtrot, "route_foxtrot", 0.45},
+		// Start near SE (lower-right); stagger so they are not stacked.
+		{allySpruance, "route_ally_edge", 0.02},
+		{allySSN, "route_ally_edge", 0.08},
 	}
 	for _, p := range placeFrac {
 		r := FindRoute(routes, p.id)
 		if r == nil || !PlaceOnRouteFraction(p.e, r, p.frac, &bathy) {
-			placeAwayFrom(rng, p.e, player, 2500, 9000, nil, &bathy)
-			if r != nil {
-				AssignRoute(p.e, r)
+			if p.e.Side == SidePlayer {
+				if !PlaceNearChartCorner(p.e, &bathy, "SE", nil, 0, 0) {
+					placeAwayFrom(rng, p.e, player, 2500, 9000, nil, &bathy)
+				}
+				if r != nil {
+					AssignRoute(p.e, r)
+				}
+			} else {
+				placeAwayFrom(rng, p.e, player, 2500, 9000, nil, &bathy)
+				if r != nil {
+					AssignRoute(p.e, r)
+				}
 			}
 		}
 		if p.e.Kind == KindSubmarine {
@@ -143,25 +180,40 @@ func NewTrainingScenario() *Scenario {
 	}
 
 	hostiles := []*Entity{enemyGrisha, enemyFoxtrot}
+	allies := []*Entity{allySpruance, allySSN}
 	ents := append([]*Entity{}, hostiles...)
+	ents = append(ents, allies...)
 	ents = append(ents, civMerchant, civTanker, civTrawler)
 
 	InitCombatantDamage(player)
 	for _, h := range hostiles {
 		InitCombatantDamage(h)
 	}
+	for _, a := range allies {
+		InitCombatantDamage(a)
+	}
 
 	return &Scenario{
 		Name:        "Santa Catalina Approaches",
-		Description: "Locate and destroy hostile units near Santa Catalina Island. Do not attack civilian shipping.",
+		Description: "Find and sink the hostile diesel boat. Identify and sink the hostile surface combatant. Identify the tanker. Do not attack civilian shipping.",
 		Player:      player,
 		Entities:    ents,
 		Bathy:       &DefaultBathy,
 		Weather:     RandomWeather(rng),
 		Routes:      routes,
 		Objectives: []Objective{
-			{ID: "obj_grisha", Description: "Destroy hostile Grisha corvette", TargetID: "enemy_grisha"},
-			{ID: "obj_foxtrot", Description: "Destroy hostile Foxtrot SS", TargetID: "enemy_foxtrot"},
+			{
+				ID: "obj_foxtrot", Primary: true, NeedDestroy: true, TargetID: "enemy_foxtrot",
+				Description: "Locate and sink hostile diesel submarine",
+			},
+			{
+				ID: "obj_grisha", NeedIdentify: true, NeedDestroy: true, TargetID: "enemy_grisha",
+				Description: "Identify and sink hostile surface combatant",
+			},
+			{
+				ID: "obj_tanker", NeedIdentify: true, TargetID: "civ_tanker",
+				Description: "Locate and identify tanker (do not engage)",
+			},
 		},
 		CommBriefing: "" +
 			"TOP SECRET // FLASH\n" +
@@ -180,7 +232,11 @@ func NewTrainingScenario() *Scenario {
 				"FROM: COMSUBPAC\n" +
 				"TO: USS LOS ANGELES (SSN-688)\n" +
 				"BT\n" +
-				"EXECUTE. LOCATE AND SINK HOSTILE DIESEL SUBMARINE AND HOSTILE SURFACE COMBATANT IN YOUR OP AREA.\n" +
+				"EXECUTE.\n" +
+				"PRIMARY: LOCATE AND SINK HOSTILE DIESEL SUBMARINE IN YOUR OP AREA.\n" +
+				"SECONDARY: LOCATE, POSITIVELY IDENTIFY, AND SINK HOSTILE SURFACE COMBATANT.\n" +
+				"SECONDARY: LOCATE AND POSITIVELY IDENTIFY TANKER. DO NOT ENGAGE.\n" +
+				"ID CRITERIA: VISUAL VIA PERISCOPE INSIDE 800 YARDS, OR ACOUSTIC FINGERPRINT — 80 PCT HARMONIC MATCH WITH LIBRARY ETALON HELD TWO MINUTES.\n" +
 				"CIVILIAN SHIPPING IS NOT TO BE ENGAGED.\n" +
 				"REPORT COMPLETION VIA THIS CHANNEL.\n" +
 				"BT",
@@ -320,10 +376,27 @@ func (s *Scenario) AllEntities() []*Entity {
 func (s *Scenario) CheckObjectives() {
 	for i := range s.Objectives {
 		obj := &s.Objectives[i]
+		destroyed := false
 		for _, e := range s.Entities {
 			if e.ID == obj.TargetID && e.Status != StatusActive {
-				obj.Complete = true
+				destroyed = true
+				break
 			}
+		}
+		idOK := !obj.NeedIdentify || obj.Identified
+		killOK := !obj.NeedDestroy || destroyed
+		obj.Complete = idOK && killOK
+	}
+}
+
+// NoteIdentified marks matching objectives as identified (sticky).
+func (s *Scenario) NoteIdentified(entityID string) {
+	if s == nil || entityID == "" {
+		return
+	}
+	for i := range s.Objectives {
+		if s.Objectives[i].TargetID == entityID {
+			s.Objectives[i].Identified = true
 		}
 	}
 }
@@ -387,7 +460,29 @@ func (s *Scenario) MissionStatusReport() string {
 		if desc == "" {
 			desc = o.ID
 		}
-		b.WriteString(fmt.Sprintf("  [%s] %s\n", mark, desc))
+		prio := "SEC"
+		if o.Primary {
+			prio = "PRI"
+		}
+		b.WriteString(fmt.Sprintf("  [%s] %s  %s", mark, prio, desc))
+		if o.NeedIdentify {
+			idMark := "NO"
+			if o.Identified {
+				idMark = "YES"
+			}
+			b.WriteString("  ID:" + idMark)
+		}
+		if o.NeedDestroy {
+			kill := "NO"
+			for _, e := range s.Entities {
+				if e.ID == o.TargetID && e.Status != StatusActive {
+					kill = "YES"
+					break
+				}
+			}
+			b.WriteString("  KILL:" + kill)
+		}
+		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

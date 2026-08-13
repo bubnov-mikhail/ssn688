@@ -124,7 +124,11 @@ func TrackClassified(hunter *world.Entity) bool {
 // TrackAimEntity returns a ghost aim point from the crew track, or truth if no track.
 func TrackAimEntity(hunter, truth *world.Entity) *world.Entity {
 	if hunter != nil && hunter.Track.Valid && hunter.Track.ClassConf > 0.08 {
-		return hunter.Track.GhostTarget("ai-aim-" + hunter.ID)
+		side := world.SideEnemy
+		if truth != nil {
+			side = truth.Side
+		}
+		return hunter.Track.GhostTarget("ai-aim-"+hunter.ID, side)
 	}
 	return truth
 }

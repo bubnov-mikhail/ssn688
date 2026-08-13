@@ -566,8 +566,14 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	a.drawArraySelector(screen, sonar, spectrumArrayLabelX, spectrumArrayLabelY, cachedSpectrumArrayButtons())
 
 	if c := a.selectedContact(sonar); c != nil {
-		render.DrawText(screen, fmt.Sprintf("SELECTED: %s  |  BRG %.0f°  |  R %.1f kyd  |  SPD %.1f kts  |  %s",
-			contactLongLabel(c), c.BearingDeg, c.EstimatedRangeYd/1000, player.SpeedKts, c.DetectedBy),
+		idTxt := "ID: —"
+		if c.Identified {
+			idTxt = "ID: " + c.ConfirmedClass + " (" + c.IdentifiedBy + ")"
+		} else if c.HarmonicHoldSec > 0 || c.HarmonicMatch > 0 {
+			idTxt = fmt.Sprintf("ID HOLD %.0f/120s  MATCH %.0f%%", c.HarmonicHoldSec, c.HarmonicMatch*100)
+		}
+		render.DrawText(screen, fmt.Sprintf("SELECTED: %s  |  BRG %.0f°  |  R %.1f kyd  |  SPD %.1f kts  |  %s  |  %s",
+			contactLongLabel(c), c.BearingDeg, c.EstimatedRangeYd/1000, player.SpeedKts, c.DetectedBy, idTxt),
 			40, 232, render.ColorAmber, false)
 	} else {
 		render.DrawText(screen, fmt.Sprintf("MANUAL BEARING: %.0f°  |  SPD %.1f kts  — select a contact in the table or on PASSIVE",
@@ -590,9 +596,9 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT manual bearing"
+	help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT bearing  — ID: peri <800 yd or 80% harmonics × 2 min"
 	if filter == acoustics.ClassifyIndistinct {
-		help = "[B] array  LEFT/RIGHT manual bearing  — classify locked (no clear harmonics; ESM RF unlocks)"
+		help = "[B] array  LEFT/RIGHT bearing  — classify locked (no clear harmonics). ID still via peri <800 yd"
 	}
 	render.DrawText(screen, help, 40, 720, render.ColorDim, true)
 }

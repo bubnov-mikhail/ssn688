@@ -45,14 +45,30 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 	rangeYd := ship.RangeYardsTo(player)
 	bearing := ship.BearingDegTo(player)
 	heardPing := acoustics.HeardPlayerPing(model.Env, ship, player, gameTime)
-	radarMast := acoustics.EnemyRadarDetectsMast(ship, player, evade.Weather, evade.ESM, evade.COMM, evade.Peri, gameTime)
+	// Mast paints only apply when the quarry is ownship (player peri/ESM/COMM).
+	radarMast := false
+	if evade.Ownship != nil && player == evade.Ownship {
+		radarMast = acoustics.EnemyRadarDetectsMast(ship, player, evade.Weather, evade.ESM, evade.COMM, evade.Peri, gameTime)
+	}
+	radarSurface := false
+	if player.Kind == world.KindSurfaceShip {
+		radarSurface = acoustics.EnemyRadarDetectsSurface(ship, player, gameTime, dt)
+	}
+	radarCue := radarMast || radarSurface
 
 	canActive := ship.Damage.Operational(world.SysActive)
-	if ship.CanDefconPing() && canActive && gameTime-ship.LastPingTime > 8 {
+	pingInterval := 8.0
+	pingHold := 1.0
+	if ship.CanDefconAttack() {
+		// Weapons Free: denser ASW search pings.
+		pingInterval = 3.5
+		pingHold = 2.5
+	}
+	if ship.CanDefconPing() && canActive && gameTime-ship.LastPingTime > pingInterval {
 		ship.ActiveSonar = true
 		ship.LastPingTime = gameTime
 		ship.AIState = "PINGING"
-	} else if gameTime-ship.LastPingTime > 1 {
+	} else if gameTime-ship.LastPingTime > pingHold {
 		ship.ActiveSonar = false
 	}
 
@@ -64,21 +80,21 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 	} else if ship.Damage.Operational(world.SysPassiveHull) {
 		detected = model.CanDetectPlayerPassive(ship, player, gameTime)
 	}
-	if radarMast {
+	if radarCue {
 		detected = true
 	}
-	snr := PeakSNRForAI(model, ship, player, activeHit || (radarMast && ship.ActiveSonar))
-	if radarMast {
+	snr := PeakSNRForAI(model, ship, player, activeHit || (radarCue && ship.ActiveSonar))
+	if radarCue {
 		snr = math.Max(snr, 18)
 	}
-	UpdateCrewTrack(ship, player, detected || radarMast, activeHit || radarMast, snr, gameTime, dt)
+	UpdateCrewTrack(ship, player, detected || radarCue, activeHit || radarCue, snr, gameTime, dt)
 	if ship.Track.Valid {
 		bearing = ship.Track.BearingDegFrom(ship.X, ship.Y)
 		rangeYd = ship.Track.RangeYdFrom(ship.X, ship.Y)
 	}
 	classified := TrackClassified(ship)
 
-	if radarMast && ship.CanDefconManeuver() {
+	if radarCue && ship.CanDefconManeuver() {
 		ship.OrderedHead = bearing
 	}
 
@@ -98,9 +114,9 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 		return
 	}
 
-	liveSense := detected || radarMast || heardPing
+	liveSense := detected || radarCue || heardPing
 	solidCue := liveSense || (classified && ship.Track.Valid)
-	dwellOK := ship.AIProsecuting || radarMast || heardPing ||
+	dwellOK := ship.AIProsecuting || radarCue || heardPing ||
 		ship.Track.HoldSec >= 2.0 || ship.Track.ClassConf >= 0.18
 	onCooldown := gameTime < ship.AIEngageCooldownUntil
 
@@ -108,7 +124,7 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 	if ship.AIProsecuting {
 		if liveSense {
 			ship.AILostContactSec = 0
-			applySurfaceASWDoctrine(ship, rangeYd, bearing, classified, radarMast, heardPing)
+			applySurfaceASWDoctrine(ship, rangeYd, bearing, classified, radarCue, heardPing)
 			return
 		}
 		// Lost contact — hold DATUM until timeout.
@@ -126,12 +142,31 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 	if solidCue && dwellOK && !onCooldown {
 		ship.AIProsecuting = true
 		ship.AILostContactSec = 0
-		applySurfaceASWDoctrine(ship, rangeYd, bearing, classified, radarMast, heardPing)
+		applySurfaceASWDoctrine(ship, rangeYd, bearing, classified, radarCue, heardPing)
+		return
+	}
+
+	// Weapons Free / tasked: close and search toward quarry instead of idling
+	// on a missing patrol route (demo allies have no RouteID).
+	if ship.CanDefconAttack() && !onCooldown {
+		applySurfaceWeaponsFreeSearch(ship, bearing)
 		return
 	}
 
 	// Cooldown / weak blip: stay on route (no interrupt thrash).
 	surfacePatrol(ship, routes)
+}
+
+func applySurfaceWeaponsFreeSearch(ship *world.Entity, bearing float64) {
+	markRouteInterrupted(ship)
+	if ship.AIState != "PINGING" {
+		ship.AIState = "CLOSING"
+	}
+	steerOK := !ship.Damage.Destroyed(world.SysSteering)
+	if steerOK {
+		ship.OrderedHead = bearing
+	}
+	ship.OrderedSpeed = math.Min(22, ship.MaxSpeedKts())
 }
 
 func surfaceDatumHoldSec(ship *world.Entity) float64 {

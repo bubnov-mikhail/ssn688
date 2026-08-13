@@ -316,6 +316,9 @@ func (a *App) updateGame() {
 		if isOwnshipDamageFXEvent(ev) {
 			a.triggerOwnshipHitFX()
 		}
+		if strings.HasPrefix(ev, "Contact ") && strings.Contains(ev, " identified:") {
+			a.Audio.PlayClip(audio.ClipSonarContactClassified, ev)
+		}
 		if ev == "Torpedo launch detected (hostile)" {
 			a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, "Torpedo in the water.")
 			a.markLatestHostileTorpedoReported()
@@ -340,7 +343,7 @@ func (a *App) updateGame() {
 	}
 
 	if a.Engine.Scenario.MissionComplete() {
-		a.StatusMessage = "MISSION COMPLETE - All targets destroyed."
+		a.StatusMessage = "MISSION COMPLETE — all assigned tasks met."
 	}
 	if a.Engine.Scenario.MissionFailed() {
 		msg := a.Engine.Scenario.FailReason

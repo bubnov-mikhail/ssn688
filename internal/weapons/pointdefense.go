@@ -94,8 +94,14 @@ func (fc *FireControl) TryPointDefense(h *HarpoonMissile, ships []*world.Entity,
 	var best *world.Entity
 	bestDist := math.MaxFloat64
 	for _, ship := range ships {
-		if ship == nil || !ship.Alive() || ship.Kind != world.KindSurfaceShip || ship.Side != world.SideEnemy {
+		if ship == nil || !ship.Alive() || ship.Kind != world.KindSurfaceShip {
 			continue
+		}
+		if ship.Side != world.SideEnemy && ship.Side != world.SidePlayer {
+			continue
+		}
+		if h.Side == ship.Side {
+			continue // IFF — do not engage own-side missiles
 		}
 		if !ship.CanDefconAttack() {
 			continue

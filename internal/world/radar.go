@@ -35,6 +35,13 @@ func RadarBySignature(sigID string) (RadarProfile, bool) {
 			ScanPeriodSec: 6.0, BeamHalfDeg: 2.0, PeakPowerKW: 90,
 			MaxRangeYd: 45000, MastDetectYd: 14000,
 		}, true
+	case "spruance":
+		return RadarProfile{
+			ID: "sps40", Name: "SPS-40 / SPS-55",
+			ClassLabel: "AIR/SURFACE SEARCH", Band: "S/X",
+			ScanPeriodSec: 5.0, BeamHalfDeg: 1.8, PeakPowerKW: 75,
+			MaxRangeYd: 42000, MastDetectYd: 13000,
+		}, true
 	case "krivak":
 		return RadarProfile{
 			ID: "mr310u", Name: "MR-310U Angara-M",

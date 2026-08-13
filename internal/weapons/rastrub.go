@@ -223,6 +223,9 @@ func (fc *FireControl) spawnLightweight(parentID, parentSig string, side world.S
 	if sig == "set40" {
 		idPrefix = "SET40"
 	}
+	if sig == "mk46" {
+		idPrefix = "MK46"
+	}
 	torp := &Torpedo{
 		ID:                     fmt.Sprintf("%s-%d", idPrefix, fc.torpedoSeq),
 		ParentSubID:            parentID,

@@ -34,6 +34,12 @@ func TestLoadoutByClass(t *testing.T) {
 	if ShipTubeMagazineFor("gorshkov") != 8 || SAMMagazineFor("gorshkov") < 20 {
 		t.Fatal("Gorshkov Paket/Redut magazines")
 	}
+	if !SurfaceHasRastrub("spruance") || SurfaceASWRocketLabel("spruance") != "ASROC" {
+		t.Fatal("Spruance should fire ASROC")
+	}
+	if LightweightTorpedoSignature("spruance") != "mk46" {
+		t.Fatal("Spruance tubes/ASROC splash Mk46")
+	}
 	if LightweightTorpedoSignature("grisha") != "set40" {
 		t.Fatal("Grisha tubes fire SET-40")
 	}

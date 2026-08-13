@@ -6,10 +6,11 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
-// UpdateAllAI drives enemy combatants and neutral shipping.
+// UpdateAllAI drives enemy combatants, friendly allies, and neutral shipping.
 func UpdateAllAI(entities []*world.Entity, player *world.Entity, gameTime, dt float64, model acoustics.Model, torps []*weapons.Torpedo, cm *weapons.CountermeasureSystem, weather world.Weather, esm *acoustics.ESMState, comm *acoustics.COMMState, peri *acoustics.PeriscopeState, bathy *world.Bathymetry, routes []*world.Route) {
-	ctx := EvadeContext{CM: cm, Env: model.Env, GameTime: gameTime, Weather: weather, ESM: esm, COMM: comm, Peri: peri}
+	ctx := EvadeContext{CM: cm, Env: model.Env, GameTime: gameTime, Weather: weather, ESM: esm, COMM: comm, Peri: peri, Ownship: player}
 	UpdateEnemyAI(entities, player, gameTime, dt, model, torps, ctx, bathy, routes)
+	UpdateFriendlyAI(entities, player, gameTime, dt, model, torps, ctx, bathy, routes)
 	UpdateCivilianAI(entities, player, gameTime, bathy, routes)
 }
 

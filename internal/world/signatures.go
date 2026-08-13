@@ -239,6 +239,31 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 2.6, CavitationDB: 105,
 	},
 	{
+		ID: "spruance", Name: "Spruance DDG", Class: "DD-963", Kind: KindSurfaceShip,
+		Bands: []NoiseBand{
+			{LowHz: 20, HighHz: 80, LevelDB: 128},
+			{LowHz: 80, HighHz: 250, LevelDB: 120},
+			{LowHz: 250, HighHz: 700, LevelDB: 110},
+			{LowHz: 700, HighHz: 1800, LevelDB: 96},
+		},
+		// Twin LM2500 COGAG ASW destroyer: strong GT/gear set, US mid-band fingerprint.
+		Tonals: []TonalLine{
+			{FreqHz: 17, RelLevel: 0.62},
+			{FreqHz: 34, RelLevel: 0.85},
+			{FreqHz: 51, RelLevel: 0.78},
+			{FreqHz: 68, RelLevel: 1.00},
+			{FreqHz: 102, RelLevel: 0.90},
+			{FreqHz: 136, RelLevel: 0.82},
+			{FreqHz: 204, RelLevel: 0.70},
+			{FreqHz: 340, RelLevel: 0.60},
+			{FreqHz: 510, RelLevel: 0.50},
+			{FreqHz: 680, RelLevel: 0.42},
+			{FreqHz: 1020, RelLevel: 0.34},
+			{FreqHz: 1360, RelLevel: 0.28},
+		},
+		BladeRateHz: 1.75, CavitationDB: 108,
+	},
+	{
 		ID: "merchant", Name: "Merchant Freighter", Class: "MV", Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 15, HighHz: 60, LevelDB: 118},
@@ -354,6 +379,23 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 26, CavitationDB: 84,
 	},
 	{
+		ID: "mk46", Name: "Mk46 Torpedo", Class: "Torpedo", Kind: KindTorpedo,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 200, LevelDB: 62},
+			{LowHz: 200, HighHz: 560, LevelDB: 76},
+			{LowHz: 560, HighHz: 1150, LevelDB: 108},
+			{LowHz: 1150, HighHz: 2000, LevelDB: 118},
+		},
+		Tonals: []TonalLine{
+			{FreqHz: 920, RelLevel: 0.55},
+			{FreqHz: 1150, RelLevel: 0.88},
+			{FreqHz: 1380, RelLevel: 1.00},
+			{FreqHz: 1610, RelLevel: 0.78},
+			{FreqHz: 1840, RelLevel: 0.55},
+		},
+		BladeRateHz: 28, CavitationDB: 84,
+	},
+	{
 		ID: "type53", Name: "53-65 Torpedo", Class: "Torpedo", Kind: KindTorpedo,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 200, LevelDB: 78},
@@ -452,6 +494,8 @@ func SurfaceHullBeamRel(e *Entity) float64 {
 		return 0.82
 	case "udaloy", "kresta2":
 		return 0.72
+	case "spruance":
+		return 0.68
 	case "gorshkov":
 		return 0.58
 	case "krivak":

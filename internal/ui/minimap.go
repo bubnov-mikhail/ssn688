@@ -88,6 +88,12 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 				render.DrawText(screen, fmt.Sprintf("%d", e.Defcon), int(sx)-6, int(sy)+16, render.ColorAmber, true)
 			}
 		}
+		if e.Side == world.SidePlayer && e.Alive() && e.ID != player.ID {
+			sx, sy := view.worldToScreen(e.X, e.Y)
+			if view.containsScreen(int(sx), int(sy)) {
+				render.DrawText(screen, fmt.Sprintf("F%d", e.Defcon), int(sx)-8, int(sy)+16, color.RGBA{80, 200, 255, 255}, true)
+			}
+		}
 	}
 
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
@@ -225,10 +231,19 @@ func debugEntityColor(e *world.Entity) color.Color {
 	if e.Side == world.SideNeutral {
 		return color.RGBA{180, 180, 200, 255}
 	}
+	if e.Side == world.SidePlayer {
+		// Ally AI (ownship is drawn separately as the ownship glyph).
+		switch e.AIState {
+		case "INTERCEPT", "ATTACK", "FIRING", "SHADOW", "CLOSING", "OPENING", "TORPEDO_EVADE", "RBU", "RASTRUB", "SHIP_TUBE", "DATUM":
+			return color.RGBA{80, 200, 255, 255}
+		default:
+			return color.RGBA{40, 160, 255, 255}
+		}
+	}
 	switch e.AIState {
 	case "INTERCEPT", "ATTACK", "FIRING", "SHADOW", "CLOSING", "OPENING", "TORPEDO_EVADE", "RBU", "RASTRUB", "SHIP_TUBE":
 		return render.ColorDebugAttack
-	case "SEARCH", "PINGING", "ACTIVE_SEARCH", "PING_ALERT", "TRACKING", "RADAR_TRACK":
+	case "SEARCH", "PINGING", "ACTIVE_SEARCH", "PING_ALERT", "TRACKING", "RADAR_TRACK", "DATUM":
 		return render.ColorDebugSearch
 	default:
 		return render.ColorDebugCalm

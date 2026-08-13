@@ -18,6 +18,17 @@
 4. **Не трогай** `.venv-tts/`, `dist/`, сгенерированные `.app`, чужие секреты. Бинарник `ssn688` в `.gitignore` — его можно пересобирать локально.
 5. Меняй только то, что нужно задаче. Не рефакторь «заодно», не добавляй лишние markdown-файлы без запроса.
 6. Стиль кода: существующие паттерны пакета, короткие комментарии «почему», без шумных docstrings на очевидное.
+7. **Доменные навыки** — каталог [`agent-skills/`](agent-skills/README.md). Перед новой картой, `bathy.bin`, маршрутами или расстановкой у берега **прочитай подходящий `SKILL.md`** (см. таблицу в README каталога).
+
+## Навыки агентов (`agent-skills/`)
+
+Репозиторий хранит **специализированные инструкции** для агентов (отдельно от AGENTS.md):
+
+| Путь | Тема |
+|------|------|
+| [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md) | ETOPO → `bathy.bin`, рельеф/берег на PLOT, маршруты без выхода на сушу, глубины ПЛ ниже термоклина |
+
+При совпадении задачи с описанием навыка — **сначала навык**, потом правки кода. Новые навыки добавляй в `agent-skills/<имя>/SKILL.md` и строку в [`agent-skills/README.md`](agent-skills/README.md).
 
 ## Стек и окружение
 
@@ -51,6 +62,7 @@ internal/
   config/               — settings.json, пути saves
 scripts/                — macOS app, Kokoro TTS → voices
 tools/                  — пересборка батиметрии
+agent-skills/           — доменные навыки для ИИ-агентов (SKILL.md)
 ```
 
 ### Куда смотреть по задаче
@@ -67,6 +79,7 @@ tools/                  — пересборка батиметрии
 | Разгон судов | `world/entity.go` — `MaxSpeedAccelKtsPerSec` |
 | Подписи шума (LOFAR) | `world/signatures.go`, `acoustics/source.go` |
 | Голосовые клипы | `audio/clips.go`, `audio/voice.go`, `audio/voices/**` |
+| Новая карта / bathy / маршруты | `agent-skills/bathymetry-and-routes/SKILL.md`, `tools/gen_hormuz_bathy.py`, `internal/world/bathymetry*.go`, `diagonal_routes.go`, `coastal_routes.go`, `scenario.go` |
 
 ## Важные доменные правила (не ломать без явного запроса)
 
@@ -122,7 +135,7 @@ world → (почти никого)
 
 - WAV офицеров — `internal/audio/voices/{capt,sonar,weps,dive,nav}/`, регистрация в `clips.go`.
 - Перегенерация TTS (Apple Silicon, `mlx-audio`): см. README → `scripts/generate_voices_kokoro.py`.
-- Батиметрия: `assets/bathy.bin`; скрипт `tools/gen_hormuz_bathy.py` (имя историческое, сцена — Santa Catalina).
+- Батиметрия: `assets/bathy.bin`; скрипт `tools/gen_hormuz_bathy.py` (имя историческое, сцена — Santa Catalina). Подробный пайплайн — [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md).
 
 ## Коммиты (когда попросили)
 

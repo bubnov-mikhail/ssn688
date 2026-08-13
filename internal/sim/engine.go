@@ -210,17 +210,23 @@ func (e *Engine) tick(dt float64) {
 		GameTime: t,
 		Dt:       dt,
 	})
+	ai.UpdateFriendlyDefcon(e.Scenario.Entities, player, e.Acoustics, e.FireControl.ActiveTorpedoes, t)
 	ai.UpdateAllAI(e.Scenario.Entities, player, t, dt, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope, e.Scenario.Bathy, e.Scenario.Routes)
-	e.guideEnemyTorpedoes(player, t)
+	e.guideAIWireTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
 	e.tryEnemySurfaceWeapons(player, t)
+	e.tryFriendlyTorpedoShots(player, t)
+	e.tryFriendlySurfaceWeapons(player, t)
 
 	e.FireControl.UpdateTubes(t)
 	e.CM.Advance(dt, t, e.AllEntities())
 
 	shipTargets := e.SeekerTargets()
 	for _, fish := range e.FireControl.AdvanceRastrub(t) {
-		if fish != nil {
+		if fish == nil {
+			continue
+		}
+		if fish.Side == world.SideEnemy {
 			e.Events = append(e.Events, "Torpedo launch detected (hostile)")
 		}
 	}
@@ -277,11 +283,35 @@ func (e *Engine) tick(dt float64) {
 	}
 	e.FireControl.ActiveTorpedoes = alive
 
+	e.syncIdentifications(t)
 	e.Scenario.CheckObjectives()
 	e.Acoustics.Env.UpdateLayerSurvey(t)
 	if e.Scenario.Bathy != nil && e.Scenario.Bathy.Valid() {
 		if d := e.Scenario.Bathy.DepthAtFt(player.X, player.Y); d > 0 {
 			e.Acoustics.Env.BottomDepthFt = d
+		}
+	}
+}
+
+func (e *Engine) syncIdentifications(gameTime float64) {
+	if e.Scenario == nil {
+		return
+	}
+	for _, c := range acoustics.NewlyIdentifiedContacts(&e.Sonar, gameTime) {
+		name := c.ConfirmedClass
+		if name == "" {
+			name = c.BestMatchName
+		}
+		by := c.IdentifiedBy
+		if by == "" {
+			by = "unknown"
+		}
+		e.Events = append(e.Events, fmt.Sprintf("Contact %s identified: %s (%s)", c.ID, name, by))
+	}
+	for i := range e.Sonar.Contacts {
+		c := &e.Sonar.Contacts[i]
+		if c.Identified && c.SourceEntityID != "" {
+			e.Scenario.NoteIdentified(c.SourceEntityID)
 		}
 	}
 }
@@ -709,12 +739,12 @@ func (e *Engine) torpedoLayerAtten(srcDepthFt, dstDepthFt float64) float64 {
 		env.ColumnAttenuationDB(srcDepthFt, dstDepthFt, 350)*0.55
 }
 
-func (e *Engine) guideEnemyTorpedoes(player *world.Entity, gameTime float64) {
-	if player == nil || !player.Alive() {
+func (e *Engine) guideAIWireTorpedoes(player *world.Entity, gameTime float64) {
+	if player == nil {
 		return
 	}
 	for _, torp := range e.FireControl.ActiveTorpedoes {
-		if torp == nil || !torp.Alive || torp.Side != world.SideEnemy {
+		if torp == nil || !torp.Alive {
 			continue
 		}
 		if torp.Class == weapons.ClassUMGT1 {
@@ -724,17 +754,27 @@ func (e *Engine) guideEnemyTorpedoes(player *world.Entity, gameTime float64) {
 			continue
 		}
 		parent := e.entityByID(torp.ParentSubID)
-		skill := 0.35
-		aimX, aimY, aimDepth := player.X, player.Y, player.DepthFt
-		if parent != nil {
-			skill = parent.CrewSkill01()
-			if parent.Track.Valid {
-				aimX, aimY = parent.Track.X, parent.Track.Y
-				aimDepth = parent.Track.DepthFt
+		if parent == nil {
+			continue
+		}
+		// Ownship wires are player-steered; only AI parents auto-guide.
+		if world.IsOwnship(parent, player) {
+			continue
+		}
+		if parent.Side != world.SideEnemy && !world.IsAllyAI(parent, player) {
+			continue
+		}
+		skill := parent.CrewSkill01()
+		aimX, aimY, aimDepth := parent.Track.X, parent.Track.Y, parent.Track.DepthFt
+		if !parent.Track.Valid {
+			// Fall back: enemies aim at ownship; allies hold last ordered head.
+			if parent.Side == world.SideEnemy {
+				aimX, aimY, aimDepth = player.X, player.Y, player.DepthFt
+			} else {
+				continue
 			}
 		}
 		brg := bearingDeg(torp.X, torp.Y, aimX, aimY)
-		// Skill: steer gain + heading noise. Green crews weave and miss.
 		gain := ai.WireGuideGain(skill)
 		noise := ai.WireGuideNoiseDeg(skill) * (0.5 + 0.5*math.Sin(gameTime*3+float64(len(torp.ID))))
 		diff := shortest(torp.OrderedHead, brg+noise)
@@ -1010,6 +1050,180 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			}
 		}
 	}
+}
+
+func (e *Engine) tryFriendlyTorpedoShots(player *world.Entity, gameTime float64) {
+	if player == nil {
+		return
+	}
+	for _, ent := range e.Scenario.Entities {
+		if !world.IsAllyAI(ent, player) || ent.Kind != world.KindSubmarine || !ent.Alive() {
+			continue
+		}
+		if !ent.CanDefconAttack() {
+			continue
+		}
+		if ent.AIState != "FIRING" && ent.AIState != "ATTACK" {
+			continue
+		}
+		quarry := e.friendlyQuarry(ent)
+		if quarry == nil || world.IsFriendly(quarry) {
+			continue
+		}
+		ent.EnsureDamage()
+		canTube := false
+		for tn := 1; tn <= 4; tn++ {
+			if ent.Damage.Operational(world.TubeSys(tn)) {
+				canTube = true
+				break
+			}
+		}
+		if !canTube {
+			continue
+		}
+		rangeYd := ent.RangeYardsTo(quarry)
+		if ent.Track.Valid {
+			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
+		}
+		if rangeYd > 3400 || rangeYd < 1400 {
+			continue
+		}
+		if !ai.TrackClassified(ent) {
+			continue
+		}
+		aim := ai.TrackAimEntity(ent, quarry)
+		if world.IsFriendly(aim) || world.IsOwnship(aim, player) {
+			continue
+		}
+		if e.FireControl.EnemyTubeOpenAt != nil {
+			if openAt, ok := e.FireControl.EnemyTubeOpenAt[ent.ID]; ok {
+				if gameTime-openAt < enemyTubeOpenLeadSec {
+					continue
+				}
+				delete(e.FireControl.EnemyTubeOpenAt, ent.ID)
+				if e.FireControl.SpawnHostileTorpedo(ent, aim) != nil {
+					e.EmitTubeTransient(ent, gameTime, false)
+					ent.AIState = "SHADOW"
+				}
+				continue
+			}
+		}
+		if e.FireControl.HasRecentShotFrom(ent.ID, 70) {
+			continue
+		}
+		if ent.AIState == "ATTACK" && int(gameTime*10)%110 != 0 {
+			continue
+		}
+		if e.FireControl.EnemyTubeOpenAt == nil {
+			e.FireControl.EnemyTubeOpenAt = map[string]float64{}
+		}
+		e.FireControl.EnemyTubeOpenAt[ent.ID] = gameTime
+		e.EmitTubeTransient(ent, gameTime, true)
+		ent.AIState = "FIRING"
+	}
+}
+
+func (e *Engine) tryFriendlySurfaceWeapons(player *world.Entity, gameTime float64) {
+	if player == nil {
+		return
+	}
+	for _, ent := range e.Scenario.Entities {
+		if !world.IsAllyAI(ent, player) || ent.Kind != world.KindSurfaceShip || !ent.Alive() {
+			continue
+		}
+		if !ent.CanDefconAttack() {
+			continue
+		}
+		switch ent.AIState {
+		case "RASTRUB", "RBU", "SHIP_TUBE", "INTERCEPT", "PING_ALERT",
+			"TORPEDO_EVADE", "CLOSING", "RADAR_TRACK", "TRACKING", "PINGING", "SEARCH":
+		default:
+			continue
+		}
+		quarry := e.friendlyQuarry(ent)
+		if quarry == nil || world.IsFriendly(quarry) {
+			continue
+		}
+		ent.EnsureDamage()
+		canLaunch := false
+		for tn := 1; tn <= 4; tn++ {
+			if ent.Damage.Operational(world.TubeSys(tn)) {
+				canLaunch = true
+				break
+			}
+		}
+		if !canLaunch {
+			continue
+		}
+		if e.FireControl.HasRecentSurfaceASW(ent.ID, 48) {
+			continue
+		}
+		rangeYd := ent.RangeYardsTo(quarry)
+		if ent.Track.Valid {
+			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
+		}
+		if ent.AIState != "RADAR_TRACK" && !ai.TrackClassified(ent) {
+			continue
+		}
+		aim := ai.TrackAimEntity(ent, quarry)
+		if world.IsFriendly(aim) || world.IsOwnship(aim, player) {
+			continue
+		}
+
+		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
+			if int(gameTime*10)%38 != 0 {
+				continue
+			}
+			_ = e.FireControl.LaunchShipTube(ent, aim)
+			continue
+		}
+		if weapons.SurfaceHasRBU(ent.SignatureID) &&
+			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd {
+			if int(gameTime*10)%44 != 0 {
+				continue
+			}
+			_ = e.FireControl.LaunchRBU(ent, aim, gameTime)
+			continue
+		}
+		if weapons.SurfaceHasRastrub(ent.SignatureID) &&
+			rangeYd >= weapons.RastrubMinRangeYd && rangeYd <= weapons.RastrubMaxRangeYd {
+			if int(gameTime*10)%52 != 0 {
+				continue
+			}
+			_ = e.FireControl.LaunchRastrub(ent, aim, gameTime)
+		}
+	}
+}
+
+// friendlyQuarry returns the best live hostile near the ally track, or nil.
+func (e *Engine) friendlyQuarry(hunter *world.Entity) *world.Entity {
+	if hunter == nil || e.Scenario == nil {
+		return nil
+	}
+	aswShip := hunter.Kind == world.KindSurfaceShip && weapons.SurfaceHasRastrub(hunter.SignatureID)
+	var best *world.Entity
+	bestScore := -1.0
+	for _, ent := range e.Scenario.Entities {
+		if ent == nil || !ent.Alive() || !world.IsHostile(ent) {
+			continue
+		}
+		d := hunter.RangeYardsTo(ent)
+		if hunter.Track.Valid {
+			td := math.Hypot(ent.X-hunter.Track.X, ent.Y-hunter.Track.Y)
+			if td < d {
+				d = td
+			}
+		}
+		score := math.Max(0, 25000-d)
+		if aswShip && ent.Kind == world.KindSubmarine {
+			score += 3500
+		}
+		if score > bestScore {
+			bestScore = score
+			best = ent
+		}
+	}
+	return best
 }
 
 func (e *Engine) clampToSeafloor() {

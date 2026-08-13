@@ -49,6 +49,52 @@ func BuildNWSETransit(bathy *Bathymetry, id string, lateralOffsetYd float64, num
 	return &Route{ID: id, Waypoints: wps, PingPong: true}
 }
 
+// BuildAllyEdgePatrol builds a PingPong lane along the chart edges:
+// SE (lower-right) → SW (lower-left) → NW (upper-left). Allies start near SE.
+func BuildAllyEdgePatrol(bathy *Bathymetry, id string, numWP int) *Route {
+	if bathy == nil || !bathy.Valid() {
+		return nil
+	}
+	if numWP < 6 {
+		numWP = 12
+	}
+	minX, minY, maxX, maxY := bathy.BoundsYards()
+	m := transitCornerMarginYd
+	se := Waypoint{X: maxX - m, Y: minY + m}
+	sw := Waypoint{X: minX + m, Y: minY + m}
+	nw := Waypoint{X: minX + m, Y: maxY - m}
+
+	// Split samples across bottom leg then west leg.
+	bottomN := numWP / 2
+	if bottomN < 3 {
+		bottomN = 3
+	}
+	westN := numWP - bottomN
+	if westN < 3 {
+		westN = 3
+	}
+	wps := make([]Waypoint, 0, bottomN+westN)
+	for i := 0; i < bottomN; i++ {
+		t := float64(i) / float64(bottomN-1)
+		x := se.X + (sw.X-se.X)*t
+		y := se.Y + (sw.Y-se.Y)*t
+		x, y = snapNavigableClear(bathy, x, y, transitMinClearanceYd)
+		wps = append(wps, Waypoint{X: x, Y: y})
+	}
+	for i := 1; i < westN; i++ { // skip SW duplicate
+		t := float64(i) / float64(westN-1)
+		x := sw.X + (nw.X-sw.X)*t
+		y := sw.Y + (nw.Y-sw.Y)*t
+		x, y = snapNavigableClear(bathy, x, y, transitMinClearanceYd)
+		wps = append(wps, Waypoint{X: x, Y: y})
+	}
+	wps = dedupeWaypoints(wps, 120)
+	if len(wps) < 4 {
+		return nil
+	}
+	return &Route{ID: id, Waypoints: wps, PingPong: true}
+}
+
 func dedupeWaypoints(wps []Waypoint, minSepYd float64) []Waypoint {
 	if len(wps) == 0 {
 		return wps

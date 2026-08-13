@@ -534,3 +534,28 @@ func EnemyRadarDetectsMast(ship, player *world.Entity, weather world.Weather, es
 	maxYd := prof.MastDetectYd * weather.MastDetectFactor()
 	return rangeYd <= maxYd
 }
+
+// EnemyRadarDetectsSurface is true when ship search radar has a solid paint on a
+// surface contact (hull, not a thin mast). Used by ally/enemy surface AI.
+func EnemyRadarDetectsSurface(ship, target *world.Entity, gameTime, dt float64) bool {
+	if ship == nil || target == nil {
+		return false
+	}
+	if !ship.Alive() || ship.Kind != world.KindSurfaceShip {
+		return false
+	}
+	if !target.Alive() || target.Kind != world.KindSurfaceShip {
+		return false
+	}
+	prof, ok := world.RadarBySignature(ship.SignatureID)
+	if !ok {
+		return false
+	}
+	if dt <= 0 {
+		dt = 0.1
+	}
+	if !world.RadarBeamPassed(ship, gameTime, dt, ship.BearingDegTo(target)) {
+		return false
+	}
+	return ship.RangeYardsTo(target) <= prof.MaxRangeYd
+}

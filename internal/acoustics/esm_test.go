@@ -12,6 +12,7 @@ func TestRadarScanPeriodsByClass(t *testing.T) {
 		"udaloy":   6.0,  // ~6–12 rpm air/surface
 		"grisha":   4.0,  // ~15 rpm surface search
 		"gorshkov": 4.5,  // Poliment / Furke
+		"spruance": 5.0,  // SPS-40 / SPS-55
 		"merchant": 2.5,  // ~24 rpm nav
 		"tanker":   3.0,
 		"fishing":  2.5,
@@ -198,5 +199,36 @@ func TestESMRFClassIsEquipmentNotHull(t *testing.T) {
 		if c.BestMatchID != "" || c.BestMatchName != "" {
 			t.Fatalf("ESM must not seed acoustic BestMatch (%q/%q)", c.BestMatchID, c.BestMatchName)
 		}
+	}
+}
+
+func TestEnemyRadarDetectsSurface(t *testing.T) {
+	ship := &world.Entity{
+		ID: "dd", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, SignatureID: "spruance",
+		X: 0, Y: 0, HeadingDeg: 0,
+	}
+	tgt := &world.Entity{
+		ID: "grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha",
+		X: 0, Y: 5000,
+	}
+	hit := false
+	for step := 0; step < 80; step++ {
+		gt := float64(step) * 0.1
+		if acoustics.EnemyRadarDetectsSurface(ship, tgt, gt, 0.1) {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		t.Fatal("expected surface radar paint within MaxRangeYd")
+	}
+	sub := &world.Entity{
+		ID: "ss", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 0, Y: 2000, DepthFt: 180,
+	}
+	if acoustics.EnemyRadarDetectsSurface(ship, sub, 10, 0.1) {
+		t.Fatal("surface radar must not paint submerged contacts")
 	}
 }

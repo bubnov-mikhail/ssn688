@@ -90,6 +90,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		UncBearingDeg: 4, UncRangeYd: 800, LastUpdate: 120, FirstSeen: 40, ListenTime: 80,
 		LastActiveBearingDeg: 34, LastActiveRangeYd: 4100, LastActiveFixAt: 110,
 		TMACourseDeg: 78, TMASpeedKts: 16, TMAAccuracy: 0.82,
+		Identified: true, IdentifiedBy: "acoustic", HarmonicMatch: 0.88, HarmonicHoldSec: 130, IdentifiedAt: 118,
 	}}
 
 	eng.FireControl.MagazineLeft = 17
@@ -202,6 +203,10 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	assertNear(t, "contact.tmaCourse", got.Sonar.Contacts[0].TMACourseDeg, 78)
 	assertNear(t, "contact.tmaSpeed", got.Sonar.Contacts[0].TMASpeedKts, 16)
 	assertNear(t, "contact.tmaAccuracy", got.Sonar.Contacts[0].TMAAccuracy, 0.82)
+	if !got.Sonar.Contacts[0].Identified || got.Sonar.Contacts[0].IdentifiedBy != "acoustic" {
+		t.Fatalf("contact ID %#v", got.Sonar.Contacts[0])
+	}
+	assertNear(t, "contact.harmonicHold", got.Sonar.Contacts[0].HarmonicHoldSec, 130)
 
 	if got.FireControl.MagazineLeft != 17 || got.FireControl.EnemyMagazine["enemy_foxtrot"] != 9 {
 		t.Fatalf("magazines player=%d enemy=%v", got.FireControl.MagazineLeft, got.FireControl.EnemyMagazine)
@@ -231,6 +236,15 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 
 	if !got.Scenario.Objectives[0].Complete {
 		t.Fatal("objective not restored")
+	}
+	var tankerObj *world.Objective
+	for i := range got.Scenario.Objectives {
+		if got.Scenario.Objectives[i].ID == "obj_tanker" {
+			tankerObj = &got.Scenario.Objectives[i]
+		}
+	}
+	if tankerObj == nil || !tankerObj.NeedIdentify || tankerObj.NeedDestroy {
+		t.Fatalf("tanker objective flags %#v", tankerObj)
 	}
 	if len(got.PlotMarkers) != 2 {
 		t.Fatalf("markers %d", len(got.PlotMarkers))

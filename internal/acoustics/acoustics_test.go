@@ -98,7 +98,7 @@ func TestPassiveDetectionUnified(t *testing.T) {
 }
 
 func TestClassificationTemplateSelfMatch(t *testing.T) {
-	for _, id := range []string{"kilo", "victor_iii", "foxtrot", "yasen_m", "udaloy", "krivak", "kresta2", "grisha", "gorshkov", "los_angeles"} {
+	for _, id := range []string{"kilo", "victor_iii", "foxtrot", "yasen_m", "udaloy", "krivak", "kresta2", "grisha", "gorshkov", "spruance", "los_angeles", "mk46"} {
 		p := mustProfile(id)
 		c := Classify(TemplateSpectrumForTest(p), 20, 3000)
 		if c.ProfileID != id {

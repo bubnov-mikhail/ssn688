@@ -97,14 +97,15 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "last_blast_flash=%.3f\n", engine.Sonar.LastBlastFlashSec)
 	fmt.Fprintf(w, "last_blast_entity=%s\n", engine.Sonar.LastBlastEntityID)
 	for _, c := range engine.Sonar.Contacts {
-		fmt.Fprintf(w, "contact=%s|%.3f|%.3f|%.3f|%s|%s|%.3f|%s|%s|%d|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f\n",
+		fmt.Fprintf(w, "contact=%s|%.3f|%.3f|%.3f|%s|%s|%.3f|%s|%s|%d|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%s|%.3f|%.3f|%.3f\n",
 			c.ID, c.BearingDeg, c.EstimatedRangeYd, c.SNR,
 			c.BestMatchID, c.BestMatchName, c.Confidence,
 			c.SourceEntityID, c.DetectedBy, c.Kind,
 			c.ConfirmedID, c.ConfirmedClass,
 			c.UncBearingDeg, c.UncRangeYd, c.LastUpdate, c.FirstSeen, c.ListenTime,
 			c.LastActiveBearingDeg, c.LastActiveRangeYd, c.LastActiveFixAt,
-			c.TMACourseDeg, c.TMASpeedKts, c.TMAAccuracy)
+			c.TMACourseDeg, c.TMASpeedKts, c.TMAAccuracy,
+			c.Identified, c.IdentifiedBy, c.HarmonicMatch, c.HarmonicHoldSec, c.IdentifiedAt)
 	}
 
 	fmt.Fprintf(w, "\n[fire_control]\n")
@@ -212,7 +213,9 @@ func Save(path string, engine *sim.Engine) error {
 
 	fmt.Fprintf(w, "\n[objectives]\n")
 	for _, o := range engine.Scenario.Objectives {
-		fmt.Fprintf(w, "objective=%s|%s|%t|%s\n", o.ID, o.Description, o.Complete, o.TargetID)
+		fmt.Fprintf(w, "objective=%s|%s|%t|%s|%t|%t|%t|%t\n",
+			o.ID, o.Description, o.Complete, o.TargetID,
+			o.Primary, o.NeedIdentify, o.NeedDestroy, o.Identified)
 	}
 
 	fmt.Fprintf(w, "\n[plot_markers]\n")
@@ -655,6 +658,8 @@ func defaultLengthFt(sig string, kind world.EntityKind) float64 {
 		return 300
 	case "udaloy":
 		return 535
+	case "spruance":
+		return 563
 	case "gorshkov":
 		return 443
 	case "krivak":
@@ -836,6 +841,21 @@ func parseContact(sonar *acoustics.SonarState, val string) {
 	}
 	if len(parts) > 22 {
 		c.TMAAccuracy, _ = strconv.ParseFloat(parts[22], 64)
+	}
+	if len(parts) > 23 {
+		c.Identified, _ = strconv.ParseBool(parts[23])
+	}
+	if len(parts) > 24 {
+		c.IdentifiedBy = parts[24]
+	}
+	if len(parts) > 25 {
+		c.HarmonicMatch, _ = strconv.ParseFloat(parts[25], 64)
+	}
+	if len(parts) > 26 {
+		c.HarmonicHoldSec, _ = strconv.ParseFloat(parts[26], 64)
+	}
+	if len(parts) > 27 {
+		c.IdentifiedAt, _ = strconv.ParseFloat(parts[27], 64)
 	}
 	sonar.Contacts = append(sonar.Contacts, c)
 }
@@ -1129,9 +1149,19 @@ func parseObjective(val string) (world.Objective, bool) {
 		return world.Objective{}, false
 	}
 	done, _ := strconv.ParseBool(parts[2])
-	return world.Objective{
+	obj := world.Objective{
 		ID: parts[0], Description: parts[1], Complete: done, TargetID: parts[3],
-	}, true
+	}
+	if len(parts) >= 8 {
+		obj.Primary, _ = strconv.ParseBool(parts[4])
+		obj.NeedIdentify, _ = strconv.ParseBool(parts[5])
+		obj.NeedDestroy, _ = strconv.ParseBool(parts[6])
+		obj.Identified, _ = strconv.ParseBool(parts[7])
+	} else {
+		// Legacy saves: destroy-only tasks.
+		obj.NeedDestroy = true
+	}
+	return obj, true
 }
 
 func parsePlotMarker(val string) (world.PlotMarker, bool) {

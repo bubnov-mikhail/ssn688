@@ -280,7 +280,7 @@ func MaxTurnRateDegPerSec(e *Entity) float64 {
 			return 0.75
 		case "fishing":
 			return 3.4
-		case "udaloy", "kresta2":
+		case "udaloy", "kresta2", "spruance":
 			return 1.9
 		case "gorshkov", "krivak":
 			return 2.2

@@ -33,7 +33,7 @@ func periShipClassOf(sig string) periShipClass {
 		return periClassTanker
 	case "fishing":
 		return periClassFishing
-	case "grisha", "udaloy", "kresta2", "krivak", "gorshkov":
+	case "grisha", "udaloy", "kresta2", "krivak", "gorshkov", "spruance":
 		return periClassCombatant
 	default:
 		return periClassMerchant

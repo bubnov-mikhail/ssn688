@@ -64,6 +64,7 @@ func UpdateContactsFromPeriscope(
 			c := &sonar.Contacts[idx]
 			updateContactFromVisual(c, brg, measRange, gameTime, ship)
 			updateContactTMA(c, sampleTMAPosition(player, c.BearingDeg, c.EstimatedRangeYd, gameTime, 0.97))
+			tryVisualIdentify(c, ship, rangeYd, gameTime)
 			continue
 		}
 
@@ -88,6 +89,7 @@ func UpdateContactsFromPeriscope(
 		c.UncBearingDeg = 3
 		c.UncRangeYd = math.Max(100, measRange*0.06)
 		updateContactTMA(&c, sampleTMAPosition(player, brg, measRange, gameTime, 0.97))
+		tryVisualIdentify(&c, ship, rangeYd, gameTime)
 		sonar.Contacts = append(sonar.Contacts, c)
 		existing[ship.ID] = len(sonar.Contacts) - 1
 	}

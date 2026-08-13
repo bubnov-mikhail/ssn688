@@ -65,9 +65,9 @@ func (t AITrack) RangeYdFrom(ox, oy float64) float64 {
 }
 
 // GhostTarget builds a disposable aim entity from the track for weapons helpers.
-func (t AITrack) GhostTarget(id string) *Entity {
+func (t AITrack) GhostTarget(id string, side Side) *Entity {
 	return &Entity{
-		ID: id, Name: "AI-TRACK", Kind: KindSubmarine, Side: SidePlayer,
+		ID: id, Name: "AI-TRACK", Kind: KindSubmarine, Side: side,
 		Status: StatusActive, X: t.X, Y: t.Y, DepthFt: t.DepthFt,
 		HeadingDeg: t.CourseDeg, SpeedKts: t.SpeedKts,
 		OrderedHead: t.CourseDeg, OrderedSpeed: t.SpeedKts, OrderedDepth: t.DepthFt,

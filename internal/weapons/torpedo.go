@@ -491,7 +491,7 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 	ownHead := normalizeAngle(sub.HeadingDeg)
 	aim := target
 	if sub.Track.Valid {
-		aim = sub.Track.GhostTarget(target.ID)
+		aim = sub.Track.GhostTarget(target.ID, target.Side)
 	}
 	skill := sub.CrewSkill01()
 	cruise := HostileTorpedoCruiseKts(sub.SignatureID)

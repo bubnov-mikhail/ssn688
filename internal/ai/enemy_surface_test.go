@@ -186,6 +186,33 @@ func TestSurfaceEngageCooldownBlocksReentry(t *testing.T) {
 	}
 }
 
+func TestSpruanceRadarProsecutesSurface(t *testing.T) {
+	spruance := &world.Entity{
+		ID: "ally_spruance", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, SignatureID: "spruance",
+		X: 0, Y: 0, HeadingDeg: 0, SpeedKts: 14,
+		Defcon: world.DefconWeaponsFree, CrewSkill: 90,
+		Damage: world.NewFullHealth(), LastPingTime: 0,
+	}
+	grisha := &world.Entity{
+		ID: "enemy_grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha",
+		X: 0, Y: 5500, SpeedKts: 12,
+		Damage: world.NewFullHealth(),
+	}
+	model := acoustics.NewModel(acoustics.DefaultEnvironment())
+	// Sweep enough ticks for rotating radar beam + class conf to rise.
+	for step := 0; step < 120; step++ {
+		gt := 10 + float64(step)*0.1
+		updateSurfaceAI(spruance, grisha, gt, 0.1, model, nil, EvadeContext{}, nil)
+		if spruance.AIState == "RASTRUB" || spruance.AIState == "RADAR_TRACK" {
+			return
+		}
+	}
+	t.Fatalf("expected RASTRUB/RADAR_TRACK after surface radar cue, got %s conf=%.2f",
+		spruance.AIState, spruance.Track.ClassConf)
+}
+
 func TestCrewTrackFreezesDuringProsecute(t *testing.T) {
 	hunter := &world.Entity{
 		ID: "dd", Status: world.StatusActive, CrewSkill: 70, AIProsecuting: true,

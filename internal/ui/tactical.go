@@ -21,6 +21,9 @@ const (
 	tacticalPanelW = 1260
 	tacticalPanelH = 700
 
+	tacticalMapTopPad    = 40
+	tacticalMapBottomPad = 28 // gray help line under the map
+
 	tacticalZoomMin        = 0.012
 	tacticalZoomMax        = 0.12
 	tacticalZoomStep       = 1.25
@@ -29,6 +32,11 @@ const (
 	tacticalSmoothStaleSec = 8.0 // reset average if contact absent this long
 	tacticalRulerTickYd    = 3000.0
 )
+
+func tacticalMapRect() (x, y, w, h int) {
+	return tacticalPanelX + 8, tacticalPanelY + tacticalMapTopPad,
+		tacticalPanelW - 16, tacticalPanelH - tacticalMapTopPad - tacticalMapBottomPad
+}
 
 var tacticalRulerColor = color.RGBA{255, 255, 255, 230}
 
@@ -136,10 +144,7 @@ func (a *App) updateTacticalUI() {
 		}
 	}
 
-	mapX := tacticalPanelX + 8
-	mapY := tacticalPanelY + 40
-	mapW := tacticalPanelW - 16
-	mapH := tacticalPanelH - 52
+	mapX, mapY, mapW, mapH := tacticalMapRect()
 	inMap := inRect(mx, my, mapX, mapY, mapW, mapH)
 	player := a.Engine.Scenario.Player
 	sonar := &a.Engine.Sonar
@@ -566,6 +571,8 @@ func contactDisplaySide(c *acoustics.Contact) world.Side {
 	switch id {
 	case "merchant", "tanker", "fishing":
 		return world.SideNeutral
+	case "los_angeles", "spruance":
+		return world.SidePlayer
 	default:
 		return world.SideEnemy
 	}
@@ -579,22 +586,21 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 		title = "TACTICAL PLOT · DEBUG"
 	}
 	render.DrawScreenTitle(screen, title, tacticalPanelX+20, tacticalPanelY+28)
-	render.DrawText(screen, "LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", tacticalPanelX+280, tacticalPanelY+26, render.ColorPlateLabel, true)
 
 	for _, b := range a.tacticalButtons() {
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, a.uiHoverID == b.ID, a.uiPressedID == b.ID)
 	}
 
-	mapX := tacticalPanelX + 8
-	mapY := tacticalPanelY + 40
-	mapW := tacticalPanelW - 16
-	mapH := tacticalPanelH - 52
+	mapX, mapY, mapW, mapH := tacticalMapRect()
 	render.DrawMonitor(screen, mapX, mapY, mapW, mapH)
 	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH, tacticalMapOpts{
 		showSelection: true,
 		showChrome:    true,
 		debugOverlay:  a.Settings.Debug,
 	})
+	render.DrawText(screen,
+		"LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom",
+		mapX+4, mapY+mapH+18, render.ColorPlateLabel, true)
 
 	if a.uiTooltip != "" {
 		mx, my := ebiten.CursorPosition()
@@ -1079,6 +1085,8 @@ func (a *App) drawTacticalContactIcon(screen *ebiten.Image, c *acoustics.Contact
 		switch contactDisplaySide(c) {
 		case world.SideNeutral:
 			clr = color.RGBA{210, 210, 120, 255}
+		case world.SidePlayer:
+			clr = color.RGBA{70, 170, 255, 255}
 		default:
 			clr = color.RGBA{220, 60, 50, 255}
 		}

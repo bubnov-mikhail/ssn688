@@ -303,7 +303,7 @@ func torpedoHullLoss(e *Entity, rng *rand.Rand, light bool) float64 {
 		return 85.0 + rng.Float64()*20.0 // ~85–105%
 	case "krivak", "merchant", "gorshkov":
 		return 58.0 + rng.Float64()*22.0 // ~58–80% → usually 1–2 hits
-	case "udaloy", "kresta2", "tanker":
+	case "udaloy", "kresta2", "tanker", "spruance":
 		return 48.0 + rng.Float64()*18.0 // ~48–66% → typically 2 hits
 	case "foxtrot":
 		return 75.0 + rng.Float64()*30.0 // older diesel — fragile
@@ -476,7 +476,7 @@ func (e *Entity) MaxSpeedKts() float64 {
 		base = 17
 	case "foxtrot":
 		base = 15
-	case "udaloy", "kresta2":
+	case "udaloy", "kresta2", "spruance":
 		base = 32
 	case "gorshkov":
 		base = 30

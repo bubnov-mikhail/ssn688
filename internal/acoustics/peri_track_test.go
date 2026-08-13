@@ -39,6 +39,9 @@ func TestUpdateContactsFromPeriscopeRefinesRange(t *testing.T) {
 	if c.UncRangeYd > 800 {
 		t.Fatalf("unc range still large: %.0f", c.UncRangeYd)
 	}
+	if c.Identified {
+		t.Fatal("900 yd should not visual-ID")
+	}
 }
 
 func TestUpdateContactsFromPeriscopeCreatesVisualTrack(t *testing.T) {
@@ -59,5 +62,8 @@ func TestUpdateContactsFromPeriscopeCreatesVisualTrack(t *testing.T) {
 	c := sonar.Contacts[0]
 	if c.SourceEntityID != ship.ID || c.DetectedBy != "visual" {
 		t.Fatalf("contact %#v", c)
+	}
+	if !c.Identified || c.IdentifiedBy != IdentifiedByVisual {
+		t.Fatalf("close visual should identify, got identified=%v by=%q", c.Identified, c.IdentifiedBy)
 	}
 }

@@ -415,7 +415,7 @@ var libraryCatalog = []libraryEntry{
 		Credit:    "Photo: U.S. Navy / public domain (Wikimedia)",
 		Summary: []string{
 			"Your boat: Improved Los Angeles–class nuclear attack submarine. Quiet machinery set with sparse LOFAR lines relative to Soviet hunters, armed with Mk48 and Harpoon/ASROC loadouts from tubes.",
-			"Protect ownship systems (sonar, propulsion, weapons) — damage cascades end the patrol.",
+			"Protect ownship systems (sonar, propulsion, weapons) — damage cascades end the patrol. Ally LA boats use the same signature when spawned as AI friendlies.",
 		},
 		Specs: []string{
 			"Displacement ~6,900 t submerged",
@@ -432,6 +432,7 @@ var libraryCatalog = []libraryEntry{
 			"ASROC (sim) — rocket-assisted ASW option where loaded",
 			"ESM intercept of surface search/nav radars (MAST screen)",
 			"COMM inbox: briefing at start; follow-on orders need antenna up",
+			"Positive ID: periscope visual inside 800 yd, or 80% harmonic match with library fingerprint held 2 minutes",
 		},
 		Defense: []string{
 			"ADC / jitter / Nixie soft-kill vs inbound fish",
@@ -445,6 +446,40 @@ var libraryCatalog = []libraryEntry{
 		Evade: []string{
 			"Standard torpedo evasion: CPA-driven CM, depth change, speed change.",
 			"Manage self-noise; damaged arrays reduce your ability to fight.",
+		},
+	},
+	{
+		ID: "spruance", Allegiance: libFriendly, Kind: world.KindSurfaceShip,
+		Title:     "Spruance DDG — DD-963 class",
+		ImageFile: "spruance.jpg",
+		Credit:    "Photo: U.S. Navy / public domain (Wikimedia)",
+		Summary: []string{
+			"US ASW destroyer: twin LM2500 COGAG plant, ASROC rocket ASW, Mk46 lightweight tubes, and a layered Sea Sparrow / Phalanx self-defense suite.",
+			"Available as an AI ally (SidePlayer). No blue-force tracker — you only see him via honest acoustic / visual / ESM contact. In DEBUG, oracle plot shows true position.",
+		},
+		Specs: []string{
+			"Displacement ~8,000 t full load",
+			"Length ~172 m  |  Speed ~32 kn (sim)",
+			"Crew ~300+  |  Helicopter: ASW capable",
+			"Acoustic: GT/gear mid-band; blade ~1.75 Hz",
+			"Radar: SPS-40 / SPS-55 — S/X air+surface, ~5 s/scan",
+			"Mast detect (calm): ~13 kyd vs raised ESM/periscope stalk",
+		},
+		Offense: []string{
+			"ASROC — magazine ~8; splash → Mk46",
+			"Ship tubes — Mk46 (magazine ~6)",
+			"No RBU; Harpoon not modeled as ally AI weapon",
+		},
+		Defense: []string{
+			"NATO Sea Sparrow / VLS-era SAM stand-in (~24)",
+			"Phalanx CIWS (~12 bursts)",
+			"Destroyer hull: typically 2 Mk48 hits",
+		},
+		Neutralize: []string{
+			"Friendly — do not engage. Classify before shoot if the contact looks American.",
+		},
+		Evade: []string{
+			"Not a threat to ownship; he prosecutes hostiles on DEFCON.",
 		},
 	},
 }

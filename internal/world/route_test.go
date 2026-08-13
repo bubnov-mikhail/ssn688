@@ -68,13 +68,23 @@ func TestDiagonalRoutesTrainingScenario(t *testing.T) {
 	}
 	SetDefaultBathymetry(b)
 	sc := NewTrainingScenario()
-	if len(sc.Routes) < 3 {
-		t.Fatalf("want transit routes, got %d", len(sc.Routes))
+	if len(sc.Routes) < 4 {
+		t.Fatalf("want transit + ally routes, got %d", len(sc.Routes))
 	}
 	minX, minY, maxX, maxY := sc.Bathy.BoundsYards()
+	var allyRoute *Route
+	transit := make([]*Route, 0, len(sc.Routes))
 	for _, r := range sc.Routes {
-		if r == nil || !r.PingPong || r.UniqueCount() < 20 {
-			t.Fatalf("route %+v want dense PingPong (≥20 WP)", r)
+		if r == nil || !r.PingPong {
+			t.Fatalf("route %+v want PingPong", r)
+		}
+		if r.ID == "route_ally_edge" {
+			allyRoute = r
+			continue
+		}
+		transit = append(transit, r)
+		if r.UniqueCount() < 20 {
+			t.Fatalf("%s want dense PingPong (≥20 WP), got %d", r.ID, r.UniqueCount())
 		}
 		first, last := r.Waypoints[0], r.Waypoints[r.UniqueCount()-1]
 		// Roughly NW → SE: first more north/west-ish than last.
@@ -94,9 +104,17 @@ func TestDiagonalRoutesTrainingScenario(t *testing.T) {
 			}
 		}
 	}
-	dRoutes := MinDistToRoutesYd(sc.Player.X, sc.Player.Y, sc.Routes)
+	if allyRoute == nil || allyRoute.UniqueCount() < 4 {
+		t.Fatal("missing ally edge patrol route")
+	}
+	af, al := allyRoute.Waypoints[0], allyRoute.Waypoints[allyRoute.UniqueCount()-1]
+	// SE → … → NW: start lower-right, end upper-left.
+	if af.X < al.X-1000 || af.Y > al.Y+1000 {
+		t.Fatalf("ally edge not SE→NW: first=(%.0f,%.0f) last=(%.0f,%.0f)", af.X, af.Y, al.X, al.Y)
+	}
+	dRoutes := MinDistToRoutesYd(sc.Player.X, sc.Player.Y, transit)
 	if dRoutes < 500 || dRoutes > 3000 {
-		t.Fatalf("player route clearance=%.0f want ≤3000 (and off the lane)", dRoutes)
+		t.Fatalf("player transit clearance=%.0f want ≤3000 (and off the lane)", dRoutes)
 	}
 	// SW-ish: closer to SW corner than to NE.
 	sw := hypot2(sc.Player.X-(minX+1800), sc.Player.Y-(minY+1800))
@@ -104,8 +122,12 @@ func TestDiagonalRoutesTrainingScenario(t *testing.T) {
 	if sw > ne {
 		t.Fatalf("player not near SW corner: sw=%.0f ne=%.0f", sw, ne)
 	}
+	_ = maxY
 	for _, e := range sc.Entities {
-		if e == nil || e.RouteID == "" {
+		if e == nil {
+			continue
+		}
+		if e.RouteID == "" {
 			t.Fatalf("%v missing route", e)
 		}
 	}

@@ -30,6 +30,9 @@ type EvadeContext struct {
 	ESM      *acoustics.ESMState
 	COMM     *acoustics.COMMState
 	Peri     *acoustics.PeriscopeState
+	// Ownship is the player platform whose mast states ESM/COMM/Peri describe.
+	// Mast-radar paints apply only when the AI quarry is this entity.
+	Ownship *world.Entity
 }
 
 // tryEvadeTorpedo steers, deploys CM, and accelerates away from the most threatening fish.
@@ -55,7 +58,7 @@ func mostThreateningTorpedo(e *world.Entity, torps []*weapons.Torpedo) *weapons.
 	var best *weapons.Torpedo
 	bestScore := 0.0
 	for _, t := range torps {
-		if t == nil || !t.Alive || t.Side != world.SidePlayer {
+		if t == nil || !t.Alive || t.Side != world.HostileTorpedoSide(e) {
 			continue
 		}
 		d := math.Hypot(t.X-e.X, t.Y-e.Y)
