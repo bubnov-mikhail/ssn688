@@ -7,7 +7,7 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
-func TestCOMMMastShearsOnSpeed(t *testing.T) {
+func TestCOMMMastAutoRetractOnSpeed(t *testing.T) {
 	player := &world.Entity{
 		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
 		Status: world.StatusActive, DepthFt: 60, SpeedKts: 6, Damage: world.NewFullHealth(),
@@ -16,12 +16,12 @@ func TestCOMMMastShearsOnSpeed(t *testing.T) {
 	comm.OrderRaiseCOMM(player)
 	comm.Extension = 1
 	player.SpeedKts = 14
-	_, sheared := comm.AdvanceMastMotion(0.1, 10, player)
-	if !sheared {
-		t.Fatal("expected COMM shear")
+	evs := acoustics.AutoProtectExtendedGear(player, nil, &comm, nil, nil)
+	if len(evs) == 0 || comm.Order != acoustics.COMMMastStow {
+		t.Fatalf("expected auto-retract, events=%v order=%v", evs, comm.Order)
 	}
-	if !player.Damage.Destroyed(world.SysCOMM) {
-		t.Fatal("SysCOMM should be destroyed")
+	if player.Damage.Destroyed(world.SysCOMM) {
+		t.Fatal("SysCOMM should not be destroyed")
 	}
 }
 

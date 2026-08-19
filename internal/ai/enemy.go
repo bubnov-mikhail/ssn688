@@ -87,7 +87,10 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 	if radarCue {
 		snr = math.Max(snr, 18)
 	}
-	UpdateCrewTrack(ship, player, detected || radarCue, activeHit || radarCue, snr, gameTime, dt)
+	if heardPing && snr < 12 {
+		snr = 12
+	}
+	UpdateCrewTrack(ship, player, detected || radarCue || heardPing, activeHit || radarCue || heardPing, snr, gameTime, dt)
 	if ship.Track.Valid {
 		bearing = ship.Track.BearingDegFrom(ship.X, ship.Y)
 		rangeYd = ship.Track.RangeYdFrom(ship.X, ship.Y)
@@ -226,7 +229,8 @@ func applySurfaceASWDoctrine(ship *world.Entity, rangeYd, bearing float64, class
 	hasRastrub := weapons.SurfaceHasRastrub(ship.SignatureID)
 	const rastrubIdealYd = 5500.0
 	const grishaIdealYd = 1400.0
-	weaponOK := classified || radarMast
+	weaponOK := TrackWeaponRelease(ship) || radarMast ||
+		(ship.CanDefconAttack() && heardPing && ship.Track.Valid && ship.Track.HoldSec >= 2)
 
 	if !hasRastrub {
 		// Grisha: close for RBU / ship tubes — no Metel standoff.

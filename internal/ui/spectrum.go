@@ -46,7 +46,7 @@ const (
 )
 
 func spectrumTableHeight() int {
-	return spectrumTableRow*(spectrumTableVisibleRows+1) + 44
+	return spectrumTableRow*(spectrumTableVisibleRows+1) + 8
 }
 
 func spectrumRefY() int {
@@ -196,13 +196,26 @@ func (a *App) cycleReferenceProfile(delta int, f acoustics.ClassifyFilter) {
 
 func (a *App) classifyButtonRect() (x, y, w, h int) {
 	w = render.ButtonWidth("CLASSIFY", 20)
-	h = 36
-	x = spectrumTableX
-	y = spectrumTableY + spectrumTableRow*(1+max(4, spectrumTableVisibleRows)) + 8
-	if y > 640 {
-		y = 640
-	}
+	h = refNavBtnH
+	navX := spectrumChartX + spectrumChartLabelInset + referenceProfileWidth() + refProfileGap
+	navY := spectrumRefNavY()
+	_, next, _, _ := a.referenceNavLayout(navX, navY)
+	x = next.X + next.W + refProfileGap
+	y = navY
 	return x, y, w, h
+}
+
+func (a *App) drawClassifyButton(screen *ebiten.Image, filter acoustics.ClassifyFilter) {
+	cx, cy, cw, ch := a.classifyButtonRect()
+	mx, my := ebiten.CursorPosition()
+	canClassify := filter != acoustics.ClassifyIndistinct
+	if !canClassify {
+		render.DrawBevelButtonDisabled(screen, cx, cy, cw, ch, "CLASSIFY")
+		return
+	}
+	hover := mx >= cx && mx < cx+cw && my >= cy && my < cy+ch
+	pressed := a.uiPressedID == "classify" && time.Since(a.uiPressedAt) < 120*time.Millisecond
+	render.DrawBevelButton(screen, cx, cy, cw, ch, "CLASSIFY", hover, pressed)
 }
 
 func (a *App) updateSpectrumScreen(sonar *acoustics.SonarState) {
@@ -301,17 +314,6 @@ func (a *App) drawSpectrumContactTable(screen *ebiten.Image, sonar *acoustics.So
 		y += spectrumTableRow
 	}
 	drawContactTableScrollbar(screen, spectrumTableX+spectrumTableW+4, spectrumTableY+spectrumTableRow, spectrumTableVisibleRows*spectrumTableRow, len(sonar.Contacts), spectrumTableVisibleRows, a.contactTableScroll.spectrum)
-
-	cx, cy, cw, ch := a.classifyButtonRect()
-	bins, bearing := a.spectrumBinsForUI(sonar)
-	canClassify := a.spectrumClassifyFilter(bins, bearing) != acoustics.ClassifyIndistinct
-	if !canClassify {
-		render.DrawBevelButtonDisabled(screen, cx, cy, cw, ch, "CLASSIFY")
-	} else {
-		hover := mx >= cx && mx < cx+cw && my >= cy && my < cy+ch
-		pressed := a.uiPressedID == "classify" && time.Since(a.uiPressedAt) < 120*time.Millisecond
-		render.DrawBevelButton(screen, cx, cy, cw, ch, "CLASSIFY", hover, pressed)
-	}
 }
 
 func (a *App) drawReferenceNav(screen *ebiten.Image, x, y int, profile world.SignatureProfile, filter acoustics.ClassifyFilter) {
@@ -523,6 +525,7 @@ func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile wo
 
 	// Gray-plate row above the green Hz ruler; black reference panel below it.
 	a.drawReferenceNav(screen, navX, navY, profile, filter)
+	a.drawClassifyButton(screen, filter)
 	a.drawFreqScale(screen, spectrumChartX, refY-12, spectrumChartW)
 	if filter == acoustics.ClassifyIndistinct {
 		render.FillRect(screen, spectrumChartX, refY, spectrumChartW, spectrumSigPanelH, cwSigPanelBG)

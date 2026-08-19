@@ -303,21 +303,23 @@ func (a *App) updateGame() {
 			}
 			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, sub)
 		}
-		if strings.Contains(ev, "ESM MAST SHEARED") {
-			a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. ESM mast destroyed.")
-		} else if strings.Contains(ev, "COMM MAST SHEARED") {
-			a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. COMM mast destroyed.")
-		} else if strings.Contains(ev, "PERISCOPE SHEARED") {
-			a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. Periscope destroyed.")
-		} else if strings.HasPrefix(ev, "WARNING — ESM") || strings.HasPrefix(ev, "WARNING — COMM") || strings.HasPrefix(ev, "WARNING — periscope") {
-			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, "Unable. Mast limits exceeded.")
+		if strings.HasPrefix(ev, "AUTO-RETRACT") {
+			switch {
+			case strings.Contains(ev, "towed array") && strings.Contains(ev, "masts"):
+				a.Audio.PlayClip(audio.ClipSonarRetractTowed, "Masts and towed array auto-stowed to prevent damage.")
+			case strings.Contains(ev, "towed array"):
+				a.Audio.PlayClip(audio.ClipSonarRetractTowed, "Towed array auto-retract to prevent cable damage.")
+			default:
+				a.Audio.PlayClip(audio.ClipDiveMakeDepth, "Masts auto-lowering to prevent damage.")
+			}
+		} else if strings.Contains(ev, "RBU barrage") {
+			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, "RBU barrage inbound.")
+		} else if strings.HasPrefix(ev, "Contact ") && strings.Contains(ev, " identified:") {
+			a.Audio.PlayClip(audio.ClipSonarContactClassified, ev)
 		}
 		a.playOwnshipCasualtyVoice(ev)
 		if isOwnshipDamageFXEvent(ev) {
 			a.triggerOwnshipHitFX()
-		}
-		if strings.HasPrefix(ev, "Contact ") && strings.Contains(ev, " identified:") {
-			a.Audio.PlayClip(audio.ClipSonarContactClassified, ev)
 		}
 		if ev == "Torpedo launch detected (hostile)" {
 			a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, "Torpedo in the water.")

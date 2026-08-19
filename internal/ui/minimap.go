@@ -102,6 +102,16 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 		}
 		clr := render.ColorDebugAttack
 		label := "TORP"
+		if t.Class == weapons.ClassUMGT1 {
+			switch t.AcousticSig {
+			case "set40":
+				label = "SET40"
+			case "mk46":
+				label = "MK46"
+			default:
+				label = "LW"
+			}
+		}
 		if t.Side == world.SidePlayer {
 			clr = render.ColorActive
 			label = "MK48"
@@ -132,6 +142,20 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 			label = "HSM RDR"
 		}
 		a.drawDebugEntityAt(screen, view, h.X, h.Y, h.HeadingDeg, h.SpeedKts, clr, true, label)
+	}
+
+	gt := a.Engine.Clock.GameTime
+	for _, rbu := range a.Engine.FireControl.ActiveRBU {
+		if rbu == nil || !rbu.Alive {
+			continue
+		}
+		ax, ay := rbu.Pos(gt)
+		clr := color.RGBA{255, 90, 40, 255}
+		a.drawDebugEntityAt(screen, view, ax, ay, bearingDeg(rbu.X0, rbu.Y0, rbu.X1, rbu.Y1), 0, clr, true, "RBU")
+		sx0, sy0 := view.worldToScreen(ax, ay)
+		sx1, sy1 := view.worldToScreen(rbu.X1, rbu.Y1)
+		render.DrawLine(screen, sx0, sy0, sx1, sy1, color.RGBA{255, 120, 50, 140})
+		render.DrawText(screen, "SPLASH", int(sx1)-12, int(sy1)-6, render.ColorAmber, true)
 	}
 }
 

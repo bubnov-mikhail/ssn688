@@ -16,7 +16,21 @@ const (
 	RBUFlightMaxSec     = 9.0
 	RBUBlastRadiusYd    = 280.0
 	RBUMagazineDefault  = 10
+	// RBUMaxTargetDepthFt — RBU-6000 only shocks shallow boats (periscope depth is in the envelope).
+	RBUMaxTargetDepthFt = 120.0
 )
+
+// PreferRBUOverShipTubes is true when a Grisha-class ship should bracket with rockets
+// instead of lightweight tubes (overlap band is 700–2200 yd).
+func PreferRBUOverShipTubes(ship *world.Entity, aiState string, targetDepthFt float64) bool {
+	if ship == nil || !SurfaceHasRBU(ship.SignatureID) {
+		return false
+	}
+	if aiState == "RBU" {
+		return true
+	}
+	return targetDepthFt > 0 && targetDepthFt <= RBUMaxTargetDepthFt
+}
 
 // RBUSalvo is an in-air ASW rocket pattern before underwater detonation.
 type RBUSalvo struct {
@@ -116,6 +130,7 @@ func (fc *FireControl) LaunchRBU(ship, target *world.Entity, gameTime float64) *
 		Alive:     true,
 	}
 	fc.ActiveRBU = append(fc.ActiveRBU, a)
+	fc.PushDebugMapFlash(a.X1, a.Y1, "RBU", gameTime)
 	return a
 }
 
@@ -142,6 +157,9 @@ func (fc *FireControl) AdvanceRBU(gameTime float64, targets []*world.Entity) []*
 		}
 		for _, t := range targets {
 			if t == nil || !t.Alive() || t.Kind != world.KindSubmarine {
+				continue
+			}
+			if t.DepthFt > RBUMaxTargetDepthFt {
 				continue
 			}
 			if math.Hypot(t.X-a.X1, t.Y-a.Y1) <= RBUBlastRadiusYd {

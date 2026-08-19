@@ -179,28 +179,6 @@ func (e *ESMState) AdvanceMastMotion(dt, gameTime float64, player *world.Entity)
 		return nil, false
 	}
 
-	exposed := e.Extension > 0.05
-	depthOK := player.DepthFt <= world.ESMMastMaxDepthFt+0.5
-	speedOK := math.Abs(player.SpeedKts) <= world.ESMMastMaxSpeedKts+0.05
-
-	if exposed && (!depthOK || !speedOK) {
-		// Soft warning first; hard shear if clearly past limits.
-		critical := player.DepthFt > world.ESMMastMaxDepthFt+15 || math.Abs(player.SpeedKts) > world.ESMMastMaxSpeedKts+1.5
-		if critical {
-			e.shear(player)
-			return []string{"ESM MAST SHEARED — antenna destroyed"}, true
-		}
-		if gameTime-e.LastWarnAt > 8 {
-			e.LastWarnAt = gameTime
-			if !depthOK {
-				events = append(events, fmt.Sprintf("WARNING — ESM mast exposed below periscope depth (%.0f ft). Reduce depth or lower mast.", player.DepthFt))
-			}
-			if !speedOK {
-				events = append(events, fmt.Sprintf("WARNING — ESM mast exposed above %.0f kn (%.0f kn). Reduce speed or lower mast.", world.ESMMastMaxSpeedKts, math.Abs(player.SpeedKts)))
-			}
-		}
-	}
-
 	switch e.Order {
 	case ESMMastRaise:
 		if ok, _ := CanRaiseESM(player); !ok && e.Extension < 0.05 {
@@ -212,17 +190,6 @@ func (e *ESMState) AdvanceMastMotion(dt, gameTime float64, player *world.Entity)
 		e.Extension = math.Max(0, e.Extension-dt/world.ESMMastLowerSec)
 	}
 	return events, false
-}
-
-func (e *ESMState) shear(player *world.Entity) {
-	e.Sheared = true
-	e.Order = ESMMastStow
-	e.Extension = 0
-	if player != nil {
-		player.EnsureDamage()
-		player.Damage.Eff[world.SysESM] = 0
-		player.Damage.CancelRepair()
-	}
 }
 
 // UpdateESM processes search-radar intercepts while the mast is up.

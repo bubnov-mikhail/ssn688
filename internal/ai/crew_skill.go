@@ -18,11 +18,10 @@ func UpdateCrewTrack(hunter, player *world.Entity, detected, active bool, peakSN
 
 	if !detected {
 		if hunter.AIProsecuting && tr.Valid {
-			// Freeze last-known DATUM while sticky prosecute is active.
-			tr.HoldSec = 0
-			tr.ClassConf *= math.Pow(0.995, math.Max(dt, 0.05)*10) // slow fade
+			// Freeze DATUM; don't zero HoldSec — passive flicker was blocking ClassConf rise.
+			tr.ClassConf *= math.Pow(0.995, math.Max(dt, 0.05)*10)
 			if tr.ClassConf < 0.08 {
-				tr.ClassConf = 0.08 // keep Valid for DATUM steer
+				tr.ClassConf = 0.08
 			}
 			return
 		}
@@ -119,6 +118,21 @@ func TrackClassified(hunter *world.Entity) bool {
 	// Green need ~0.58 confidence; veterans prosecute from ~0.22.
 	gate := 0.58 - 0.36*s
 	return hunter.Track.ClassConf >= gate
+}
+
+// TrackWeaponRelease is true when held contact quality allows shooting.
+// At Weapons Free a solid acoustic track is enough; lower DEFCON needs ID confidence.
+func TrackWeaponRelease(hunter *world.Entity) bool {
+	if hunter == nil || !hunter.Track.Valid {
+		return false
+	}
+	if TrackClassified(hunter) {
+		return true
+	}
+	if !hunter.CanDefconAttack() {
+		return false
+	}
+	return hunter.Track.HoldSec >= 4 && hunter.Track.ClassConf >= 0.10
 }
 
 // TrackAimEntity returns a ghost aim point from the crew track, or truth if no track.

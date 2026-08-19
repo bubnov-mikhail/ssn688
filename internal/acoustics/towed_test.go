@@ -113,19 +113,19 @@ func TestTriangulationBonusShrinksUncertainty(t *testing.T) {
 	}
 }
 
-func TestTowedShearAtHighSpeed(t *testing.T) {
+func TestTowedAutoRetractAtHighSpeed(t *testing.T) {
 	s := NewSonarState()
 	s.TowedCablePct = 1
-	if _, warn := s.CheckTowedSpeed(21); !warn {
-		t.Fatal("expected warn near 20 kn full cable")
+	player := &world.Entity{
+		ID: "p", Kind: world.KindSubmarine, Status: world.StatusActive,
+		SpeedKts: 21, OrderedSpeed: 21,
 	}
-	sheared, _ := s.CheckTowedSpeed(24)
-	if !sheared || !s.TowedDamaged || s.TowedCablePct != 0 {
-		t.Fatalf("expected shear: damaged=%v pct=%.2f sheared=%v", s.TowedDamaged, s.TowedCablePct, sheared)
+	evs := AutoProtectExtendedGear(player, nil, nil, nil, &s)
+	if len(evs) != 1 || evs[0] != EventAutoRetractTowed {
+		t.Fatalf("events=%v", evs)
 	}
-	s.StartDeploy()
-	if s.TowedInMotion() {
-		t.Fatal("damaged array must not deploy")
+	if s.TowedDamaged || s.TowedCableRate >= 0 {
+		t.Fatalf("expected retract not damage: damaged=%v rate=%.3f", s.TowedDamaged, s.TowedCableRate)
 	}
 }
 

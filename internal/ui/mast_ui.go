@@ -176,8 +176,8 @@ func (a *App) handleMastButton(id string) {
 		a.StatusMessage = msg
 		if ok {
 			a.playMastHydraulicFX()
-		} else if a.Audio != nil {
-			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, msg)
+		} else {
+			a.playMastRaiseDenied(msg)
 		}
 	case "esm_lower":
 		a.StatusMessage = esm.OrderLowerESM()
@@ -187,8 +187,8 @@ func (a *App) handleMastButton(id string) {
 		a.StatusMessage = msg
 		if ok {
 			a.playMastHydraulicFX()
-		} else if a.Audio != nil {
-			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, msg)
+		} else {
+			a.playMastRaiseDenied(msg)
 		}
 	case "comm_lower":
 		a.StatusMessage = comm.OrderLowerCOMM()
@@ -196,9 +196,6 @@ func (a *App) handleMastButton(id string) {
 	case "comm_report":
 		if !comm.MastUp() {
 			a.StatusMessage = "Unable to transmit — raise COMM mast first."
-			if a.Audio != nil {
-				a.Audio.PlayClip(audio.ClipDiveUnableDeeper, a.StatusMessage)
-			}
 			break
 		}
 		gt := a.Engine.Clock.GameTime
@@ -211,8 +208,8 @@ func (a *App) handleMastButton(id string) {
 		a.StatusMessage = msg
 		if ok {
 			a.playMastHydraulicFX()
-		} else if a.Audio != nil {
-			a.Audio.PlayClip(audio.ClipDiveUnableDeeper, msg)
+		} else {
+			a.playMastRaiseDenied(msg)
 		}
 	case "peri_lower":
 		a.StatusMessage = peri.OrderLower()
@@ -235,6 +232,21 @@ func (a *App) handleMastButton(id string) {
 func (a *App) playMastHydraulicFX() {
 	if a.Audio != nil {
 		a.Audio.PlayMastHydraulic()
+	}
+}
+
+// playMastRaiseDenied picks a voice line matching the raise refusal (not generic depth audio).
+func (a *App) playMastRaiseDenied(reason string) {
+	if a.Audio == nil || reason == "" {
+		return
+	}
+	switch {
+	case strings.Contains(reason, "Too fast"):
+		a.Audio.PlayClip(audio.ClipDiveHoldDepth, reason)
+	case strings.Contains(reason, "Too deep"):
+		a.Audio.PlayClip(audio.ClipDiveUnableDeeper, reason)
+	case strings.Contains(reason, "destroyed"):
+		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, reason)
 	}
 }
 

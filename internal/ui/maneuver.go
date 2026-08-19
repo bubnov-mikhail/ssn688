@@ -400,18 +400,7 @@ func (a *App) updateManeuverUI(player *world.Entity) {
 }
 
 func (a *App) ringEOT(player *world.Entity, frac float64) {
-	next := eotSpeedKts(player, frac)
-	sonar := &a.Engine.Sonar
-	if next > 0 && !sonar.TowedDamaged && sonar.TowedCablePct >= 0.20 {
-		warnAt := acoustics.TowedWarnSpeedKts(sonar.TowedCablePct)
-		shearAt := acoustics.TowedShearSpeedKts(sonar.TowedCablePct)
-		if next >= shearAt || math.Abs(player.SpeedKts) >= warnAt {
-			a.StatusMessage = fmt.Sprintf(
-				"WARNING: towed cable stress — shear risk above %.0f kn (now %.0f ordered).",
-				shearAt, next)
-		}
-	}
-	player.OrderedSpeed = next
+	player.OrderedSpeed = eotSpeedKts(player, frac)
 }
 
 func (a *App) maneuverButtonAction(id string, player *world.Entity) {

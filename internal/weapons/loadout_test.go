@@ -78,6 +78,19 @@ func TestSpawnHostileTorpedoGreenSmearsSolution(t *testing.T) {
 	}
 }
 
+func TestPreferRBUOverShipTubes(t *testing.T) {
+	ship := &world.Entity{SignatureID: "grisha"}
+	if !PreferRBUOverShipTubes(ship, "TRACKING", 60) {
+		t.Fatal("periscope depth should prefer RBU in overlap band")
+	}
+	if PreferRBUOverShipTubes(ship, "TRACKING", 200) {
+		t.Fatal("deep sub should not prefer RBU")
+	}
+	if !PreferRBUOverShipTubes(ship, "RBU", 200) {
+		t.Fatal("explicit RBU state should prefer RBU")
+	}
+}
+
 func TestLaunchRBUSplash(t *testing.T) {
 	fc := NewFireControl()
 	ship := &world.Entity{
@@ -86,7 +99,7 @@ func TestLaunchRBUSplash(t *testing.T) {
 	}
 	tgt := &world.Entity{
 		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
-		Status: world.StatusActive, X: 0, Y: 1200, DepthFt: 150,
+		Status: world.StatusActive, X: 0, Y: 1200, DepthFt: 100,
 	}
 	if fc.LaunchRastrub(ship, tgt, 10) != nil {
 		t.Fatal("Grisha must not launch Rastrub")
@@ -100,6 +113,26 @@ func TestLaunchRBUSplash(t *testing.T) {
 		t.Fatalf("expected RBU detonation, got %#v", dets)
 	}
 	if dets[0].Hit == nil || dets[0].Hit.ID != "player" {
-		t.Fatal("expected player in blast")
+		t.Fatal("expected player in blast at 100 ft")
+	}
+}
+
+func TestRBUDoesNotHitDeepSub(t *testing.T) {
+	fc := NewFireControl()
+	ship := &world.Entity{
+		ID: "cv", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha", X: 0, Y: 0,
+	}
+	deep := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 1200, DepthFt: 200,
+	}
+	salvo := fc.LaunchRBU(ship, deep, 10)
+	if salvo == nil {
+		t.Fatal("expected RBU")
+	}
+	dets := fc.AdvanceRBU(10+salvo.FlightSec+0.1, []*world.Entity{deep})
+	if len(dets) != 1 || dets[0].Hit != nil {
+		t.Fatalf("deep sub should be outside RBU envelope, hit=%v", dets[0].Hit)
 	}
 }

@@ -181,6 +181,9 @@ func (e *Engine) tick(dt float64) {
 		e.Acoustics.Env.SeaState = e.Scenario.Weather.SeaStateInt()
 	}
 	if player != nil {
+		if evs := acoustics.AutoProtectExtendedGear(player, &e.ESM, &e.COMM, &e.Periscope, &e.Sonar); len(evs) > 0 {
+			e.Events = append(e.Events, evs...)
+		}
 		if evs, sheared := e.ESM.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
 			e.Events = append(e.Events, evs...)
 		}
@@ -242,19 +245,6 @@ func (e *Engine) tick(dt float64) {
 
 	emitters := e.AcousticEmitters()
 	e.Sonar.UpdateTowed(dt)
-	if player != nil {
-		if sheared, warn := e.Sonar.CheckTowedSpeed(player.SpeedKts); sheared {
-			player.EnsureDamage()
-			player.Damage.Eff[world.SysTowed] = 0
-			e.Events = append(e.Events, "TOWED ARRAY PARTED — cable shear")
-		} else if warn {
-			// Soft event every ~8 s so the status line can pick it up without spam.
-			if int(t*10)%80 == 0 {
-				e.Events = append(e.Events, fmt.Sprintf(
-					"TOWED CABLE STRESS — reduce speed below %.0f kn", acoustics.TowedWarnSpeedKts(e.Sonar.TowedCablePct)))
-			}
-		}
-	}
 	if e.bioRng == nil {
 		e.bioRng = rand.New(rand.NewSource(0xB10C0DE ^ int64(t*1000)))
 	}
@@ -481,7 +471,11 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 				e.Events = append(e.Events, "Target destroyed: "+det.Hit.Name)
 			}
 		} else if playerHit {
-			e.Events = append(e.Events, "OWN SHIP HIT — systems damaged")
+			if det.RBU {
+				e.Events = append(e.Events, "OWN SHIP HIT — RBU pattern shock")
+			} else {
+				e.Events = append(e.Events, "OWN SHIP HIT — systems damaged")
+			}
 			if sys := world.FirstNewCriticalSystem(beforeCrit, &det.Hit.Damage); sys != world.SysNone {
 				e.Events = append(e.Events, "OWN SHIP CRITICAL — "+world.SystemName(sys))
 			}
@@ -993,14 +987,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			continue
 		}
 		ent.EnsureDamage()
-		canLaunch := false
-		for tn := 1; tn <= 4; tn++ {
-			if ent.Damage.Operational(world.TubeSys(tn)) {
-				canLaunch = true
-				break
-			}
-		}
-		if !canLaunch {
+		if !e.FireControl.CanEmploySurfaceASW(ent) {
 			continue
 		}
 		if e.FireControl.HasRecentSurfaceASW(ent.ID, 48) {
@@ -1010,11 +997,30 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 		if ent.Track.Valid {
 			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
 		}
-		// Green crews must classify before weapon release (radar paint counts).
-		if ent.AIState != "RADAR_TRACK" && !ai.TrackClassified(ent) {
+		if ent.AIState != "RADAR_TRACK" && !ai.TrackWeaponRelease(ent) {
 			continue
 		}
 		aim := ai.TrackAimEntity(ent, player)
+		targetDepth := player.DepthFt
+		if aim != nil && aim.DepthFt > 0 {
+			targetDepth = aim.DepthFt
+		}
+
+		// Grisha: shallow subs in the rocket envelope get RBU before tubes (overlap 700–2200 yd).
+		if weapons.SurfaceHasRBU(ent.SignatureID) &&
+			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd &&
+			weapons.PreferRBUOverShipTubes(ent, ent.AIState, targetDepth) {
+			if int(gameTime*10)%44 != 0 {
+				continue
+			}
+			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
+				e.Events = append(e.Events, "RBU barrage detected")
+				if player != nil {
+					e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
+				}
+			}
+			continue
+		}
 
 		// Close band: ship torpedo tubes.
 		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
@@ -1027,7 +1033,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			continue
 		}
 
-		// Grisha: RBU pattern inside rocket envelope.
+		// Grisha: RBU fallback below tube minimum or when target is too deep for tube preference.
 		if weapons.SurfaceHasRBU(ent.SignatureID) &&
 			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd {
 			if int(gameTime*10)%44 != 0 {
@@ -1035,6 +1041,9 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			}
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, "RBU barrage detected")
+				if player != nil {
+					e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
+				}
 			}
 			continue
 		}
@@ -1145,14 +1154,7 @@ func (e *Engine) tryFriendlySurfaceWeapons(player *world.Entity, gameTime float6
 			continue
 		}
 		ent.EnsureDamage()
-		canLaunch := false
-		for tn := 1; tn <= 4; tn++ {
-			if ent.Damage.Operational(world.TubeSys(tn)) {
-				canLaunch = true
-				break
-			}
-		}
-		if !canLaunch {
+		if !e.FireControl.CanEmploySurfaceASW(ent) {
 			continue
 		}
 		if e.FireControl.HasRecentSurfaceASW(ent.ID, 48) {
@@ -1162,11 +1164,25 @@ func (e *Engine) tryFriendlySurfaceWeapons(player *world.Entity, gameTime float6
 		if ent.Track.Valid {
 			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
 		}
-		if ent.AIState != "RADAR_TRACK" && !ai.TrackClassified(ent) {
+		if ent.AIState != "RADAR_TRACK" && !ai.TrackWeaponRelease(ent) {
 			continue
 		}
 		aim := ai.TrackAimEntity(ent, quarry)
 		if world.IsFriendly(aim) || world.IsOwnship(aim, player) {
+			continue
+		}
+		targetDepth := quarry.DepthFt
+		if aim != nil && aim.DepthFt > 0 {
+			targetDepth = aim.DepthFt
+		}
+
+		if weapons.SurfaceHasRBU(ent.SignatureID) &&
+			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd &&
+			weapons.PreferRBUOverShipTubes(ent, ent.AIState, targetDepth) {
+			if int(gameTime*10)%44 != 0 {
+				continue
+			}
+			_ = e.FireControl.LaunchRBU(ent, aim, gameTime)
 			continue
 		}
 

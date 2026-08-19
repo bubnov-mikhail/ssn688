@@ -78,6 +78,39 @@ func TestSurfaceAIGreenStaysTrackingUntilClassified(t *testing.T) {
 	}
 }
 
+func TestTrackWeaponReleaseAtDefcon3(t *testing.T) {
+	ship := &world.Entity{
+		CrewSkill: 50, Defcon: world.DefconWeaponsFree,
+		Track: world.AITrack{Valid: true, ClassConf: 0.15, HoldSec: 4},
+	}
+	if !TrackWeaponRelease(ship) {
+		t.Fatal("weapons free + held track should allow release")
+	}
+	ship.Defcon = world.DefconHostile
+	if TrackWeaponRelease(ship) {
+		t.Fatal("hostile without ID should not release")
+	}
+}
+
+func TestSurfaceGrishaRBUAtWeaponsFree(t *testing.T) {
+	ship := &world.Entity{
+		ID: "grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 0, Y: 0, SpeedKts: 14,
+		Damage: world.NewFullHealth(), LastPingTime: -100, Defcon: world.DefconWeaponsFree,
+		SignatureID: "grisha", CrewSkill: 55,
+		Track: world.AITrack{Valid: true, ClassConf: 0.2, HoldSec: 10, X: 0, Y: 1400, DepthFt: 60},
+	}
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 1400, DepthFt: 60, SpeedKts: 5,
+	}
+	model := acoustics.NewModel(acoustics.DefaultEnvironment())
+	updateSurfaceAI(ship, player, 50, 0.1, model, nil, EvadeContext{}, nil)
+	if ship.AIState != "RBU" && ship.AIState != "SHIP_TUBE" {
+		t.Fatalf("expected weapon band state at 1400 yd / DEFCON 3, got %s", ship.AIState)
+	}
+}
+
 func TestSurfaceStickyHoldsDatumOnLostContact(t *testing.T) {
 	ship := &world.Entity{
 		ID: "dd", Kind: world.KindSurfaceShip, Side: world.SideEnemy,

@@ -326,27 +326,6 @@ func (p *PeriscopeState) AdvanceMastMotion(dt, gameTime float64, player *world.E
 		return nil, false
 	}
 
-	exposed := p.Extension > 0.05
-	depthOK := player.DepthFt <= world.ESMMastMaxDepthFt+0.5
-	speedOK := math.Abs(player.SpeedKts) <= world.ESMMastMaxSpeedKts+0.05
-
-	if exposed && (!depthOK || !speedOK) {
-		critical := player.DepthFt > world.ESMMastMaxDepthFt+15 || math.Abs(player.SpeedKts) > world.ESMMastMaxSpeedKts+1.5
-		if critical {
-			p.shear(player)
-			return []string{"PERISCOPE SHEARED — optic destroyed"}, true
-		}
-		if gameTime-p.LastWarnAt > 8 {
-			p.LastWarnAt = gameTime
-			if !depthOK {
-				events = append(events, fmt.Sprintf("WARNING — periscope exposed below periscope depth (%.0f ft). Reduce depth or lower scope.", player.DepthFt))
-			}
-			if !speedOK {
-				events = append(events, fmt.Sprintf("WARNING — periscope exposed above %.0f kn (%.0f kn). Reduce speed or lower scope.", world.ESMMastMaxSpeedKts, math.Abs(player.SpeedKts)))
-			}
-		}
-	}
-
 	switch p.Order {
 	case PeriMastRaise:
 		if ok, _ := CanRaisePeriscope(player); !ok && p.Extension < 0.05 {
@@ -358,18 +337,6 @@ func (p *PeriscopeState) AdvanceMastMotion(dt, gameTime float64, player *world.E
 		p.Extension = math.Max(0, p.Extension-dt/periLowerSec)
 	}
 	return events, false
-}
-
-func (p *PeriscopeState) shear(player *world.Entity) {
-	p.Sheared = true
-	p.Order = PeriMastStow
-	p.Extension = 0
-	p.ClearLock()
-	if player != nil {
-		player.EnsureDamage()
-		player.Damage.Eff[world.SysPeriscope] = 0
-		player.Damage.CancelRepair()
-	}
 }
 
 func normalizeDeg360(d float64) float64 {

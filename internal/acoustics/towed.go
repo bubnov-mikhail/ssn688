@@ -143,24 +143,6 @@ func TowedShearSpeedKts(cablePct float64) float64 {
 	return 24 + (1-cablePct)*5 // 24..~28
 }
 
-// CheckTowedSpeed applies cable stress. Returns (sheared, warn).
-func (s *SonarState) CheckTowedSpeed(speedKts float64) (sheared, warn bool) {
-	if s == nil || s.TowedDamaged || s.TowedCablePct < towedShearMinPct {
-		return false, false
-	}
-	shear := TowedShearSpeedKts(s.TowedCablePct)
-	warnAt := TowedWarnSpeedKts(s.TowedCablePct)
-	if speedKts >= shear {
-		s.TowedDamaged = true
-		s.TowedCablePct = 0
-		s.TowedCableRate = 0
-		return true, false
-	}
-	if speedKts >= warnAt {
-		return false, true
-	}
-	return false, false
-}
 
 // TriangulationQuality 0..1 from hull↔towed baseline vs range and geometry.
 // Best abeam with a long stream; near zero ahead/astern or with short cable.

@@ -27,10 +27,6 @@ func isOwnshipDamageFXEvent(ev string) bool {
 		strings.HasPrefix(ev, "PLAYER SUBMARINE FATAL"),
 		strings.HasPrefix(ev, "PLAYER SUBMARINE LOST"):
 		return true
-	case strings.Contains(ev, "ESM MAST SHEARED"),
-		strings.Contains(ev, "COMM MAST SHEARED"),
-		strings.Contains(ev, "PERISCOPE SHEARED"):
-		return true
 	default:
 		return false
 	}

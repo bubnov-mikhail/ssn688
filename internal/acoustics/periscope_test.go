@@ -24,19 +24,19 @@ func TestPeriscopeRaiseGates(t *testing.T) {
 	}
 }
 
-func TestPeriscopeShearsOnSpeed(t *testing.T) {
+func TestPeriscopeAutoRetractOnSpeed(t *testing.T) {
 	player := &world.Entity{ID: "p", Kind: world.KindSubmarine, DepthFt: 50, SpeedKts: 5}
 	world.InitCombatantDamage(player)
 	var peri PeriscopeState
 	peri.Order = PeriMastRaise
 	peri.Extension = 1
 	player.SpeedKts = 12
-	_, sheared := peri.AdvanceMastMotion(0.1, 10, player)
-	if !sheared || !peri.Sheared {
-		t.Fatal("expected shear")
+	evs := AutoProtectExtendedGear(player, nil, nil, &peri, nil)
+	if len(evs) == 0 || peri.Order != PeriMastStow {
+		t.Fatalf("expected auto-retract, events=%v order=%v", evs, peri.Order)
 	}
-	if !player.Damage.Destroyed(world.SysPeriscope) {
-		t.Fatal("SysPeriscope should be destroyed")
+	if player.Damage.Destroyed(world.SysPeriscope) {
+		t.Fatal("SysPeriscope should not be destroyed")
 	}
 }
 

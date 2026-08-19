@@ -422,7 +422,7 @@ var libraryCatalog = []libraryEntry{
 			"Length ~110 m  |  Speed 30+ kn submerged",
 			"Tubes: 4 × 533 mm  |  Mk48 / Harpoon / ASROC (sim)",
 			"Acoustic: quiet SSN; blade ~4.2 Hz harmonics",
-			"ESM mast: raise only at ≤60 ft and ≤8 kn; shear if limits exceeded while up",
+			"ESM mast: raise at periscope depth (≤60 ft, ≤8 kn); auto-lowers at ≥65 ft or ≥8.5 kn",
 			"COMM mast: same limits; receive scheduled fleet traffic when raised",
 			"Periscope: same depth/speed limits; train/zoom on MAST; raised optic is radar-detectable",
 		},

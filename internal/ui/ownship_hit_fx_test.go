@@ -15,9 +15,7 @@ func TestIsOwnshipDamageFXEvent(t *testing.T) {
 		{"PLAYER SUBMARINE FATAL DAMAGE — SINKING", true},
 		{"PLAYER SUBMARINE LOST — hull breach", true},
 		{"WARNING — ESM mast near crush depth", false},
-		{"ESM MAST SHEARED — antenna destroyed", true},
-		{"COMM MAST SHEARED — antenna destroyed", true},
-		{"PERISCOPE SHEARED — optic destroyed", true},
+		{"AUTO-RETRACT — masts lowering to prevent damage", false},
 		{"Target hit: Foxtrot — damaged", false},
 		{"Torpedo in the water.", false},
 	}

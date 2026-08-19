@@ -105,6 +105,28 @@ func (fc *FireControl) shipTubeAmmo(ship *world.Entity) int {
 	return n
 }
 
+// CanEmploySurfaceASW reports whether the ship still has RBU, Rastrub, or tube ASW rounds.
+func (fc *FireControl) CanEmploySurfaceASW(ship *world.Entity) bool {
+	if fc == nil || ship == nil {
+		return false
+	}
+	ship.EnsureDamage()
+	if SurfaceHasRBU(ship.SignatureID) && fc.rbuAmmo(ship) > 0 {
+		return true
+	}
+	if SurfaceHasRastrub(ship.SignatureID) && fc.rastrubAmmo(ship) > 0 {
+		return true
+	}
+	if fc.shipTubeAmmo(ship) > 0 {
+		for tn := 1; tn <= 4; tn++ {
+			if ship.Damage.Operational(world.TubeSys(tn)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // LaunchRastrub fires a rocket toward a lead point near the target. Returns nil if dry.
 func (fc *FireControl) LaunchRastrub(ship, target *world.Entity, gameTime float64) *RastrubFlight {
 	if ship == nil || target == nil || !ship.Alive() || !target.Alive() {

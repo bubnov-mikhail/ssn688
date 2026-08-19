@@ -49,7 +49,7 @@ func TestESMMastRaiseGates(t *testing.T) {
 	}
 }
 
-func TestESMMastShearsOnSpeed(t *testing.T) {
+func TestESMMastAutoRetractOnSpeed(t *testing.T) {
 	player := &world.Entity{
 		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
 		Status: world.StatusActive, DepthFt: 60, SpeedKts: 6, Damage: world.NewFullHealth(),
@@ -57,13 +57,13 @@ func TestESMMastShearsOnSpeed(t *testing.T) {
 	var esm acoustics.ESMState
 	esm.OrderRaiseESM(player)
 	esm.Extension = 1
-	player.SpeedKts = 14 // well past 8+1.5
-	evs, sheared := esm.AdvanceMastMotion(0.1, 10, player)
-	if !sheared {
-		t.Fatalf("expected shear, events=%v", evs)
+	player.SpeedKts = 14
+	evs := acoustics.AutoProtectExtendedGear(player, &esm, nil, nil, nil)
+	if len(evs) == 0 || esm.Order != acoustics.ESMMastStow {
+		t.Fatalf("expected auto-retract, events=%v order=%v", evs, esm.Order)
 	}
-	if player.Damage.EffOf(world.SysESM) > world.RepairThresholdPct {
-		t.Fatal("SysESM should be destroyed")
+	if player.Damage.EffOf(world.SysESM) <= world.RepairThresholdPct {
+		t.Fatal("SysESM should not be destroyed")
 	}
 }
 

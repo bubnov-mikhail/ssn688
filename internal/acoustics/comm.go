@@ -134,27 +134,6 @@ func (c *COMMState) AdvanceMastMotion(dt, gameTime float64, player *world.Entity
 		return nil, false
 	}
 
-	exposed := c.Extension > 0.05
-	depthOK := player.DepthFt <= world.ESMMastMaxDepthFt+0.5
-	speedOK := math.Abs(player.SpeedKts) <= world.ESMMastMaxSpeedKts+0.05
-
-	if exposed && (!depthOK || !speedOK) {
-		critical := player.DepthFt > world.ESMMastMaxDepthFt+15 || math.Abs(player.SpeedKts) > world.ESMMastMaxSpeedKts+1.5
-		if critical {
-			c.shear(player)
-			return []string{"COMM MAST SHEARED — antenna destroyed"}, true
-		}
-		if gameTime-c.LastWarnAt > 8 {
-			c.LastWarnAt = gameTime
-			if !depthOK {
-				events = append(events, fmt.Sprintf("WARNING — COMM mast exposed below periscope depth (%.0f ft). Reduce depth or lower mast.", player.DepthFt))
-			}
-			if !speedOK {
-				events = append(events, fmt.Sprintf("WARNING — COMM mast exposed above %.0f kn (%.0f kn). Reduce speed or lower mast.", world.ESMMastMaxSpeedKts, math.Abs(player.SpeedKts)))
-			}
-		}
-	}
-
 	switch c.Order {
 	case COMMMastRaise:
 		if ok, _ := CanRaiseCOMM(player); !ok && c.Extension < 0.05 {
@@ -166,17 +145,6 @@ func (c *COMMState) AdvanceMastMotion(dt, gameTime float64, player *world.Entity
 		c.Extension = math.Max(0, c.Extension-dt/world.ESMMastLowerSec)
 	}
 	return events, false
-}
-
-func (c *COMMState) shear(player *world.Entity) {
-	c.Sheared = true
-	c.Order = COMMMastStow
-	c.Extension = 0
-	if player != nil {
-		player.EnsureDamage()
-		player.Damage.Eff[world.SysCOMM] = 0
-		player.Damage.CancelRepair()
-	}
 }
 
 // UpdateCOMM delivers all scheduled traffic that is due once the mast is up.

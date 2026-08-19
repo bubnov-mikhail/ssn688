@@ -680,6 +680,18 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int, 
 		render.DrawLine(screen, sx, sy, sx1, sy1, color.RGBA{255, 180, 40, 90})
 	}
 
+	gt := a.Engine.Clock.GameTime
+	for _, rbu := range a.Engine.FireControl.ActiveRBU {
+		if rbu == nil || !rbu.Alive {
+			continue
+		}
+		ax, ay := rbu.Pos(gt)
+		sx, sy := view.worldToScreen(ax, ay)
+		render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, color.RGBA{255, 90, 40, 255})
+		sx1, sy1 := view.worldToScreen(rbu.X1, rbu.Y1)
+		render.DrawLine(screen, sx, sy, sx1, sy1, color.RGBA{255, 120, 50, 120})
+	}
+
 	for _, t := range a.Engine.FireControl.ActiveTorpedoes {
 		if t == nil || !t.Alive || t.Side != world.SidePlayer {
 			continue
