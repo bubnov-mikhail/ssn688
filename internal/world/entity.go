@@ -60,6 +60,8 @@ type Entity struct {
 	TransientUntil   float64
 	TransientFreqHz  float64
 	TransientLevelDB float64
+	// TorpedoVariant is a scenario-only launch override for hostile submarine tubes.
+	TorpedoVariant string
 	// Sinking wreck noise / motion (StatusSinking).
 	SinkRateFPM     float64 // feet per minute downward
 	WreckNoiseUntil float64

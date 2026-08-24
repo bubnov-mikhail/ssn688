@@ -78,6 +78,14 @@ func ButtonLabelBaseline(boxY, boxH int) int {
 	return boxY + (boxH+m.Ascent.Ceil()-m.Descent.Ceil())/2
 }
 
+// LabelWidth returns the pixel width of medium (body) text.
+func LabelWidth(label string) int {
+	if faceMedium != nil {
+		return font.MeasureString(faceMedium, label).Ceil()
+	}
+	return len(label) * 8
+}
+
 // ButtonWidth returns a button width that fits the label with horizontal padding.
 func ButtonWidth(label string, hPad int) int {
 	w := ButtonLabelWidth(label) + hPad

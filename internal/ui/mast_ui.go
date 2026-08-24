@@ -198,10 +198,21 @@ func (a *App) handleMastButton(id string) {
 			a.StatusMessage = "Unable to transmit — raise COMM mast first."
 			break
 		}
+		player := a.Engine.Scenario.Player
+		if player.DepthFt > world.ESMMastMaxDepthFt+0.5 {
+			a.StatusMessage = "Unable to transmit — come to periscope depth (≤60 ft)."
+			break
+		}
+		a.Engine.Scenario.CheckObjectives()
+		if !a.Engine.Scenario.PrimaryObjectivesComplete() {
+			a.StatusMessage = "Unable to transmit — primary objectives not complete."
+			break
+		}
 		gt := a.Engine.Clock.GameTime
 		report := a.Engine.Scenario.MissionStatusReport()
 		comm.AppendLocalTraffic(gt, report)
-		a.StatusMessage = "Mission status transmitted on COMM."
+		a.Engine.Campaign.ReportEligible = true
+		a.StatusMessage = "Mission status transmitted on COMM — END MISSION enabled."
 		a.mastCommScroll = 1 << 20
 	case "peri_raise":
 		ok, msg := peri.OrderRaise(player)

@@ -103,6 +103,10 @@ func SourceSpectrum(e *world.Entity) Spectrum {
 			level += (spd - 15) * 0.35 * (freq / MaxFreqHz)
 		}
 
+		// Idle plant: no propulsion. Hotel-load only — hard to hear on passive
+		// except at very short range. Tube/door transients stay audible below.
+		level = applyIdlePlantQuieting(level, e)
+
 		if e.TransientUntil > 0 && e.TransientLevelDB > 0 {
 			// Mechanical transients: strong LF/MF snap with a broadband tail.
 			bias := e.TransientFreqHz
@@ -130,6 +134,39 @@ func machineryNoiseDB(speedKts float64) float64 {
 		return 0
 	}
 	return (speedKts - 3) * 0.9
+}
+
+const (
+	// Treat |speed| at or below this as engines stopped.
+	engineIdleSpeedKts = 0.5
+	// Plant considered online; no extra idle quieting.
+	engineOnlineSpeedKts = 3.0
+	// Peak radiated hotel-load. Sized so a stopped hull is a confident
+	// passive detection near 200 yd, not at typical search ranges.
+	engineIdleSourceCapDB = 92.0
+)
+
+func applyIdlePlantQuieting(level float64, e *world.Entity) float64 {
+	if e == nil {
+		return level
+	}
+	switch e.Kind {
+	case world.KindSubmarine, world.KindSurfaceShip:
+	default:
+		return level
+	}
+	spd := math.Abs(e.SpeedKts)
+	if spd >= engineOnlineSpeedKts {
+		return level
+	}
+	quiet := 1.0
+	if spd > engineIdleSpeedKts {
+		quiet = 1 - (spd-engineIdleSpeedKts)/(engineOnlineSpeedKts-engineIdleSpeedKts)
+	}
+	if level <= engineIdleSourceCapDB {
+		return level
+	}
+	return level + quiet*(engineIdleSourceCapDB-level)
 }
 
 // SelfNoiseSpectrum is the noise floor produced by the listening platform.

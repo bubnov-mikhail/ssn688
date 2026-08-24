@@ -7,6 +7,7 @@ import (
 
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/ai"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -36,6 +37,7 @@ type Engine struct {
 	Periscope         acoustics.PeriscopeState
 	PlotMarkers       []world.PlotMarker
 	plotMarkerSeq     int
+	Campaign          campaign.RuntimeMeta
 	Accum             float64
 	Events            []string
 	entityScratch     []*world.Entity
@@ -411,6 +413,7 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	if det == nil {
 		return
 	}
+	player := e.Scenario.Player
 	if det.Intercepted {
 		msg := "Point defense intercepted inbound missile"
 		if det.Debris && det.Hit != nil {
@@ -431,11 +434,15 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 		}
 		return
 	}
+	if det.SignalOnly {
+		e.emitWeaponSignalTransient(player, det, gameTime)
+		e.Events = append(e.Events, "Exercise torpedo terminated")
+		return
+	}
 	if det.SelfKill {
 		e.Events = append(e.Events, "Torpedo self-destructed")
 		return
 	}
-	player := e.Scenario.Player
 	acoustics.ApplyDetonationDeaf(&e.Sonar, player, det.X, det.Y, gameTime, det.Hit)
 	e.emitBlastTransient(player, det, gameTime)
 	if !det.Accident {
@@ -592,6 +599,39 @@ func (e *Engine) emitBlastTransient(player *world.Entity, det *weapons.Detonatio
 	acoustics.AddPassiveTransientAt(&e.Sonar, bearing, peak, 6.5, "blast", 60, arrive, gameTime)
 }
 
+func (e *Engine) emitWeaponSignalTransient(player *world.Entity, det *weapons.Detonation, gameTime float64) {
+	if player == nil || det == nil {
+		return
+	}
+	dist := math.Hypot(player.X-det.X, player.Y-det.Y)
+	const hearYd = 12000.0
+	if dist > hearYd {
+		return
+	}
+	bearing := math.Atan2(det.X-player.X, det.Y-player.Y) * 180 / math.Pi
+	if bearing < 0 {
+		bearing += 360
+	}
+	peak := det.SignalLevel * (1 - dist/hearYd)
+	if peak < 8 {
+		peak = 8
+	}
+	freq := det.SignalFreqHz
+	if freq <= 0 {
+		freq = 1100
+	}
+	dur := det.SignalDurSec
+	if dur <= 0 {
+		dur = 4.0
+	}
+	label := det.SignalLabel
+	if label == "" {
+		label = "weapon_signal"
+	}
+	arrive := gameTime + acoustics.OneWaySoundTravelSec(dist)
+	acoustics.AddPassiveTransientAt(&e.Sonar, bearing, peak, dur, label, freq, arrive, gameTime)
+}
+
 func (e *Engine) emitCookOffTransient(player, wreck *world.Entity, gameTime float64) {
 	if player == nil || wreck == nil {
 		return
@@ -741,7 +781,7 @@ func (e *Engine) guideAIWireTorpedoes(player *world.Entity, gameTime float64) {
 		if torp == nil || !torp.Alive {
 			continue
 		}
-		if torp.Class == weapons.ClassUMGT1 {
+		if torp.Class == weapons.ClassUMGT1 || torp.DisableSearch {
 			continue // lightweight ASW fish: no wire mid-course
 		}
 		if torp.WireCut || torp.Mode != weapons.ModeWire {
@@ -1015,9 +1055,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			}
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, "RBU barrage detected")
-				if player != nil {
-					e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
-				}
+				e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
 			}
 			continue
 		}
@@ -1041,9 +1079,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			}
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, "RBU barrage detected")
-				if player != nil {
-					e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
-				}
+				e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
 			}
 			continue
 		}

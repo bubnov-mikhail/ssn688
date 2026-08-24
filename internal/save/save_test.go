@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/sim"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -51,6 +52,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	enemySub.LastPingPower = 0.6
 	enemySub.LengthFt = 300
 	enemySub.CrewSkill = 33
+	enemySub.TorpedoVariant = weapons.EnemyOrdnanceSSN688Decoy
 
 	enemyShip.X, enemyShip.Y = -3000, 5000
 	enemyShip.HeadingDeg = 45
@@ -112,6 +114,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		SeekerOn: true, Armed: true, Alive: true, Mode: weapons.ModeSearch,
 		Age: 40, LastPingTime: 118, LaunchHeadDeg: 0, GyroCourseDeg: 90,
 		ClearDistYd: 400, EnableSearchAfterClear: true,
+		OrdnanceType: weapons.OrdnanceMk48Exercise, TerminalMode: weapons.TerminalSignal,
 	}
 	fish.MarkGyroEnabled(true)
 	hostile := &weapons.Torpedo{
@@ -120,7 +123,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		SpeedKts: 40, CruiseKts: 48, RunDepthFt: 300,
 		SeekerOn: false, Armed: true, Alive: true, Mode: weapons.ModeWire,
 		Age: 12, LastPingTime: -1, LaunchHeadDeg: 215, GyroCourseDeg: 210,
-		ClearDistYd: 50, WireCut: false,
+		ClearDistYd: 50, WireCut: false, AcousticSig: "ssn688_decoy",
+		OrdnanceType: weapons.EnemyOrdnanceSSN688Decoy, TerminalMode: weapons.TerminalSilent,
+		DisableSearch: true,
 	}
 	eng.FireControl.ActiveTorpedoes = []*weapons.Torpedo{fish, hostile}
 	eng.Scenario.Objectives[0].Complete = true
@@ -165,6 +170,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	assertNear(t, "sub.Ping", gs.LastPingTime, 88.5)
 	assertNear(t, "sub.Len", gs.LengthFt, 300)
 	assertNear(t, "sub.CrewSkill", gs.CrewSkill, 33)
+	if gs.TorpedoVariant != weapons.EnemyOrdnanceSSN688Decoy {
+		t.Fatalf("sub torpedo variant lost: %q", gs.TorpedoVariant)
+	}
 
 	gship := findEnt(got, "enemy_grisha")
 	if gship.Status != world.StatusSinking {
@@ -221,6 +229,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	if gf == nil || !gf.Alive || gf.Mode != weapons.ModeSearch || !gf.GyroEnabled() {
 		t.Fatalf("player fish %#v", gf)
 	}
+	if gf.OrdnanceType != weapons.OrdnanceMk48Exercise || gf.TerminalMode != weapons.TerminalSignal {
+		t.Fatalf("exercise fish fields lost: %#v", gf)
+	}
 	assertNear(t, "fish.X", gf.X, 1300)
 	assertNear(t, "fish.Head", gf.HeadingDeg, 0)
 	assertNear(t, "fish.Launch", gf.LaunchHeadDeg, 0)
@@ -230,6 +241,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	gh := got.FireControl.TorpedoByID("ETORP-3")
 	if gh == nil || gh.TargetID != "player" || gh.Mode != weapons.ModeWire {
 		t.Fatalf("hostile %#v", gh)
+	}
+	if gh.AcousticSig != "ssn688_decoy" || !gh.DisableSearch || gh.TerminalMode != weapons.TerminalSilent {
+		t.Fatalf("hostile decoy fields lost: %#v", gh)
 	}
 	assertNear(t, "hostile.X", gh.X, 4400)
 	assertNear(t, "hostile.Ord", gh.OrderedHead, 210)
@@ -329,6 +343,35 @@ objective=obj_surface|Destroy hostile surface combatant|false|enemy_surface
 		t.Fatalf("expected udaloy length fallback, got %.1f", ship.LengthFt)
 	}
 	assertNear(t, "legacy.x", got.Scenario.Player.X, 100)
+}
+
+func TestSaveCampaignRoundTrip(t *testing.T) {
+	sc := world.NewTrainingScenario()
+	eng := sim.NewEngine(sc)
+	eng.Campaign = campaign.RuntimeMeta{
+		ScenarioID:  campaign.DemoScenarioID,
+		MissionID:   campaign.DemoMissionTraining,
+		MissionHash: "abc123",
+		LoadoutMix:  0.35,
+		Completed:   map[campaign.MissionID]bool{},
+		Vars:        map[string]string{"foxrot_neutralized": "true"},
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "camp.sav")
+	if err := Save(path, eng); err != nil {
+		t.Fatal(err)
+	}
+	meta, ok := campaign.ReadSaveCampaignMeta(path)
+	if !ok || meta.ScenarioID != campaign.DemoScenarioID {
+		t.Fatalf("campaign meta missing: %#v", meta)
+	}
+	got, err := LoadClean(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Campaign.ScenarioID != campaign.DemoScenarioID || got.Campaign.LoadoutMix != 0.35 {
+		t.Fatalf("campaign round trip failed: %+v", got.Campaign)
+	}
 }
 
 func findEnt(e *sim.Engine, id string) *world.Entity {

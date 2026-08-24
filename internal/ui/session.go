@@ -8,11 +8,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/save"
 	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/world"
 )
 
 const (
@@ -132,7 +132,9 @@ func (a *App) beginGameSession(engine *sim.Engine) {
 }
 
 func (a *App) StartNewGame() {
-	a.beginGameSession(sim.NewEngine(world.NewTrainingScenario()))
+	a.SelectedScenarioID = campaign.DemoScenarioID
+	a.LoadoutMix = 0.25
+	a.startSelectedMission()
 }
 
 func (a *App) loadSelectedSave() {
@@ -173,26 +175,28 @@ func (a *App) quickSave() {
 	}
 }
 
-func (a *App) headerButtonRects() (saveX, exitX, y, wSave, wExit, h int) {
+func (a *App) headerButtonRects() (saveX, endX, exitX, y, wSave, wEnd, wExit, h int) {
 	h = headerBtnH
 	wSave = render.ButtonWidth("SAVE", 20)
+	wEnd = render.ButtonWidth("END MISSION", 12)
 	wExit = render.ButtonWidth("EXIT", 20)
 	y = (gameHeaderH - h) / 2
 	exitX = render.ScreenW - headerBtnPad - wExit
-	saveX = exitX - headerBtnGap - wSave
-	return saveX, exitX, y, wSave, wExit, h
+	endX = exitX - headerBtnGap - wEnd
+	saveX = endX - headerBtnGap - wSave
+	return saveX, endX, exitX, y, wSave, wEnd, wExit, h
 }
 
 func (a *App) headerHit(mx, my, x, y, w, h int) bool {
 	return mx >= x && mx < x+w && my >= y && my < y+h
 }
 
-// handleHeaderButtons processes SAVE/EXIT. Returns true if a click was consumed.
+// handleHeaderButtons processes SAVE/END MISSION/EXIT. Returns true if a click was consumed.
 func (a *App) handleHeaderButtons() bool {
 	if a.Engine == nil {
 		return false
 	}
-	saveX, exitX, y, wSave, wExit, h := a.headerButtonRects()
+	saveX, endX, exitX, y, wSave, wEnd, wExit, h := a.headerButtonRects()
 	mx, my := ebiten.CursorPosition()
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return false
@@ -203,22 +207,40 @@ func (a *App) handleHeaderButtons() bool {
 		a.quickSave()
 		return true
 	}
+	if a.headerHit(mx, my, endX, y, wEnd, h) {
+		if !a.missionEndEligible() {
+			return true
+		}
+		a.uiPressedID = "hdr_end"
+		a.uiPressedAt = time.Now()
+		a.showConfirm(confirmEndMission, "END MISSION",
+			"End the current mission? Progress will be saved automatically and you will return to the scenario briefing.")
+		return true
+	}
 	if a.headerHit(mx, my, exitX, y, wExit, h) {
 		a.uiPressedID = "hdr_exit"
 		a.uiPressedAt = time.Now()
-		a.exitToMenu()
+		a.showConfirm(confirmExitMenu, "EXIT TO MENU",
+			"Leave the current mission and return to the main menu? Unsaved progress since the last save will be lost.")
 		return true
 	}
 	return false
 }
 
 func (a *App) drawHeaderButtons(screen *ebiten.Image) {
-	saveX, exitX, y, wSave, wExit, h := a.headerButtonRects()
+	saveX, endX, exitX, y, wSave, wEnd, wExit, h := a.headerButtonRects()
 	mx, my := ebiten.CursorPosition()
 	saveHover := a.headerHit(mx, my, saveX, y, wSave, h)
+	endHover := a.missionEndEligible() && a.headerHit(mx, my, endX, y, wEnd, h)
 	exitHover := a.headerHit(mx, my, exitX, y, wExit, h)
 	savePressed := a.uiPressedID == "hdr_save" && time.Since(a.uiPressedAt) < 120*time.Millisecond
+	endPressed := a.uiPressedID == "hdr_end" && time.Since(a.uiPressedAt) < 120*time.Millisecond
 	exitPressed := a.uiPressedID == "hdr_exit" && time.Since(a.uiPressedAt) < 120*time.Millisecond
 	render.DrawBevelButton(screen, saveX, y, wSave, h, "SAVE", saveHover, savePressed)
+	if a.missionEndEligible() {
+		render.DrawBevelButton(screen, endX, y, wEnd, h, "END MISSION", endHover, endPressed)
+	} else {
+		render.DrawBevelButtonDisabled(screen, endX, y, wEnd, h, "END MISSION")
+	}
 	render.DrawBevelButton(screen, exitX, y, wExit, h, "EXIT", exitHover, exitPressed)
 }

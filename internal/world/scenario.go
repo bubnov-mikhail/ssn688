@@ -401,6 +401,22 @@ func (s *Scenario) NoteIdentified(entityID string) {
 	}
 }
 
+func (s *Scenario) PrimaryObjectivesComplete() bool {
+	if s == nil {
+		return false
+	}
+	s.CheckObjectives()
+	for _, o := range s.Objectives {
+		if !o.Primary {
+			continue
+		}
+		if !o.Complete {
+			return false
+		}
+	}
+	return len(s.Objectives) > 0
+}
+
 func (s *Scenario) MissionComplete() bool {
 	if s.MissionFailed() {
 		return false

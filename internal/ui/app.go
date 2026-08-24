@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
@@ -30,6 +31,8 @@ const (
 	ModeSettings
 	ModeLoad
 	ModePaused
+	ModeScenarioList
+	ModeScenarioBrief
 )
 
 type Screen int
@@ -148,6 +151,14 @@ type App struct {
 	hitShakeAt    time.Time
 	hitShakeBuf   *ebiten.Image
 	dcTabAlert    bool // blink DC nav until player opens Damage Control
+
+	SelectedScenarioID campaign.ScenarioID
+	ScenarioListIndex  int
+	LoadoutMix             float64
+	LoadoutTubes           campaign.TubeLoadout
+	loadoutDragging        bool
+	loadoutOrdnanceMenuTube int
+	confirm                 confirmDialog
 }
 
 func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
@@ -163,6 +174,7 @@ func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
 		torpedoThreatActive: map[string]bool{},
 		activeRangeScaleYd:  12000,
 		wepsMapZoom:         0.05,
+		LoadoutMix:          0.25,
 	}
 }
 
@@ -174,7 +186,15 @@ func (a *App) Update() error {
 		a.updateSettings()
 	case ModeLoad:
 		a.updateLoad()
+	case ModeScenarioList:
+		return a.updateScenarioList()
+	case ModeScenarioBrief:
+		return a.updateScenarioBrief()
 	case ModeGame, ModePaused:
+		if a.confirmActive() {
+			a.updateConfirmDialog()
+			return nil
+		}
 		a.updateGame()
 	}
 	return nil
@@ -652,6 +672,10 @@ func (a *App) Draw(screen *ebiten.Image) {
 		a.drawSettings(screen)
 	case ModeLoad:
 		a.drawLoad(screen)
+	case ModeScenarioList:
+		a.drawScenarioList(screen)
+	case ModeScenarioBrief:
+		a.drawScenarioBrief(screen)
 	case ModeGame, ModePaused:
 		screen.Fill(render.ColorBG)
 		a.drawGameWithHitFX(screen)
@@ -699,10 +723,15 @@ func (a *App) drawGame(screen *ebiten.Image) {
 	if a.Mode == ModePaused {
 		render.DrawTextLarge(screen, "PAUSED", 720, 420, render.ColorDanger)
 	}
-	if a.Engine.Scenario.Player.Status == world.StatusSinking {
-		render.DrawTextLarge(screen, "OWN SHIP HIT - SINKING", 520, 460, render.ColorDanger)
-	} else if a.Engine.Scenario.Player.Status == world.StatusSunk {
-		render.DrawTextLarge(screen, "OWN SHIP LOST", 650, 460, render.ColorDanger)
+	if a.confirmActive() {
+		a.drawConfirmDialog(screen)
+	}
+	if a.Engine != nil && a.Engine.Scenario != nil && a.Engine.Scenario.Player != nil {
+		if a.Engine.Scenario.Player.Status == world.StatusSinking {
+			render.DrawTextLarge(screen, "OWN SHIP HIT - SINKING", 520, 460, render.ColorDanger)
+		} else if a.Engine.Scenario.Player.Status == world.StatusSunk {
+			render.DrawTextLarge(screen, "OWN SHIP LOST", 650, 460, render.ColorDanger)
+		}
 	}
 
 	a.drawTacticalMinimap(screen)

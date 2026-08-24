@@ -27,6 +27,27 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 4.2, CavitationDB: 75,
 	},
 	{
+		ID: "ssn688_decoy", Name: "Los Angeles SSN", Class: "SSN-688", Kind: KindSubmarine,
+		Bands: []NoiseBand{
+			{LowHz: 10, HighHz: 50, LevelDB: 90},
+			{LowHz: 50, HighHz: 200, LevelDB: 99},
+			{LowHz: 200, HighHz: 600, LevelDB: 94},
+			{LowHz: 600, HighHz: 1500, LevelDB: 80},
+		},
+		// Deliberately close to 688 machinery lines, but slightly overstated at mid-band.
+		Tonals: []TonalLine{
+			{FreqHz: 42, RelLevel: 0.52},
+			{FreqHz: 84, RelLevel: 0.68},
+			{FreqHz: 126, RelLevel: 0.83},
+			{FreqHz: 210, RelLevel: 0.97},
+			{FreqHz: 420, RelLevel: 0.77},
+			{FreqHz: 630, RelLevel: 0.58},
+			{FreqHz: 1050, RelLevel: 0.48},
+			{FreqHz: 1470, RelLevel: 0.38},
+		},
+		BladeRateHz: 4.15, CavitationDB: 77,
+	},
+	{
 		ID: "kilo", Name: "Kilo SS", Class: "SSK", Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 40, LevelDB: 115},

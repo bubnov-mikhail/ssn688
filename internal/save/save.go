@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/sim"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
-const saveFormat = 13
+const saveFormat = 15
 
 // Save writes the simulation state to a plain-text file.
 func Save(path string, engine *sim.Engine) error {
@@ -150,13 +152,14 @@ func Save(path string, engine *sim.Engine) error {
 			t.TargetContactID, t.ReloadOrdnance, t.LastOrdnance)
 	}
 	for _, torp := range engine.FireControl.ActiveTorpedoes {
-		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%t|%d\n",
+		fmt.Fprintf(w, "torpedo=%s|%s|%s|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%t|%t|%t|%d|%.3f|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%t|%d|%s|%d|%s|%t\n",
 			torp.ID, torp.ParentSubID, torp.TargetID, torp.Side,
 			torp.X, torp.Y, torp.DepthFt, torp.HeadingDeg, torp.SpeedKts, torp.RunDepthFt,
 			torp.SeekerOn, torp.WireCut, torp.Armed, torp.Alive, torp.Mode, torp.Age,
 			torp.TubeNumber, torp.OrderedHead, torp.CruiseKts,
 			torp.LaunchHeadDeg, torp.GyroCourseDeg, torp.ClearDistYd, torp.EnableSearchAfterClear,
-			torp.LastPingTime, torp.GyroEnabled(), torp.Class)
+			torp.LastPingTime, torp.GyroEnabled(), torp.Class, torp.OrdnanceType,
+			torp.TerminalMode, torp.AcousticSig, torp.DisableSearch)
 	}
 	for _, a := range engine.FireControl.ActiveRastrub {
 		if a == nil || !a.Alive {
@@ -211,6 +214,9 @@ func Save(path string, engine *sim.Engine) error {
 			cm.Alive, cm.Age, cm.TTL, cm.NoiseBoostDB)
 	}
 
+	fmt.Fprintf(w, "\n[campaign]\n")
+	writeCampaign(w, &engine.Campaign)
+
 	fmt.Fprintf(w, "\n[objectives]\n")
 	for _, o := range engine.Scenario.Objectives {
 		fmt.Fprintf(w, "objective=%s|%s|%t|%s|%t|%t|%t|%t\n",
@@ -224,6 +230,67 @@ func Save(path string, engine *sim.Engine) error {
 		fmt.Fprintf(w, "marker=%s|%.3f|%.3f\n", m.ID, m.X, m.Y)
 	}
 	return w.Flush()
+}
+
+func writeCampaign(w *bufio.Writer, meta *campaign.RuntimeMeta) {
+	if meta == nil || meta.ScenarioID == "" {
+		return
+	}
+	fmt.Fprintf(w, "scenario_id=%s\n", meta.ScenarioID)
+	fmt.Fprintf(w, "mission_id=%s\n", meta.MissionID)
+	fmt.Fprintf(w, "mission_hash=%s\n", meta.MissionHash)
+	fmt.Fprintf(w, "loadout_mix=%.3f\n", meta.LoadoutMix)
+	fmt.Fprintf(w, "report_eligible=%t\n", meta.ReportEligible)
+	fmt.Fprintf(w, "between_missions=%t\n", meta.BetweenMissions)
+	var done []string
+	for id, ok := range meta.Completed {
+		if ok {
+			done = append(done, string(id))
+		}
+	}
+	sort.Strings(done)
+	fmt.Fprintf(w, "completed=%s\n", strings.Join(done, ","))
+	for k, v := range meta.Vars {
+		fmt.Fprintf(w, "var=%s:%s\n", k, v)
+	}
+}
+
+func applyCampaignField(meta *campaign.RuntimeMeta, key, val string) {
+	if meta == nil {
+		return
+	}
+	if meta.Completed == nil {
+		meta.Completed = map[campaign.MissionID]bool{}
+	}
+	if meta.Vars == nil {
+		meta.Vars = map[string]string{}
+	}
+	switch key {
+	case "scenario_id":
+		meta.ScenarioID = campaign.ScenarioID(val)
+	case "mission_id":
+		meta.MissionID = campaign.MissionID(val)
+	case "mission_hash":
+		meta.MissionHash = val
+	case "loadout_mix":
+		meta.LoadoutMix, _ = strconv.ParseFloat(val, 64)
+	case "report_eligible":
+		meta.ReportEligible, _ = strconv.ParseBool(val)
+	case "between_missions":
+		meta.BetweenMissions, _ = strconv.ParseBool(val)
+	case "completed":
+		for _, id := range strings.Split(val, ",") {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				meta.Completed[campaign.MissionID(id)] = true
+			}
+		}
+	case "var":
+		parts := strings.SplitN(val, ":", 2)
+		if len(parts) == 2 {
+			meta.Vars[parts[0]] = parts[1]
+		}
+	}
 }
 
 func parseTrailingInt(id string) int {
@@ -275,6 +342,7 @@ func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "transient_until=%.3f\n", e.TransientUntil)
 	fmt.Fprintf(w, "transient_freq=%.3f\n", e.TransientFreqHz)
 	fmt.Fprintf(w, "transient_level=%.3f\n", e.TransientLevelDB)
+	fmt.Fprintf(w, "torpedo_variant=%s\n", e.TorpedoVariant)
 	fmt.Fprintf(w, "damage_init=%t\n", e.Damage.Initialized)
 	fmt.Fprintf(w, "damage_repairing=%d\n", e.Damage.Repairing)
 	fmt.Fprintf(w, "damage_runaway_fpm=%.3f\n", e.Damage.DepthRunawayFPM)
@@ -537,6 +605,8 @@ func loadClean(path string) (*sim.Engine, error) {
 			case "cm":
 				parseCM(&engine.CM, val)
 			}
+		case "campaign":
+			applyCampaignField(&engine.Campaign, key, val)
 		case "objectives":
 			if key == "objective" {
 				if !objectivesLoaded {
@@ -764,6 +834,8 @@ func applyEntityField(e *world.Entity, key, val string) {
 		e.TransientFreqHz, _ = strconv.ParseFloat(val, 64)
 	case "transient_level":
 		e.TransientLevelDB, _ = strconv.ParseFloat(val, 64)
+	case "torpedo_variant":
+		e.TorpedoVariant = val
 	case "damage_init":
 		e.Damage.Initialized, _ = strconv.ParseBool(val)
 	case "damage_repairing":
@@ -1051,6 +1123,19 @@ func parseTorpedo(fc *weapons.FireControl, val string) {
 	if len(parts) > 25 {
 		cl, _ := strconv.Atoi(parts[25])
 		torp.Class = weapons.WeaponClass(cl)
+	}
+	if len(parts) > 26 {
+		torp.OrdnanceType = parts[26]
+	}
+	if len(parts) > 27 {
+		mode, _ := strconv.Atoi(parts[27])
+		torp.TerminalMode = weapons.TorpedoTerminalMode(mode)
+	}
+	if len(parts) > 28 {
+		torp.AcousticSig = parts[28]
+	}
+	if len(parts) > 29 {
+		torp.DisableSearch, _ = strconv.ParseBool(parts[29])
 	}
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
 }

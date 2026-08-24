@@ -73,6 +73,14 @@ const (
 	ModeSearch
 )
 
+type TorpedoTerminalMode int
+
+const (
+	TerminalExplode TorpedoTerminalMode = iota
+	TerminalSignal
+	TerminalSilent
+)
+
 // Torpedo is a weapon in the water.
 type Torpedo struct {
 	ID           string
@@ -110,6 +118,9 @@ type Torpedo struct {
 
 	Class       WeaponClass // heavy vs UMGT-1 lightweight
 	AcousticSig string      // optional override (e.g. set40 vs umgt1)
+	OrdnanceType string
+	TerminalMode TorpedoTerminalMode
+	DisableSearch bool
 }
 
 // Detonation describes a warhead event for the sim (blast, deaf, sinking).
@@ -127,6 +138,11 @@ type Detonation struct {
 	ShooterID    string
 	// Accident: onboard explosion (debug) — full blast FX/damage, no DEFCON escalate.
 	Accident bool
+	SignalOnly   bool
+	SignalLevel  float64
+	SignalFreqHz float64
+	SignalDurSec float64
+	SignalLabel  string
 }
 
 // FireControl manages 688-style torpedo firing.
@@ -291,8 +307,8 @@ func (fc *FireControl) CloseOuterDoor(tubeNum int, gameTime float64) bool {
 }
 
 func (fc *FireControl) ordnanceMagLeft(ordnance string) int {
-	switch normalizeOrdnance(ordnance) {
-	case OrdnanceHarpoon:
+	switch {
+	case OrdnanceUsesHarpoonMagazine(ordnance):
 		return fc.HarpoonMagLeft
 	default:
 		return fc.MagazineLeft
@@ -300,8 +316,8 @@ func (fc *FireControl) ordnanceMagLeft(ordnance string) int {
 }
 
 func (fc *FireControl) returnOrdnanceToMag(ordnance string) {
-	switch normalizeOrdnance(ordnance) {
-	case OrdnanceHarpoon:
+	switch {
+	case OrdnanceUsesHarpoonMagazine(ordnance):
 		fc.HarpoonMagLeft++
 	default:
 		fc.MagazineLeft++
@@ -309,8 +325,8 @@ func (fc *FireControl) returnOrdnanceToMag(ordnance string) {
 }
 
 func (fc *FireControl) consumeOrdnance(ordnance string) bool {
-	switch normalizeOrdnance(ordnance) {
-	case OrdnanceHarpoon:
+	switch {
+	case OrdnanceUsesHarpoonMagazine(ordnance):
 		if fc.HarpoonMagLeft <= 0 {
 			return false
 		}
@@ -427,7 +443,8 @@ func (fc *FireControl) Shoot(sub *world.Entity, tubeNum int) *Torpedo {
 	if t.State != TubeDoorOpen {
 		return nil
 	}
-	if normalizeOrdnance(t.TorpedoType) != OrdnanceMk48 {
+	ordnance := normalizeOrdnance(t.TorpedoType)
+	if !OrdnanceIsTorpedo(ordnance) {
 		return nil
 	}
 	if sub != nil {
@@ -449,8 +466,14 @@ func (fc *FireControl) Shoot(sub *world.Entity, tubeNum int) *Torpedo {
 	// Tube exit speed, then accelerate to cruise (Mk48 reaches speed in ~10–20 s).
 	exitKts := 18.0
 	cruise := speedKts(fc.SpeedSetting)
+	idPrefix := "MK48"
+	terminal := TerminalExplode
+	if ordnance == OrdnanceMk48Exercise {
+		idPrefix = "MK48X"
+		terminal = TerminalSignal
+	}
 	torp := &Torpedo{
-		ID:                     fmt.Sprintf("MK48-%d", fc.torpedoSeq),
+		ID:                     fmt.Sprintf("%s-%d", idPrefix, fc.torpedoSeq),
 		ParentSubID:            sub.ID,
 		TubeNumber:             t.Number,
 		Side:                   sub.Side,
@@ -470,6 +493,8 @@ func (fc *FireControl) Shoot(sub *world.Entity, tubeNum int) *Torpedo {
 		Alive:                  true,
 		LastPingTime:           -1,
 		EnableSearchAfterClear: fc.SeekerEnabled,
+		OrdnanceType:           ordnance,
+		TerminalMode:           terminal,
 	}
 	t.TorpedoID = torp.ID
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
@@ -529,6 +554,16 @@ func (fc *FireControl) SpawnHostileTorpedo(sub, target *world.Entity) *Torpedo {
 		Alive:                  true,
 		LastPingTime:           -1,
 		EnableSearchAfterClear: false, // wire-guide to target after clear; seek later
+		OrdnanceType:           OrdnanceMk48,
+		TerminalMode:           TerminalExplode,
+	}
+	if sub.TorpedoVariant == EnemyOrdnanceSSN688Decoy {
+		torp.ID = fmt.Sprintf("EDECOY-%d", fc.torpedoSeq)
+		torp.OrdnanceType = EnemyOrdnanceSSN688Decoy
+		torp.TerminalMode = TerminalSilent
+		torp.DisableSearch = true
+		torp.Armed = false
+		torp.AcousticSig = "ssn688_decoy"
 	}
 	fc.ActiveTorpedoes = append(fc.ActiveTorpedoes, torp)
 	return torp
@@ -806,6 +841,9 @@ func (t *Torpedo) distToParent(targets []*world.Entity) float64 {
 }
 
 func (t *Torpedo) tryArmSearch(targets []*world.Entity) {
+	if t == nil || t.DisableSearch {
+		return
+	}
 	if !t.pendingSearchArm() || !t.TubeCleared() {
 		return
 	}
@@ -875,7 +913,7 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 
 	if t.Mode == ModeWire && !t.WireCut && t.Age > 120 {
 		t.WireCut = true
-		t.EnableSearchAfterClear = true
+		t.EnableSearchAfterClear = !t.DisableSearch
 	}
 
 	// Tube-exit: hold launch heading until clear distance is reached.
@@ -964,11 +1002,7 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 			}
 			if hitOK {
 				t.Alive = false
-				return &Detonation{
-					X: t.X, Y: t.Y, DepthFt: t.DepthFt,
-					Hit: tgt, ShooterID: t.ParentSubID,
-					LightWarhead: t.Class == ClassUMGT1,
-				}
+				return t.terminalDetonation(tgt)
 			}
 		}
 	}
@@ -1004,13 +1038,36 @@ func (t *Torpedo) checkGrounding(bathy *world.Bathymetry, prevX, prevY float64) 
 		}
 		t.X, t.Y = x, y
 		t.Alive = false
-		return &Detonation{
-			X: t.X, Y: t.Y, DepthFt: t.DepthFt,
-			Grounded: true, ShooterID: t.ParentSubID,
-			LightWarhead: t.Class == ClassUMGT1,
-		}
+		d := t.terminalDetonation(nil)
+		d.Grounded = true
+		return d
 	}
 	return nil
+}
+
+func (t *Torpedo) terminalDetonation(hit *world.Entity) *Detonation {
+	if t == nil {
+		return nil
+	}
+	d := &Detonation{
+		X: t.X, Y: t.Y, DepthFt: t.DepthFt,
+		Hit: hit, ShooterID: t.ParentSubID,
+		LightWarhead: t.Class == ClassUMGT1,
+	}
+	switch t.TerminalMode {
+	case TerminalSignal:
+		d.Hit = nil
+		d.SignalOnly = true
+		d.SignalLevel = 58
+		d.SignalFreqHz = 1150
+		d.SignalDurSec = 5.0
+		d.SignalLabel = "exercise_torpedo"
+	case TerminalSilent:
+		d.Hit = nil
+		d.SelfKill = true
+	default:
+	}
+	return d
 }
 
 func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFunc, gameTime float64) *world.Entity {

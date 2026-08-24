@@ -79,3 +79,25 @@ func TestTorpedoNilBathyNoGround(t *testing.T) {
 		t.Fatalf("nil bathy should not ground: alive=%v det=%+v", fish.Alive, det)
 	}
 }
+
+func TestExerciseTorpedoSignalsInsteadOfDetonating(t *testing.T) {
+	target := &world.Entity{
+		ID: "enemy", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 200,
+	}
+	fish := &Torpedo{
+		ID: "MK48X-1", Side: world.SidePlayer, TargetID: target.ID,
+		X: 0, Y: 0, DepthFt: 200, HeadingDeg: 90, OrderedHead: 90,
+		SpeedKts: 55, CruiseKts: 55, RunDepthFt: 200,
+		Armed: true, Alive: true, Mode: ModeSearch, Age: 5,
+		LastPingTime: -1, OrdnanceType: OrdnanceMk48Exercise,
+		TerminalMode: TerminalSignal, ClearDistYd: 500,
+	}
+	det := fish.Advance(0.1, 1, []*world.Entity{target}, nil, nil)
+	if fish.Alive || det == nil {
+		t.Fatalf("exercise fish should terminate with signal, alive=%v det=%+v", fish.Alive, det)
+	}
+	if !det.SignalOnly || det.Hit != nil {
+		t.Fatalf("expected signal-only terminal effect, got %+v", det)
+	}
+}

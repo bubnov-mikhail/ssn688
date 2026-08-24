@@ -78,6 +78,29 @@ func TestSpawnHostileTorpedoGreenSmearsSolution(t *testing.T) {
 	}
 }
 
+func TestSpawnHostileDecoyTorpedo(t *testing.T) {
+	fc := NewFireControl()
+	sub := &world.Entity{
+		ID: "enemy_ss", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "foxtrot", TorpedoVariant: EnemyOrdnanceSSN688Decoy,
+		X: 0, Y: 0, HeadingDeg: 0, DepthFt: 150,
+	}
+	tgt := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 2500, DepthFt: 200, HeadingDeg: 90, SpeedKts: 6,
+	}
+	fish := fc.SpawnHostileTorpedo(sub, tgt)
+	if fish == nil {
+		t.Fatal("expected hostile decoy fish")
+	}
+	if fish.TerminalMode != TerminalSilent || !fish.DisableSearch || fish.Armed {
+		t.Fatalf("wrong decoy behavior: %+v", fish)
+	}
+	if fish.AcousticSig != "ssn688_decoy" || fish.OrdnanceType != EnemyOrdnanceSSN688Decoy {
+		t.Fatalf("wrong decoy signature: %+v", fish)
+	}
+}
+
 func TestPreferRBUOverShipTubes(t *testing.T) {
 	ship := &world.Entity{SignatureID: "grisha"}
 	if !PreferRBUOverShipTubes(ship, "TRACKING", 60) {

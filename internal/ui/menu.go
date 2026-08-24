@@ -15,7 +15,7 @@ type menuItem struct {
 }
 
 const (
-	menuActionNewGame = iota
+	menuActionScenarios = iota
 	menuActionLoad
 	menuActionSettings
 	menuActionQuit
@@ -23,7 +23,7 @@ const (
 
 func (a *App) menuItems() []menuItem {
 	return []menuItem{
-		{Label: "NEW GAME", Action: menuActionNewGame},
+		{Label: "SCENARIOS", Action: menuActionScenarios},
 		{Label: "LOAD GAME", Action: menuActionLoad},
 		{Label: "SETTINGS", Action: menuActionSettings},
 		{Label: "QUIT", Action: menuActionQuit},
@@ -66,8 +66,11 @@ func (a *App) menuIndexAt(mx, my int) int {
 
 func (a *App) activateMenuItem(index int) error {
 	switch a.menuItems()[index].Action {
-	case menuActionNewGame:
-		a.StartNewGame()
+	case menuActionScenarios:
+		a.Mode = ModeScenarioList
+		a.ScenarioListIndex = 0
+		a.ensureScenarioSelection()
+		a.StatusMessage = ""
 	case menuActionLoad:
 		a.refreshLoadList()
 		a.Mode = ModeLoad
