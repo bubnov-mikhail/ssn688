@@ -178,8 +178,8 @@ func TestDemoFollowOnTasking(t *testing.T) {
 		t.Fatal("expected 20s follow-on")
 	}
 	txt := sc.CommSchedule[0].Text
-	for _, needle := range []string{"PRIMARY", "SECONDARY", "IDENTIFY", "800", "80 PCT", "TANKER"} {
-		if !strings.Contains(txt, needle) {
+	for _, needle := range []string{"Primary", "Secondary", "identify", "3000", "80%", "tanker"} {
+		if !strings.Contains(strings.ToLower(txt), strings.ToLower(needle)) {
 			t.Fatalf("tasking missing %q:\n%s", needle, txt)
 		}
 	}

@@ -44,6 +44,8 @@ type Entity struct {
 	Defcon        int // enemy alert 0–3; see world/defcon.go
 	// CrewSkill 0..100 — enemy crew proficiency (classification, TMA, fire control).
 	CrewSkill float64
+	// AllyIgnore: friendly AI must never select this unit as quarry (e.g. tasked tanker).
+	AllyIgnore bool
 	// Track is the crew's estimated player solution (enemies only).
 	Track AITrack
 	// Surface ASW sticky prosecute — avoid detect↔patrol thrashing.

@@ -17,6 +17,7 @@ type MissionID string
 
 const DemoScenarioID ScenarioID = "demo_catalina"
 const DemoMissionTraining MissionID = "catalina_training"
+const DemoMissionCounterstroke MissionID = "catalina_counterstroke"
 
 // ObjectiveTemplate describes a mission task before runtime state exists.
 type ObjectiveTemplate struct {
@@ -26,7 +27,9 @@ type ObjectiveTemplate struct {
 	Primary      bool
 	NeedIdentify bool
 	NeedDestroy  bool
-	Hidden       bool // secondary/hidden tasks not shown until revealed
+	Hidden       bool   // secondary/hidden tasks not shown until revealed
+	RequireVar   string // include only when campaign var is "true"
+	UnlessVar    string // skip when campaign var is "true"
 }
 
 // OutputRule records a campaign variable when a mission ends.
@@ -34,6 +37,7 @@ type OutputRule struct {
 	Key                 string
 	Value               string
 	WhenPrimaryComplete bool
+	WhenObjectiveID     string // set when this objective is Complete at mission end
 }
 
 // BuildContext carries cross-mission state into scenario construction.
@@ -121,6 +125,9 @@ type UnitSpec struct {
 	FallbackCorner string
 	FallbackMinYd  float64
 	FallbackMaxYd  float64
+	RequireVar     string // spawn only when campaign var is "true"
+	UnlessVar      string // skip when campaign var is "true"
+	AllyIgnore     bool   // allied AI must not attack this unit
 }
 
 // MissionDef is the static definition of one mission.

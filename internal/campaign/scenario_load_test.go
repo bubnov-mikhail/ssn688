@@ -13,11 +13,14 @@ func TestParseBundledDemoJSON(t *testing.T) {
 	if !sc.Compatible {
 		t.Fatalf("demo should be compatible: %s", sc.IncompatibleReason)
 	}
-	if sc.Version.String() != "1.1.0" {
+	if sc.Version.String() != "1.2.6" {
 		t.Fatalf("version %s", sc.Version)
 	}
 	if sc.FormatVersion.Major != 2 {
 		t.Fatalf("format major %d", sc.FormatVersion.Major)
+	}
+	if len(sc.Missions) != 2 {
+		t.Fatalf("want 2 missions, got %d", len(sc.Missions))
 	}
 	if len(sc.Missions[0].Routes) == 0 || len(sc.Missions[0].Routes[0].Waypoints) < 2 {
 		t.Fatal("expected waypoint routes")
@@ -28,8 +31,12 @@ func TestParseBundledDemoJSON(t *testing.T) {
 	if len(sc.Theaters) != 1 || sc.Theaters[0].Chart == nil || !sc.Theaters[0].Chart.Valid() {
 		t.Fatal("expected inline theater bathy")
 	}
-	if len(sc.Missions[0].CommSchedule) == 0 {
-		t.Fatal("comm schedule from events")
+	if len(sc.Missions[0].Events) == 0 {
+		t.Fatal("expected mission events")
+	}
+	rt := DemoRuntime()
+	if rt == nil || len(rt.CommSchedule) == 0 {
+		t.Fatal("comm schedule from events at instantiate")
 	}
 }
 

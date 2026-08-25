@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"strings"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/campaign"
@@ -11,15 +9,16 @@ import (
 
 const (
 	scenarioPanelX = 40
-	scenarioPanelY = 80
-	scenarioPanelH = 600
+	scenarioPanelY = 60
+	scenarioPanelH = 740
 
 	scenarioListW       = 320
 	scenarioDetailW     = 480
 	scenarioDetailPad   = 16
-	scenarioCoverH      = 270 // 16:9 at 480px
-	scenarioBriefCoverH = 100
+	scenarioCoverH      = 320 // 3:2 at 480px (demo cover 1536×1024)
 	scenarioColumnGap   = 24
+	scenarioTitleGap    = 40 // title + version block above cover
+	scenarioCoverTextGap = 28 // clear font baselines into cover
 )
 
 func scenarioPanelW() int {
@@ -30,57 +29,30 @@ func scenarioDetailX() int {
 	return scenarioPanelX + 16 + scenarioListW + scenarioColumnGap
 }
 
-func scenarioDetailContentRect() (x, w int) {
-	return scenarioDetailX() + 8, scenarioDetailW - 16
+// scenarioBriefDescRect is the scrollable mission description area above loadout (or buttons in debrief).
+func scenarioBriefDescRect(aboveLoadout bool) (x, y, w, h int) {
+	x = scenarioDetailX()
+	y = scenarioPanelY + 64 + 36
+	w = scenarioDetailW - 10
+	maxY := scenarioPanelY + scenarioPanelH - 16 - 40 - 8
+	if aboveLoadout {
+		maxY = scenarioLoadoutY() - 8
+	}
+	h = maxY - y
+	if h < 40 {
+		h = 40
+	}
+	return x, y, w, h
 }
 
 func drawWrappedText(screen *ebiten.Image, text string, x, y, maxW, lineH int) {
-	drawWrappedTextBox(screen, text, x, y, maxW, lineH, 0, false)
-}
-
-func wrapLineWidth(line string, small bool) int {
-	if small {
-		return render.SmallLabelWidth(line)
-	}
-	return render.LabelWidth(line)
+	_ = lineH
+	render.DrawMarkdown(screen, text, x, y, maxW, 0, false)
 }
 
 func drawWrappedTextBox(screen *ebiten.Image, text string, x, y, maxW, lineH, maxY int, small bool) {
-	yy := y
-	for _, para := range strings.Split(text, "\n") {
-		words := strings.Fields(para)
-		line := ""
-		flush := func() {
-			if line == "" {
-				return
-			}
-			if maxY > 0 && yy+lineH > maxY {
-				return
-			}
-			render.DrawText(screen, line, x, yy, render.ColorDim, small)
-			yy += lineH
-			line = ""
-		}
-		for _, w := range words {
-			candidate := w
-			if line != "" {
-				candidate = line + " " + w
-			}
-			if wrapLineWidth(candidate, small) > maxW {
-				flush()
-				line = w
-			} else {
-				line = candidate
-			}
-		}
-		flush()
-		if maxY > 0 && yy > maxY {
-			break
-		}
-		if maxY == 0 || yy+lineH/2 <= maxY {
-			yy += lineH / 2
-		}
-	}
+	_ = lineH
+	render.DrawMarkdown(screen, text, x, y, maxW, maxY, small)
 }
 
 func drawScenarioCoverImage(screen *ebiten.Image, sc *campaign.ScenarioDef, m *campaign.MissionDef, x, y, w, h int) {
@@ -99,7 +71,23 @@ func scenarioVersionLine(sc *campaign.ScenarioDef) string {
 	if sc == nil {
 		return ""
 	}
-	return "v" + sc.Version.String() + " · format " + sc.FormatVersion.String()
+	return "v" + sc.Version.String()
+}
+
+func scenarioListCoverY() int {
+	return scenarioPanelY + 48 + scenarioTitleGap
+}
+
+func scenarioListBackstoryRect() (x, y, w, h int) {
+	x = scenarioDetailX()
+	y = scenarioListCoverY() + scenarioCoverH + scenarioCoverTextGap
+	w = scenarioDetailW - 10 // room for scrollbar
+	btnY := scenarioPanelY + scenarioPanelH - 24 - 40
+	h = btnY - y - 8
+	if h < 40 {
+		h = 40
+	}
+	return x, y, w, h
 }
 
 func (a *App) scenarioDefs() []campaign.ScenarioDef {
@@ -126,7 +114,11 @@ func (a *App) ensureScenarioSelection() {
 	if a.ScenarioListIndex < 0 || a.ScenarioListIndex >= len(defs) {
 		a.ScenarioListIndex = 0
 	}
-	a.SelectedScenarioID = defs[a.ScenarioListIndex].ID
+	id := defs[a.ScenarioListIndex].ID
+	if id != a.SelectedScenarioID {
+		a.scenarioBackstoryScroll = 0
+	}
+	a.SelectedScenarioID = id
 }
 
 func (a *App) updateScenarioList() error {
@@ -160,10 +152,29 @@ func (a *App) updateScenarioList() error {
 		}
 	}
 
+	if sc := a.selectedScenarioDef(); sc != nil {
+		tx, ty, tw, th := scenarioListBackstoryRect()
+		body := sc.Backstory
+		if !sc.Compatible {
+			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
+		}
+		lines := render.ParseMarkdown(body, tw, false)
+		vis := th / 18
+		if vis < 1 {
+			vis = 1
+		}
+		scrollContactTableWheel(mx, my, tx, ty, tw+10, th, len(lines), vis, &a.scenarioBackstoryScroll)
+	}
+
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return nil
 	}
 
+	bx, by, bw, bh := a.scenarioListBackRect()
+	if hitRect(mx, my, bx, by, bw, bh) {
+		a.Mode = ModeMenu
+		return nil
+	}
 	cx, cy, cw, ch := a.scenarioListContinueRect()
 	if a.selectedScenarioPlayable() && hitRect(mx, my, cx, cy, cw, ch) {
 		a.continueScenario()
@@ -197,6 +208,34 @@ func (a *App) updateScenarioBrief() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		a.Mode = ModeScenarioList
 		return nil
+	}
+
+	if sc := a.selectedScenarioDef(); sc != nil {
+		aboveLoadout := sc.Compatible && !a.briefDebrief
+		tx, ty, tw, th := scenarioBriefDescRect(aboveLoadout)
+		body := ""
+		cur := a.briefDisplayedMission(sc)
+		if !sc.Compatible {
+			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
+		} else if a.briefDebrief && cur != nil {
+			prog := a.scenarioProgress(sc.ID)
+			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes)
+		} else if cur != nil {
+			body = cur.Description
+		}
+		if body != "" {
+			small := aboveLoadout
+			lines := render.ParseMarkdown(body, tw, small)
+			lineH := 18
+			if small {
+				lineH = 14
+			}
+			vis := th / lineH
+			if vis < 1 {
+				vis = 1
+			}
+			scrollContactTableWheel(mx, my, tx, ty, tw+10, th, len(lines), vis, &a.scenarioBriefDescScroll)
+		}
 	}
 
 	if !a.briefDebrief && a.handleScenarioLoadoutInput(mx, my) {
@@ -240,7 +279,15 @@ func scenarioListRect() (x, y, w, rowH int) {
 func (a *App) scenarioListContinueRect() (x, y, w, h int) {
 	w = render.ButtonWidth("CONTINUE SCENARIO", 20)
 	h = 40
-	x = scenarioPanelX + scenarioPanelW() - w - 24
+	x = scenarioDetailX() + scenarioDetailW - w
+	y = scenarioPanelY + scenarioPanelH - h - 24
+	return x, y, w, h
+}
+
+func (a *App) scenarioListSelectRect() (x, y, w, h int) {
+	w = render.ButtonWidth("OPEN SCENARIO", 20)
+	h = 40
+	x = scenarioDetailX()
 	y = scenarioPanelY + scenarioPanelH - h - 24
 	return x, y, w, h
 }
@@ -248,26 +295,25 @@ func (a *App) scenarioListContinueRect() (x, y, w, h int) {
 func (a *App) scenarioListRestartRect() (x, y, w, h int) {
 	w = render.ButtonWidth("RESTART SCENARIO", 20)
 	h = 40
-	cx, cy, _, _ := a.scenarioListContinueRect()
-	x = cx - w - 16
-	y = cy
+	ox, oy, ow, _ := a.scenarioListSelectRect()
+	x = ox + ow + 16
+	y = oy
 	return x, y, w, h
 }
 
-func (a *App) scenarioListSelectRect() (x, y, w, h int) {
-	w = render.ButtonWidth("OPEN SCENARIO", 20)
+func (a *App) scenarioListBackRect() (x, y, w, h int) {
+	w = render.ButtonWidth("BACK", 20)
 	h = 40
-	cx, cy, _, _ := a.scenarioListContinueRect()
-	x = cx - 2*w - 32
-	y = cy
+	x = scenarioPanelX + 16
+	_, y, _, _ = a.scenarioListSelectRect()
 	return x, y, w, h
 }
 
 func (a *App) scenarioBriefBackRect() (x, y, w, h int) {
 	w = render.ButtonWidth("BACK", 20)
-	h = 36
+	h = 40
 	x = scenarioPanelX + 16
-	y = scenarioPanelY + scenarioPanelH - h - 16
+	y = scenarioPanelY + scenarioPanelH - h - 24
 	return x, y, w, h
 }
 
@@ -275,7 +321,7 @@ func (a *App) scenarioBriefPrimaryRect() (x, y, w, h int) {
 	w = render.ButtonWidth(a.scenarioBriefPrimaryLabel(), 24)
 	h = 40
 	x = scenarioPanelX + scenarioPanelW() - w - 24
-	y = scenarioPanelY + scenarioPanelH - h - 16
+	y = scenarioPanelY + scenarioPanelH - h - 24
 	return x, y, w, h
 }
 
@@ -310,6 +356,7 @@ func (a *App) briefDisplayedMission(sc *campaign.ScenarioDef) *campaign.MissionD
 }
 
 func (a *App) initScenarioBrief() {
+	a.scenarioBriefDescScroll = 0
 	sc := a.selectedScenarioDef()
 	if sc == nil {
 		return
@@ -403,19 +450,27 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 
 	if sc != nil {
 		detailX := scenarioDetailX()
-		coverY := scenarioPanelY + 56
+		titleX := detailX
+		titleY := scenarioPanelY + 48
+		render.DrawTextLarge(screen, sc.Title, titleX, titleY, render.ColorText)
+		render.DrawText(screen, scenarioVersionLine(sc), titleX, titleY+24, render.ColorPhosphorDim, true)
+		coverY := scenarioListCoverY()
 		drawScenarioCoverImage(screen, sc, nil, detailX, coverY, scenarioDetailW, scenarioCoverH)
-		titleX := detailX + scenarioDetailPad
-		render.DrawTextLarge(screen, sc.Title, titleX, coverY+scenarioCoverH+16, render.ColorText)
-		render.DrawText(screen, scenarioVersionLine(sc), titleX, coverY+scenarioCoverH+44, render.ColorPhosphorDim, true)
-		textW := scenarioDetailW - 2*scenarioDetailPad
-		textY := coverY + scenarioCoverH + 64
-		if sc.Compatible {
-			drawWrappedText(screen, sc.Backstory, titleX, textY, textW, 16)
-		} else {
-			msg := "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
-			drawWrappedTextBox(screen, msg, titleX, textY, textW, 16, 0, false)
+
+		tx, ty, tw, th := scenarioListBackstoryRect()
+		body := sc.Backstory
+		if !sc.Compatible {
+			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
 		}
+		lines := render.ParseMarkdown(body, tw, false)
+		vis := th / 18
+		if vis < 1 {
+			vis = 1
+		}
+		a.scenarioBackstoryScroll = clampContactTableScroll(a.scenarioBackstoryScroll, len(lines), vis)
+		start, end := contactTableWindow(len(lines), a.scenarioBackstoryScroll, vis)
+		render.DrawMDLines(screen, lines, start, end, tx, ty, false)
+		drawContactTableScrollbar(screen, tx+tw+4, ty, th, len(lines), vis, a.scenarioBackstoryScroll)
 	}
 
 	mx, my := ebiten.CursorPosition()
@@ -442,6 +497,8 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 	} else {
 		render.DrawBevelButtonDisabled(screen, sx, sy, sw, sh, "OPEN SCENARIO")
 	}
+	bx, by, bw, bh := a.scenarioListBackRect()
+	render.DrawBevelButton(screen, bx, by, bw, bh, "BACK", hitRect(mx, my, bx, by, bw, bh), false)
 
 	if a.StatusMessage != "" {
 		render.DrawText(screen, a.StatusMessage, scenarioPanelX+20, scenarioPanelY+scenarioPanelH+12, render.ColorWarn, false)
@@ -488,24 +545,36 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 	}
 
 	if cur != nil {
-		contentX, contentW := scenarioDetailContentRect()
-		textX := contentX + 8
-		textW := contentW - 16
+		textX := scenarioDetailX()
 		descY := scenarioPanelY + 64
 		render.DrawTextLarge(screen, cur.Title, textX, descY, render.ColorText)
+
+		aboveLoadout := sc.Compatible && !a.briefDebrief
+		tx, ty, tw, th := scenarioBriefDescRect(aboveLoadout)
+		body := cur.Description
+		small := true
 		if !sc.Compatible {
-			drawWrappedTextBox(screen,
-				"This scenario is incompatible with this game version.\n\n"+sc.IncompatibleReason,
-				textX, descY+36, textW, 16, scenarioPanelY+scenarioPanelH-60, false)
+			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
+			small = false
 		} else if a.briefDebrief {
-			debrief := campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes)
-			btnY := scenarioPanelY + scenarioPanelH - 16 - 40
-			drawWrappedTextBox(screen, debrief, textX, descY+36, textW, 16, btnY-8, false)
-		} else {
-			coverY := descY + 32
-			drawScenarioCoverImage(screen, sc, cur, scenarioDetailX(), coverY, scenarioDetailW, scenarioBriefCoverH)
-			descMaxY := scenarioLoadoutY() - 6
-			drawWrappedTextBox(screen, cur.Description, textX, coverY+scenarioBriefCoverH+10, textW, 13, descMaxY, true)
+			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes)
+			small = false
+		}
+		lines := render.ParseMarkdown(body, tw, small)
+		lineH := 18
+		if small {
+			lineH = 14
+		}
+		vis := th / lineH
+		if vis < 1 {
+			vis = 1
+		}
+		a.scenarioBriefDescScroll = clampContactTableScroll(a.scenarioBriefDescScroll, len(lines), vis)
+		start, end := contactTableWindow(len(lines), a.scenarioBriefDescScroll, vis)
+		render.DrawMDLines(screen, lines, start, end, tx, ty, small)
+		drawContactTableScrollbar(screen, tx+tw+4, ty, th, len(lines), vis, a.scenarioBriefDescScroll)
+
+		if aboveLoadout {
 			a.drawScenarioLoadout(screen)
 		}
 	}

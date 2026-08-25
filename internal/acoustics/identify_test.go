@@ -64,20 +64,20 @@ func TestAcousticIdentifyResetsOnLostFingerprint(t *testing.T) {
 	}
 }
 
-func TestVisualIdentifyInside800(t *testing.T) {
+func TestVisualIdentifyInside3000(t *testing.T) {
 	em := &world.Entity{ID: "enemy_grisha", Name: "Grisha", SignatureID: "grisha", Kind: world.KindSurfaceShip, Status: world.StatusActive}
 	c := &Contact{ID: "C03", SourceEntityID: em.ID}
-	tryVisualIdentify(c, em, 1200, 10)
+	tryVisualIdentify(c, em, 3200, 10)
 	if c.Identified {
-		t.Fatal("1200 yd must not visual-ID")
+		t.Fatal("3200 yd must not visual-ID")
 	}
-	tryVisualIdentify(c, em, 800, 11)
+	tryVisualIdentify(c, em, 3000, 11)
 	if c.Identified {
-		t.Fatal("800 yd is not inside <800")
+		t.Fatal("3000 yd is not inside <3000")
 	}
-	tryVisualIdentify(c, em, 799, 12)
+	tryVisualIdentify(c, em, 2999, 12)
 	if !c.Identified || c.IdentifiedBy != IdentifiedByVisual {
-		t.Fatalf("799 yd should visual-ID, got %+v", c)
+		t.Fatalf("2999 yd should visual-ID, got %+v", c)
 	}
 }
 

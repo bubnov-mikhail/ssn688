@@ -219,9 +219,9 @@ func Save(path string, engine *sim.Engine) error {
 
 	fmt.Fprintf(w, "\n[objectives]\n")
 	for _, o := range engine.Scenario.Objectives {
-		fmt.Fprintf(w, "objective=%s|%s|%t|%s|%t|%t|%t|%t\n",
+		fmt.Fprintf(w, "objective=%s|%s|%t|%s|%t|%t|%t|%t|%t\n",
 			o.ID, o.Description, o.Complete, o.TargetID,
-			o.Primary, o.NeedIdentify, o.NeedDestroy, o.Identified)
+			o.Primary, o.NeedIdentify, o.NeedDestroy, o.Identified, o.Hidden)
 	}
 
 	fmt.Fprintf(w, "\n[plot_markers]\n")
@@ -690,10 +690,25 @@ func loadClean(path string) (*sim.Engine, error) {
 		)
 	}
 	if len(engine.Scenario.Objectives) == 0 {
+		vars := engine.Campaign.Vars
 		if m := campaign.MissionByID(engine.Campaign.ScenarioID, engine.Campaign.MissionID); m != nil {
-			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives)
+			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, vars)
 		} else if m := campaign.MissionByID(campaign.DemoScenarioID, campaign.DemoMissionTraining); m != nil {
-			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives)
+			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, vars)
+		}
+	}
+	if len(engine.Scenario.MissionEvents) == 0 {
+		if m := campaign.MissionByID(engine.Campaign.ScenarioID, engine.Campaign.MissionID); m != nil {
+			events := campaign.FilterEvents(m.Events, engine.Campaign.Vars)
+			engine.Scenario.MissionEvents = campaign.ToWorldEvents(events)
+		}
+	}
+	if engine.Scenario.FiredEventIDs == nil {
+		engine.Scenario.FiredEventIDs = map[string]bool{}
+	}
+	for _, o := range engine.Scenario.Objectives {
+		if o.ID == "obj_tanker_sink_hidden" && !o.Hidden {
+			engine.Scenario.FiredEventIDs["tanker_id_reveal_sink"] = true
 		}
 	}
 	if len(engine.COMM.Inbox) == 0 {
@@ -1290,6 +1305,9 @@ func parseObjective(val string) (world.Objective, bool) {
 	} else {
 		// Legacy saves: destroy-only tasks.
 		obj.NeedDestroy = true
+	}
+	if len(parts) >= 9 {
+		obj.Hidden, _ = strconv.ParseBool(parts[8])
 	}
 	return obj, true
 }

@@ -432,7 +432,7 @@ var libraryCatalog = []libraryEntry{
 			"ASROC (sim) — rocket-assisted ASW option where loaded",
 			"ESM intercept of surface search/nav radars (MAST screen)",
 			"COMM inbox: briefing at start; follow-on orders need antenna up",
-			"Positive ID: periscope visual inside 800 yd, or 80% harmonic match with library fingerprint held 2 minutes",
+			"Positive ID: periscope visual inside 3000 yd, or 80% harmonic match with library fingerprint held 2 minutes",
 		},
 		Defense: []string{
 			"ADC / jitter / Nixie soft-kill vs inbound fish",

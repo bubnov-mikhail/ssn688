@@ -225,7 +225,10 @@
         "route_frac": { "type": "number", "minimum": 0, "maximum": 1 },
         "fallback_corner": { "type": "string", "enum": ["SW", "SE", "NW", "NE"] },
         "fallback_min_yd": { "type": "number", "minimum": 0 },
-        "fallback_max_yd": { "type": "number", "minimum": 0 }
+        "fallback_max_yd": { "type": "number", "minimum": 0 },
+        "require_var": { "type": "string" },
+        "unless_var": { "type": "string" },
+        "ally_ignore": { "type": "boolean" }
       }
     },
     "objective": {
@@ -242,7 +245,9 @@
         "primary": { "type": "boolean" },
         "need_identify": { "type": "boolean" },
         "need_destroy": { "type": "boolean" },
-        "hidden": { "type": "boolean" }
+        "hidden": { "type": "boolean" },
+        "require_var": { "type": "string" },
+        "unless_var": { "type": "string" }
       }
     },
     "output": {
@@ -252,7 +257,8 @@
       "properties": {
         "key": { "type": "string" },
         "value": { "type": "string" },
-        "when_primary_complete": { "type": "boolean" }
+        "when_primary_complete": { "type": "boolean" },
+        "when_objective_id": { "type": "string" }
       }
     },
     "debriefLine": {
@@ -282,13 +288,15 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["time", "objective_complete", "objective_identified", "unit_destroyed", "var_eq"]
+          "enum": ["time", "objective_complete", "objective_identified", "unit_destroyed", "var_eq", "var_unset"]
         },
         "at_sec": { "type": "number", "minimum": 0 },
         "objective_id": { "type": "string" },
         "unit_id": { "type": "string" },
         "var": { "type": "string" },
-        "value": { "type": "string" }
+        "value": { "type": "string" },
+        "require_var": { "type": "string" },
+        "unless_var": { "type": "string" }
       }
     },
     "eventAction": {

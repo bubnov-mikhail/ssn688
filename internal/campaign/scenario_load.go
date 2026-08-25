@@ -189,11 +189,14 @@ func convertMissionJSON(mj missionJSON) (MissionDef, error) {
 		m.Objectives = append(m.Objectives, ObjectiveTemplate{
 			ID: o.ID, Description: o.Description, TargetID: o.TargetID,
 			Primary: o.Primary, NeedIdentify: o.NeedIdentify, NeedDestroy: o.NeedDestroy, Hidden: o.Hidden,
+			RequireVar: o.RequireVar, UnlessVar: o.UnlessVar,
 		})
 	}
 	for _, o := range mj.Outputs {
 		m.Outputs = append(m.Outputs, OutputRule{
-			Key: o.Key, Value: o.Value, WhenPrimaryComplete: o.WhenPrimaryComplete,
+			Key: o.Key, Value: o.Value,
+			WhenPrimaryComplete: o.WhenPrimaryComplete,
+			WhenObjectiveID:     o.WhenObjectiveID,
 		})
 	}
 	for _, d := range mj.DebriefLines {
@@ -206,7 +209,7 @@ func convertMissionJSON(mj missionJSON) (MissionDef, error) {
 			ID: c.ID, AtSec: c.AtSec, Text: c.Text,
 		})
 	}
-	m.CommSchedule = ApplyCommEvents(m.CommSchedule, mj.Events)
+	// Time-based COMM from events is merged at Instantiate with campaign vars.
 	return m, nil
 }
 
@@ -231,6 +234,7 @@ func convertUnitJSON(u unitJSON) (UnitSpec, error) {
 		Spawn: spawn, Corner: u.Corner, MinRouteYd: u.MinRouteYd, MaxRouteYd: u.MaxRouteYd,
 		RouteID: u.RouteID, RouteFrac: u.RouteFrac,
 		FallbackCorner: u.FallbackCorner, FallbackMinYd: u.FallbackMinYd, FallbackMaxYd: u.FallbackMaxYd,
+		RequireVar: u.RequireVar, UnlessVar: u.UnlessVar, AllyIgnore: u.AllyIgnore,
 	}, nil
 }
 

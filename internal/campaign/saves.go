@@ -17,14 +17,27 @@ func AutosaveName(scenarioID ScenarioID) string {
 	return fmt.Sprintf("campaign_%s_autosave.sav", scenarioID)
 }
 
-// ResolveMissionOutputs applies output rules after a successful mission end.
-func ResolveMissionOutputs(sc *ScenarioDef, missionID MissionID, primaryComplete bool) map[string]string {
+// ResolveMissionOutputs applies output rules after a mission end.
+// outcomes are the debrief snapshots used for when_objective_id rules.
+func ResolveMissionOutputs(sc *ScenarioDef, missionID MissionID, primaryComplete bool, outcomes []ObjectiveOutcome) map[string]string {
 	out := map[string]string{}
 	m := MissionByID(sc.ID, missionID)
 	if m == nil {
 		return out
 	}
+	complete := map[string]bool{}
+	for _, o := range outcomes {
+		if o.Complete {
+			complete[o.ID] = true
+		}
+	}
 	for _, rule := range m.Outputs {
+		if rule.WhenObjectiveID != "" {
+			if complete[rule.WhenObjectiveID] {
+				out[rule.Key] = rule.Value
+			}
+			continue
+		}
 		if rule.WhenPrimaryComplete && !primaryComplete {
 			continue
 		}

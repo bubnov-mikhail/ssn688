@@ -25,6 +25,33 @@ type Scenario struct {
 	CommSchedule []CommScheduledMessage
 	// Routes are coastal / transit lanes assigned to AI units by RouteID.
 	Routes []*Route
+	// MissionEvents are declarative when/then hooks (reveal objective, late COMM, …).
+	MissionEvents []MissionEvent
+	// FiredEventIDs tracks one-shot mission event dispatch.
+	FiredEventIDs map[string]bool
+}
+
+// MissionEvent is a runtime when/then rule copied from campaign JSON.
+type MissionEvent struct {
+	ID          string
+	WhenType    string
+	ObjectiveID string
+	UnitID      string
+	Actions     []MissionEventAction
+}
+
+// MissionEventAction is one side-effect of a MissionEvent.
+type MissionEventAction struct {
+	Type        string
+	ID          string
+	Text        string
+	AtSec       float64
+	UnitID      string
+	Defcon      int
+	AIState     string
+	Var         string
+	Value       string
+	ObjectiveID string
 }
 
 // CommScheduledMessage is follow-on traffic gated by game time + raised COMM mast.
@@ -49,6 +76,8 @@ type Objective struct {
 	NeedIdentify bool // must successfully ID the target
 	NeedDestroy  bool // must sink / destroy the target
 	Identified   bool
+	// Hidden tasks stay out of COMM REPORT / UI until RevealObjective.
+	Hidden bool
 }
 
 // ClampSubToBottom keeps a sub above the charted seafloor with a 60 ft keel margin.
@@ -250,7 +279,20 @@ func (s *Scenario) MissionFailed() bool {
 	return false
 }
 
+// RevealObjective clears Hidden on the named task (COMM / event follow-on orders).
+func (s *Scenario) RevealObjective(id string) {
+	if s == nil || id == "" {
+		return
+	}
+	for i := range s.Objectives {
+		if s.Objectives[i].ID == id {
+			s.Objectives[i].Hidden = false
+		}
+	}
+}
+
 // MissionStatusReport formats current objective progress for COMM REPORT.
+// Hidden objectives are omitted until revealed.
 func (s *Scenario) MissionStatusReport() string {
 	if s == nil {
 		return "NO SCENARIO."
@@ -270,12 +312,21 @@ func (s *Scenario) MissionStatusReport() string {
 	default:
 		b.WriteString("OVERALL: IN PROGRESS\n")
 	}
-	if len(s.Objectives) == 0 {
+	visible := 0
+	for _, o := range s.Objectives {
+		if !o.Hidden {
+			visible++
+		}
+	}
+	if visible == 0 {
 		b.WriteString("NO OBJECTIVES ASSIGNED.")
 		return b.String()
 	}
 	b.WriteString("OBJECTIVES:\n")
 	for _, o := range s.Objectives {
+		if o.Hidden {
+			continue
+		}
 		mark := "OPEN"
 		if o.Complete {
 			mark = "DONE"

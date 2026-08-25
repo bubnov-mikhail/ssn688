@@ -1,7 +1,11 @@
 package campaign
 
 import (
+	"fmt"
+	"math"
 	"math/rand"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/ssn688/sim/internal/world"
@@ -39,26 +43,44 @@ func ResolveMissionBathy(scenarioID ScenarioID, missionID MissionID) *world.Bath
 	return TheaterChart(sc, theaterID)
 }
 
-// RuntimeObjectives copies static templates into live mission tasks.
-func RuntimeObjectives(templates []ObjectiveTemplate) []world.Objective {
-	out := make([]world.Objective, len(templates))
-	for i, t := range templates {
-		out[i] = world.Objective{
+func specMatchesVars(requireVar, unlessVar string, vars map[string]string) bool {
+	if requireVar != "" && !VarTruthy(vars, requireVar) {
+		return false
+	}
+	if unlessVar != "" && VarTruthy(vars, unlessVar) {
+		return false
+	}
+	return true
+}
+
+// RuntimeObjectives copies static templates into live mission tasks (vars filtered).
+func RuntimeObjectives(templates []ObjectiveTemplate, vars map[string]string) []world.Objective {
+	out := make([]world.Objective, 0, len(templates))
+	for _, t := range templates {
+		if !specMatchesVars(t.RequireVar, t.UnlessVar, vars) {
+			continue
+		}
+		out = append(out, world.Objective{
 			ID:           t.ID,
 			Description:  t.Description,
 			TargetID:     t.TargetID,
 			Primary:      t.Primary,
 			NeedIdentify: t.NeedIdentify,
 			NeedDestroy:  t.NeedDestroy,
-		}
+			Hidden:       t.Hidden,
+		})
 	}
 	return out
 }
 
 // Instantiate builds a live world.Scenario from campaign data (theater, routes, units, COMM).
-func Instantiate(scDef *ScenarioDef, m *MissionDef, _ BuildContext) *world.Scenario {
+func Instantiate(scDef *ScenarioDef, m *MissionDef, ctx BuildContext) *world.Scenario {
 	if scDef == nil || m == nil {
 		return nil
+	}
+	vars := ctx.Vars
+	if vars == nil {
+		vars = map[string]string{}
 	}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	bathy := TheaterChart(scDef, m.TheaterID)
@@ -88,6 +110,9 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, _ BuildContext) *world.Scena
 
 	ents := make([]*world.Entity, 0, len(m.Units))
 	for _, spec := range m.Units {
+		if !specMatchesVars(spec.RequireVar, spec.UnlessVar, vars) {
+			continue
+		}
 		e := spawnEntity(rng, spec)
 		if e == nil {
 			continue
@@ -104,6 +129,10 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, _ BuildContext) *world.Scena
 		world.InitCombatantDamage(player)
 	}
 
+	events := FilterEvents(m.Events, vars)
+	schedule := ApplyCommEvents(m.CommSchedule, events)
+	schedule = expandCommPlaceholders(schedule, ents)
+
 	return &world.Scenario{
 		Name:         m.Title,
 		Description:  m.Description,
@@ -112,10 +141,86 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, _ BuildContext) *world.Scena
 		Bathy:        bathy,
 		Weather:      world.RandomWeather(rng),
 		Routes:       routes,
-		Objectives:   RuntimeObjectives(m.Objectives),
+		Objectives:   RuntimeObjectives(m.Objectives, vars),
 		CommBriefing: m.CommBriefing,
-		CommSchedule: append([]world.CommScheduledMessage(nil), m.CommSchedule...),
+		CommSchedule: schedule,
+		MissionEvents: ToWorldEvents(events),
 	}
+}
+
+var unitPlaceholderRe = regexp.MustCompile(`\{\{unit\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}\}`)
+
+func expandCommPlaceholders(schedule []world.CommScheduledMessage, ents []*world.Entity) []world.CommScheduledMessage {
+	byID := map[string]*world.Entity{}
+	for _, e := range ents {
+		if e != nil && e.ID != "" {
+			byID[e.ID] = e
+		}
+	}
+	out := make([]world.CommScheduledMessage, len(schedule))
+	for i, m := range schedule {
+		out[i] = m
+		out[i].Text = ExpandUnitPlaceholders(m.Text, byID)
+	}
+	return out
+}
+
+// ExpandUnitPlaceholders replaces {{unit.<id>.<field>}} tokens.
+// Fields: pos/latlon (PLOT nav format), x, y (yards), course/heading (deg),
+// speed (kts), depth (ft), name, id.
+func ExpandUnitPlaceholders(text string, byID map[string]*world.Entity) string {
+	if text == "" || !strings.Contains(text, "{{unit.") {
+		return text
+	}
+	return unitPlaceholderRe.ReplaceAllStringFunc(text, func(tok string) string {
+		m := unitPlaceholderRe.FindStringSubmatch(tok)
+		if len(m) != 3 {
+			return tok
+		}
+		id, field := m[1], strings.ToLower(m[2])
+		e := byID[id]
+		if e == nil {
+			return tok
+		}
+		switch field {
+		case "pos", "latlon", "position":
+			lat, lon := world.WorldToLatLon(e.X, e.Y)
+			return world.FormatNavLatLon(lat, lon)
+		case "x":
+			return fmt.Sprintf("%d", int(math.Round(e.X/100)*100))
+		case "y":
+			return fmt.Sprintf("%d", int(math.Round(e.Y/100)*100))
+		case "course", "heading":
+			return fmt.Sprintf("%d", int(math.Round(e.HeadingDeg/5)*5))
+		case "speed":
+			return fmt.Sprintf("%.0f", e.SpeedKts)
+		case "depth":
+			return fmt.Sprintf("%.0f", e.DepthFt)
+		case "name":
+			return e.Name
+		case "id":
+			return e.ID
+		default:
+			return tok
+		}
+	})
+}
+
+// ToWorldEvents copies campaign events into world runtime hooks.
+func ToWorldEvents(events []EventDef) []world.MissionEvent {
+	out := make([]world.MissionEvent, 0, len(events))
+	for _, ev := range events {
+		we := world.MissionEvent{ID: ev.ID, WhenType: ev.When.Type, ObjectiveID: ev.When.ObjectiveID, UnitID: ev.When.UnitID}
+		for _, act := range ev.Actions {
+			we.Actions = append(we.Actions, world.MissionEventAction{
+				Type: act.Type, ID: act.ID, Text: act.Text, AtSec: act.AtSec,
+				UnitID: act.UnitID, Defcon: act.Defcon, AIState: act.AIState,
+				Var: act.Var, Value: act.Value, ObjectiveID: act.ObjectiveID,
+			})
+		}
+		out = append(out, we)
+	}
+	return out
 }
 
 func buildRoute(spec RouteSpec) *world.Route {
@@ -129,8 +234,6 @@ func buildRoute(spec RouteSpec) *world.Route {
 		r.PingPong = true
 	case RouteLoop:
 		r.Looped = true
-		// Ensure a closing point: if last ≠ first, leave UniqueCount = n and wrap via Looped.
-		// If author already duplicated first at end, UniqueCount drops the duplicate.
 	case RouteOpen, "":
 		// one-way
 	default:
@@ -163,6 +266,7 @@ func spawnEntity(rng *rand.Rand, spec UnitSpec) *world.Entity {
 		LengthFt:     spec.LengthFt,
 		AIState:      spec.AIState,
 		Defcon:       spec.Defcon,
+		AllyIgnore:   spec.AllyIgnore,
 	}
 	if spec.CrewSkill > 0 || spec.CrewJitter > 0 {
 		e.CrewSkill = world.RandomCrewSkill(spec.CrewSkill, spec.CrewJitter, rng.Float64())
@@ -178,29 +282,40 @@ func placePlayer(rng *rand.Rand, player *world.Entity, bathy *world.Bathymetry, 
 	if world.PlaceNearChartCorner(player, bathy, corner, routes, spec.MinRouteYd, spec.MaxRouteYd) {
 		return
 	}
-	origin := &world.Entity{}
-	world.PlaceAwayFrom(rng, player, origin, 0, 4000, nil, bathy)
+	placeOnWater(rng, player, spec.MinRouteYd, spec.MaxRouteYd, nil, bathy)
 }
 
-func placeUnit(rng *rand.Rand, e, player *world.Entity, bathy *world.Bathymetry, routes []*world.Route, spec UnitSpec) {
-	r := world.FindRoute(routes, spec.RouteID)
-	if spec.Spawn == SpawnOnRoute && r != nil && world.PlaceOnRouteFraction(e, r, spec.RouteFrac, bathy) {
-		return
-	}
-	if spec.FallbackCorner != "" {
-		if world.PlaceNearChartCorner(e, bathy, spec.FallbackCorner, nil, 0, 0) {
-			if r != nil {
-				world.AssignRoute(e, r)
-			}
+func placeUnit(rng *rand.Rand, e *world.Entity, player *world.Entity, bathy *world.Bathymetry, routes []*world.Route, spec UnitSpec) {
+	switch spec.Spawn {
+	case SpawnChartCorner:
+		corner := spec.Corner
+		if corner == "" {
+			corner = "SW"
+		}
+		if world.PlaceNearChartCorner(e, bathy, corner, routes, spec.MinRouteYd, spec.MaxRouteYd) {
 			return
 		}
+	case SpawnOnRoute, "":
+		var route *world.Route
+		for _, r := range routes {
+			if r != nil && r.ID == spec.RouteID {
+				route = r
+				break
+			}
+		}
+		if route != nil && world.PlaceOnRouteFraction(e, route, spec.RouteFrac, bathy) {
+			return
+		}
+		if spec.FallbackCorner != "" {
+			minYd, maxYd := spec.FallbackMinYd, spec.FallbackMaxYd
+			if world.PlaceNearChartCorner(e, bathy, spec.FallbackCorner, routes, minYd, maxYd) {
+				return
+			}
+		}
 	}
-	minR, maxR := spec.FallbackMinYd, spec.FallbackMaxYd
-	if maxR <= 0 {
-		minR, maxR = 2500, 9000
-	}
-	world.PlaceAwayFrom(rng, e, player, minR, maxR, nil, bathy)
-	if r != nil {
-		world.AssignRoute(e, r)
-	}
+	placeOnWater(rng, e, 2000, 12000, []*world.Entity{player}, bathy)
+}
+
+func placeOnWater(rng *rand.Rand, e *world.Entity, minR, maxR float64, others []*world.Entity, bathy *world.Bathymetry) {
+	world.PlaceAwayFrom(rng, e, &world.Entity{}, minR, maxR, others, bathy)
 }

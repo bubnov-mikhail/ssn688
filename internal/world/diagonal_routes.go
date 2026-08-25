@@ -49,6 +49,38 @@ func BuildNWSETransit(bathy *Bathymetry, id string, lateralOffsetYd float64, num
 	return &Route{ID: id, Waypoints: wps, PingPong: true}
 }
 
+// BuildApproachFromNE builds an open inbound lane from the chart east/northeast
+// toward the OP AREA center (pincer approach).
+func BuildApproachFromNE(bathy *Bathymetry, id string, numWP int) *Route {
+	if bathy == nil || !bathy.Valid() {
+		return nil
+	}
+	if numWP < 4 {
+		numWP = 8
+	}
+	minX, minY, maxX, maxY := bathy.BoundsYards()
+	m := transitCornerMarginYd
+	// Start in deep water near the eastern edge, biased north (NE approach).
+	start := Waypoint{X: maxX - m, Y: (minY + maxY) * 0.55}
+	end := Waypoint{X: (minX + maxX) * 0.15, Y: (minY + maxY) * 0.05}
+	start.X, start.Y = snapNavigableClear(bathy, start.X, start.Y, transitMinClearanceYd)
+	end.X, end.Y = snapNavigableClear(bathy, end.X, end.Y, transitMinClearanceYd)
+
+	wps := make([]Waypoint, 0, numWP)
+	for i := 0; i < numWP; i++ {
+		t := float64(i) / float64(numWP-1)
+		x := start.X + (end.X-start.X)*t
+		y := start.Y + (end.Y-start.Y)*t
+		x, y = snapNavigableClear(bathy, x, y, transitMinClearanceYd)
+		wps = append(wps, Waypoint{X: x, Y: y})
+	}
+	wps = dedupeWaypoints(wps, 120)
+	if len(wps) < 3 {
+		return nil
+	}
+	return &Route{ID: id, Waypoints: wps, PingPong: false}
+}
+
 // BuildAllyEdgePatrol builds a PingPong lane along the chart edges:
 // SE (lower-right) → SW (lower-left) → NW (upper-left). Allies start near SE.
 func BuildAllyEdgePatrol(bathy *Bathymetry, id string, numWP int) *Route {

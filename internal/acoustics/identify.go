@@ -8,7 +8,7 @@ import (
 
 const (
 	// VisualIdentifyMaxYd — periscope hull ID inside this true range.
-	VisualIdentifyMaxYd = 800.0
+	VisualIdentifyMaxYd = 3000.0
 	// HarmonicIdentifyMatchFrac — fraction of library fingerprint lines that
 	// must be present in the received spectrum.
 	HarmonicIdentifyMatchFrac = 0.80

@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	scenarioLoadoutH        = 218
-	scenarioLoadoutRowH     = 28
-	scenarioLoadoutTube0    = 44
-	scenarioOrdnanceMenuH   = 22
-	scenarioLoadoutOrdBtnW  = 88 // fits "Harpoon ▼" with padding
+	scenarioLoadoutH       = 228
+	scenarioLoadoutRowH    = 28
+	scenarioLoadoutTube0   = 52
+	scenarioOrdnanceMenuH  = 22
+	scenarioLoadoutOrdBtnW = 88 // fits "Harpoon ▼" with padding
 )
 
 func scenarioLoadoutY() int {
@@ -171,7 +171,7 @@ func (a *App) drawScenarioLoadoutGroup(screen *ebiten.Image, x, y, w, h int) {
 	render.FillRect(screen, x, y+h-1, w, 1, border)
 	render.FillRect(screen, x, y, 1, h, border)
 	render.FillRect(screen, x+w-1, y, 1, h, border)
-	render.DrawTextLarge(screen, "WEAPON LOADOUT", x+10, y+22, render.ColorPlateLabel)
+	render.DrawTextLarge(screen, "WEAPON LOADOUT", x+10, y+30, render.ColorPlateLabel)
 }
 
 func (a *App) drawScenarioLoadoutOrdnanceMenu(screen *ebiten.Image, mx, my int) {
@@ -202,7 +202,7 @@ func (a *App) drawScenarioLoadout(screen *ebiten.Image) {
 	fc := campaign.PreviewFireControl(a.LoadoutTubes, a.LoadoutMix)
 	lx, ly, lw, lh := a.scenarioLoadoutRect()
 	padX := lx + scenarioDetailPad
-	a.drawScenarioLoadoutGroup(screen, lx+8, ly, lw-16, lh)
+	a.drawScenarioLoadoutGroup(screen, lx, ly, lw, lh)
 
 	mx, my := ebiten.CursorPosition()
 	for tube := 1; tube <= 4; tube++ {

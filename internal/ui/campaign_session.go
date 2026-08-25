@@ -119,7 +119,7 @@ func (a *App) endMissionConfirmed() {
 	meta.DebriefOutcomes = campaign.SnapshotObjectiveOutcomes(a.Engine.Scenario)
 	meta.BetweenMissions = true
 	meta.ReportEligible = false
-	campaign.MergeVars(meta.Vars, campaign.ResolveMissionOutputs(scDef, missionID, primaryOK))
+	campaign.MergeVars(meta.Vars, campaign.ResolveMissionOutputs(scDef, missionID, primaryOK, meta.DebriefOutcomes))
 
 	a.Engine.Campaign = meta
 	a.saveCampaignAutosave(meta, a.Engine, meta.ToProgress().ScenarioComplete(scDef))
@@ -152,6 +152,7 @@ func (a *App) acknowledgeDebriefAndSelectNext() {
 	}
 	a.briefDebrief = false
 	a.briefMissionID = next.ID
+	a.scenarioBriefDescScroll = 0
 }
 
 func (a *App) saveCampaignAutosave(prev campaign.RuntimeMeta, nextEngine *sim.Engine, scenarioDone bool) {

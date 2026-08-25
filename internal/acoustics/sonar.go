@@ -33,7 +33,7 @@ type Contact struct {
 	// LastClassifyAt — throttle expensive Classify() on warm tracks.
 	LastClassifyAt float64
 
-	// Successful identification (visual <800 yd or 80% harmonic hold ≥2 min).
+	// Successful identification (visual <3000 yd or 80% harmonic hold ≥2 min).
 	Identified        bool
 	IdentifiedBy      string // visual | acoustic
 	IdentifiedAt      float64

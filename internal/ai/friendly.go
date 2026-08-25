@@ -15,6 +15,10 @@ func UpdateFriendlyAI(entities []*world.Entity, player *world.Entity, gameTime, 
 		if !world.IsAllyAI(e, player) || !e.Alive() {
 			continue
 		}
+		if e.AIState == "ASSIST" && e.Kind == world.KindSurfaceShip {
+			driveAllyAssist(e, entities, model, gameTime, dt, torps, evade, routes, bathy, all)
+			continue
+		}
 		quarry := selectHostileQuarry(e, entities, model, gameTime)
 		if quarry == nil && e.AIProsecuting && e.Track.Valid {
 			quarry = e.Track.GhostTarget("ally-datum-"+e.ID, world.SideEnemy)
@@ -46,6 +50,52 @@ func UpdateFriendlyAI(entities []*world.Entity, player *world.Entity, gameTime, 
 				continue
 			}
 			updateSubAI(e, quarry, gameTime, dt, model, torps, evade, routes)
+		}
+	}
+}
+
+// driveAllyAssist steers an ally toward chart center until a hostile quarry appears.
+func driveAllyAssist(e *world.Entity, entities []*world.Entity, model acoustics.Model, gameTime, dt float64, torps []*weapons.Torpedo, evade EvadeContext, routes []*world.Route, bathy *world.Bathymetry, all []*world.Entity) {
+	quarry := selectHostileQuarry(e, entities, model, gameTime)
+	if quarry != nil {
+		e.AIState = "INTERCEPT"
+		updateSurfaceAI(e, quarry, gameTime, dt, model, torps, evade, routes)
+		applyColregsTraffic(e, all)
+		applyShoreAvoidance(e, bathy)
+		return
+	}
+	// Chart origin is Catalina OP AREA center.
+	brg := math.Atan2(0-e.X, 0-e.Y) * 180 / math.Pi
+	if brg < 0 {
+		brg += 360
+	}
+	e.OrderedHead = brg
+	if e.OrderedSpeed < 18 {
+		e.OrderedSpeed = 18
+	}
+	e.ActiveSonar = true
+	e.AIProsecuting = true
+	e.RouteID = ""
+	applyColregsTraffic(e, all)
+	applyShoreAvoidance(e, bathy)
+}
+
+// TriggerAllySurfaceAssist flips Spruance-class allies into ASSIST toward the center.
+func TriggerAllySurfaceAssist(entities []*world.Entity, player *world.Entity) {
+	for _, e := range entities {
+		if !world.IsAllyAI(e, player) || !e.Alive() || e.Kind != world.KindSurfaceShip {
+			continue
+		}
+		if e.AIState == "ASSIST" || e.AIState == "INTERCEPT" {
+			continue
+		}
+		e.AIState = "ASSIST"
+		e.RaiseDefcon(world.DefconWeaponsFree)
+		e.AIProsecuting = true
+		e.ActiveSonar = true
+		e.RouteID = ""
+		if e.OrderedSpeed < 18 {
+			e.OrderedSpeed = 18
 		}
 	}
 }
@@ -97,6 +147,9 @@ func selectHostileQuarry(hunter *world.Entity, entities []*world.Entity, model a
 	aswShip := hunter.Kind == world.KindSurfaceShip && weapons.SurfaceHasRastrub(hunter.SignatureID)
 	for _, e := range entities {
 		if e == nil || !e.Alive() || !world.IsHostile(e) {
+			continue
+		}
+		if e.AllyIgnore {
 			continue
 		}
 		if e.Kind != world.KindSubmarine && e.Kind != world.KindSurfaceShip {

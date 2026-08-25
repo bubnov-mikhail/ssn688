@@ -4,13 +4,57 @@ import "github.com/ssn688/sim/internal/world"
 
 // EventWhen triggers an event (extensible for sim-time dispatch).
 type EventWhen struct {
-	Type string `json:"type"` // time, objective_complete, objective_identified, unit_destroyed, var_eq
+	Type string `json:"type"` // time, objective_complete, objective_identified, unit_destroyed, var_eq, var_unset
 
 	AtSec       float64 `json:"at_sec,omitempty"`
 	ObjectiveID string  `json:"objective_id,omitempty"`
 	UnitID      string  `json:"unit_id,omitempty"`
 	Var         string  `json:"var,omitempty"`
 	Value       string  `json:"value,omitempty"`
+	RequireVar  string  `json:"require_var,omitempty"`
+	UnlessVar   string  `json:"unless_var,omitempty"`
+}
+
+// VarTruthy reports campaign vars used as booleans ("true").
+func VarTruthy(vars map[string]string, key string) bool {
+	if key == "" || vars == nil {
+		return false
+	}
+	v := vars[key]
+	return v == "true" || v == "1" || v == "yes"
+}
+
+// EventMatchesVars filters build-time / schedule events by campaign vars.
+func EventMatchesVars(ev EventDef, vars map[string]string) bool {
+	if ev.When.RequireVar != "" && !VarTruthy(vars, ev.When.RequireVar) {
+		return false
+	}
+	if ev.When.UnlessVar != "" && VarTruthy(vars, ev.When.UnlessVar) {
+		return false
+	}
+	switch ev.When.Type {
+	case "var_eq":
+		want := ev.When.Value
+		if want == "" {
+			want = "true"
+		}
+		return vars[ev.When.Var] == want
+	case "var_unset":
+		return !VarTruthy(vars, ev.When.Var)
+	default:
+		return true
+	}
+}
+
+// FilterEvents keeps events that match campaign vars.
+func FilterEvents(events []EventDef, vars map[string]string) []EventDef {
+	out := make([]EventDef, 0, len(events))
+	for _, ev := range events {
+		if EventMatchesVars(ev, vars) {
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 // EventAction is one side-effect when an event fires.

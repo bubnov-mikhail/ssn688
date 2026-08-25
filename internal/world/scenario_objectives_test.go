@@ -101,6 +101,27 @@ func TestMissionStatusReportShowsIDAndPriority(t *testing.T) {
 	}
 }
 
+func TestMissionStatusReportOmitsHiddenObjectives(t *testing.T) {
+	sc := testMissionScenario()
+	sink := findObj(sc, "obj_tanker")
+	if sink == nil {
+		t.Fatal("missing tanker obj")
+	}
+	sink.Description = "SECRET SINK TANKER"
+	sink.NeedDestroy = true
+	sink.NeedIdentify = false
+	sink.Hidden = true
+	rep := sc.MissionStatusReport()
+	if strings.Contains(rep, "SECRET SINK TANKER") {
+		t.Fatalf("hidden objective leaked into REPORT:\n%s", rep)
+	}
+	sc.RevealObjective("obj_tanker")
+	rep = sc.MissionStatusReport()
+	if !strings.Contains(rep, "SECRET SINK TANKER") {
+		t.Fatalf("revealed objective missing from REPORT:\n%s", rep)
+	}
+}
+
 func findObj(sc *Scenario, id string) *Objective {
 	for i := range sc.Objectives {
 		if sc.Objectives[i].ID == id {

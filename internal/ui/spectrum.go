@@ -599,9 +599,9 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT bearing  — ID: peri <800 yd or 80% harmonics × 2 min"
+	help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT bearing  — ID: peri <3000 yd or 80% harmonics × 2 min"
 	if filter == acoustics.ClassifyIndistinct {
-		help = "[B] array  LEFT/RIGHT bearing  — classify locked (no clear harmonics). ID still via peri <800 yd"
+		help = "[B] array  LEFT/RIGHT bearing  — classify locked (no clear harmonics). ID still via peri <3000 yd"
 	}
 	render.DrawText(screen, help, 40, 720, render.ColorDim, true)
 }

@@ -104,12 +104,16 @@ func TestSnapshotObjectiveOutcomes(t *testing.T) {
 	}
 }
 
-func TestNextMissionDemoIsLast(t *testing.T) {
+func TestNextMissionDemoCounterstroke(t *testing.T) {
 	sc := ScenarioByID(DemoScenarioID)
 	if sc == nil {
 		t.Fatal("demo scenario not loaded")
 	}
-	if NextMission(sc, DemoMissionTraining) != nil {
-		t.Fatal("demo training is the only mission")
+	next := NextMission(sc, DemoMissionTraining)
+	if next == nil || next.ID != DemoMissionCounterstroke {
+		t.Fatalf("want counterstroke after training, got %#v", next)
+	}
+	if NextMission(sc, DemoMissionCounterstroke) != nil {
+		t.Fatal("counterstroke should be last")
 	}
 }

@@ -90,8 +90,8 @@ func TestLoadoutFromMixRoundTrip(t *testing.T) {
 
 func TestDemoScenarioRegistry(t *testing.T) {
 	sc := ScenarioByID(DemoScenarioID)
-	if sc == nil || len(sc.Missions) != 1 {
-		t.Fatal("demo scenario should have one mission")
+	if sc == nil || len(sc.Missions) != 2 {
+		t.Fatal("demo scenario should have two missions")
 	}
 	if len(sc.CoverData) == 0 && sc.CoverFile == "" {
 		t.Fatal("demo scenario needs cover art")

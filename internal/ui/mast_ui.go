@@ -603,49 +603,23 @@ func (a *App) mastCommMessageRect() (x, y, w, h int) {
 	return x, y, w, h
 }
 
-func (a *App) mastCommMessageLines() []string {
+func (a *App) mastCommMessageLines() []render.MDLine {
 	if a.Engine == nil {
 		return nil
 	}
-	var lines []string
+	_, _, msgW, _ := a.mastCommMessageRect()
+	maxW := msgW - 16
+	if maxW < 80 {
+		maxW = 80
+	}
+	var lines []render.MDLine
 	for _, msg := range a.Engine.COMM.Inbox {
 		min := int(msg.TimeSec) / 60
 		sec := int(msg.TimeSec) % 60
-		lines = append(lines, fmt.Sprintf("[T+%02d:%02d]", min, sec))
-		for _, part := range strings.Split(msg.Text, "\n") {
-			wrapped := wrapTextWidth(part, 42)
-			if len(wrapped) == 0 {
-				lines = append(lines, "")
-				continue
-			}
-			lines = append(lines, wrapped...)
-		}
-		lines = append(lines, "")
+		stamp := fmt.Sprintf("[T+%02d:%02d]", min, sec)
+		lines = append(lines, render.MarkdownLinesForCOMM(stamp, msg.Text, maxW)...)
 	}
 	return lines
-}
-
-func wrapTextWidth(s string, width int) []string {
-	if width < 8 {
-		width = 8
-	}
-	s = strings.TrimRight(s, "\r")
-	if s == "" {
-		return []string{""}
-	}
-	var out []string
-	for len(s) > width {
-		cut := width
-		if sp := strings.LastIndex(s[:width], " "); sp > width/3 {
-			cut = sp
-		}
-		out = append(out, strings.TrimRight(s[:cut], " "))
-		s = strings.TrimLeft(s[cut:], " ")
-	}
-	if s != "" {
-		out = append(out, s)
-	}
-	return out
 }
 
 func (a *App) drawMastSidePlate(screen *ebiten.Image) {
@@ -719,17 +693,10 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	}
 	a.mastCommScroll = clampContactTableScroll(a.mastCommScroll, len(lines), vis)
 	start, end := contactTableWindow(len(lines), a.mastCommScroll, vis)
-	ty := msgY + 12
-	for i := start; i < end; i++ {
-		clr := render.ColorPhosphor
-		if strings.HasPrefix(lines[i], "[T+") {
-			clr = render.ColorAmber
-		}
-		render.DrawText(screen, trunc(lines[i], 48), msgX+6, ty, clr, true)
-		ty += 14
-	}
 	if len(lines) == 0 {
 		render.DrawText(screen, "No traffic", msgX+6, msgY+16, render.ColorDim, true)
+	} else {
+		render.DrawMDLines(screen, lines, start, end, msgX+6, msgY+12, true)
 	}
 	drawContactTableScrollbar(screen, msgX+msgW-6, msgY+8, msgH-12, len(lines), vis, a.mastCommScroll)
 

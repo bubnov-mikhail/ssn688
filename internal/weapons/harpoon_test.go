@@ -8,9 +8,10 @@ import (
 )
 
 func TestEnsureHarpoonDestructValid(t *testing.T) {
-	got := EnsureHarpoonDestructValid(HarpoonSRCHLong, HarpoonDSTRMedium)
-	if got != HarpoonDSTRLong {
-		t.Fatalf("long SRCH should force long DSTR, got %s", got)
+	// SRCH presets are ≤8 nm; medium DSTR (40 nm) covers all of them.
+	got := EnsureHarpoonDestructValid(HarpoonSRCHXLong, HarpoonDSTRMedium)
+	if got != HarpoonDSTRMedium {
+		t.Fatalf("8 nm SRCH should allow medium DSTR, got %s", got)
 	}
 	got = EnsureHarpoonDestructValid(HarpoonSRCHShort, HarpoonDSTRMax)
 	if got != HarpoonDSTRMax {
@@ -22,6 +23,12 @@ func TestEnsureHarpoonDestructValid(t *testing.T) {
 	}
 	if HarpoonRadarRangeYd(HarpoonSRCHMin) != HarpoonRadarMinYd {
 		t.Fatalf("min SRCH yards: got %.0f want %.0f", HarpoonRadarRangeYd(HarpoonSRCHMin), HarpoonRadarMinYd)
+	}
+	want := []float64{HarpoonRadarMinYd, HarpoonRadarShortYd, HarpoonRadarMediumYd, HarpoonRadarLongYd, HarpoonRadarXLongYd}
+	for i, set := range []string{HarpoonSRCHMin, HarpoonSRCHShort, HarpoonSRCHMedium, HarpoonSRCHLong, HarpoonSRCHXLong} {
+		if got := HarpoonRadarRangeYd(set); got != want[i] {
+			t.Fatalf("%s: got %.0f want %.0f", set, got, want[i])
+		}
 	}
 }
 

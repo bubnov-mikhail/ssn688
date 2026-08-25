@@ -24,16 +24,18 @@ const (
 	HarpoonTurnRateDegPerSec = 8.0
 )
 
-// Harpoon radar search range presets (nm → yd, shown in UI titles).
+// Harpoon radar search range presets — PLOT-aligned rings plus 8 nm.
 const (
 	HarpoonRadarMinNm    = 1.0
-	HarpoonRadarShortNm  = 8.0
-	HarpoonRadarMediumNm = 25.0
-	HarpoonRadarLongNm   = 50.0
+	HarpoonRadarShortNm  = 2.0
+	HarpoonRadarMediumNm = 4.0
+	HarpoonRadarLongNm   = 6.0
+	HarpoonRadarXLongNm  = 8.0
 	HarpoonRadarMinYd    = HarpoonRadarMinNm * world.YardsPerNM
 	HarpoonRadarShortYd  = HarpoonRadarShortNm * world.YardsPerNM
 	HarpoonRadarMediumYd = HarpoonRadarMediumNm * world.YardsPerNM
 	HarpoonRadarLongYd   = HarpoonRadarLongNm * world.YardsPerNM
+	HarpoonRadarXLongYd  = HarpoonRadarXLongNm * world.YardsPerNM
 	HarpoonDestructMedNm  = 40.0
 	HarpoonDestructLongNm = 60.0
 	HarpoonDestructMedYd  = HarpoonDestructMedNm * world.YardsPerNM
@@ -48,6 +50,7 @@ const (
 	HarpoonSRCHShort  = "SHORT"
 	HarpoonSRCHMedium = "MEDIUM"
 	HarpoonSRCHLong   = "LONG"
+	HarpoonSRCHXLong  = "XLONG" // 8 nm
 	HarpoonDSTRMedium = "MEDIUM"
 	HarpoonDSTRLong   = "LONG"
 	HarpoonDSTRMax    = "MAX"
@@ -95,6 +98,8 @@ func HarpoonRadarRangeYd(setting string) float64 {
 		return HarpoonRadarShortYd
 	case HarpoonSRCHLong:
 		return HarpoonRadarLongYd
+	case HarpoonSRCHXLong:
+		return HarpoonRadarXLongYd
 	default:
 		return HarpoonRadarMediumYd
 	}
@@ -127,6 +132,8 @@ func HarpoonRadarRangeLabel(setting string) string {
 		return fmt.Sprintf("SRCH %.0f nm", HarpoonRadarShortNm)
 	case HarpoonSRCHLong:
 		return fmt.Sprintf("SRCH %.0f nm", HarpoonRadarLongNm)
+	case HarpoonSRCHXLong:
+		return fmt.Sprintf("SRCH %.0f nm", HarpoonRadarXLongNm)
 	default:
 		return fmt.Sprintf("SRCH %.0f nm", HarpoonRadarMediumNm)
 	}
@@ -167,6 +174,8 @@ func nextHarpoonRadarSetting(cur string) string {
 		return HarpoonSRCHMedium
 	case HarpoonSRCHMedium:
 		return HarpoonSRCHLong
+	case HarpoonSRCHLong:
+		return HarpoonSRCHXLong
 	default:
 		return HarpoonSRCHMin
 	}

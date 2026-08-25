@@ -84,6 +84,9 @@ type unitJSON struct {
 	FallbackCorner string  `json:"fallback_corner,omitempty"`
 	FallbackMinYd  float64 `json:"fallback_min_yd,omitempty"`
 	FallbackMaxYd  float64 `json:"fallback_max_yd,omitempty"`
+	RequireVar     string  `json:"require_var,omitempty"`
+	UnlessVar      string  `json:"unless_var,omitempty"`
+	AllyIgnore     bool    `json:"ally_ignore,omitempty"`
 }
 
 type objectiveJSON struct {
@@ -94,12 +97,15 @@ type objectiveJSON struct {
 	NeedIdentify bool   `json:"need_identify,omitempty"`
 	NeedDestroy  bool   `json:"need_destroy,omitempty"`
 	Hidden       bool   `json:"hidden,omitempty"`
+	RequireVar   string `json:"require_var,omitempty"`
+	UnlessVar    string `json:"unless_var,omitempty"`
 }
 
 type outputJSON struct {
 	Key                 string `json:"key"`
 	Value               string `json:"value"`
 	WhenPrimaryComplete bool   `json:"when_primary_complete,omitempty"`
+	WhenObjectiveID     string `json:"when_objective_id,omitempty"`
 }
 
 type debriefLineJSON struct {

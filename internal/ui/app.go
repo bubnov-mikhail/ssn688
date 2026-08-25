@@ -154,8 +154,10 @@ type App struct {
 
 	SelectedScenarioID      campaign.ScenarioID
 	ScenarioListIndex       int
-	briefDebrief            bool
-	briefMissionID          campaign.MissionID
+	scenarioBackstoryScroll  int
+	scenarioBriefDescScroll  int
+	briefDebrief             bool
+	briefMissionID           campaign.MissionID
 	LoadoutMix              float64
 	LoadoutTubes            campaign.TubeLoadout
 	loadoutDragging         bool

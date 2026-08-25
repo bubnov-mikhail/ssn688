@@ -277,6 +277,7 @@ func (e *Engine) tick(dt float64) {
 
 	e.syncIdentifications(t)
 	e.Scenario.CheckObjectives()
+	e.dispatchMissionEvents(t)
 	e.Acoustics.Env.UpdateLayerSurvey(t)
 	if e.Scenario.Bathy != nil && e.Scenario.Bathy.Valid() {
 		if d := e.Scenario.Bathy.DepthAtFt(player.X, player.Y); d > 0 {
@@ -1056,6 +1057,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, "RBU barrage detected")
 				e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
+				e.noteEnemySurfaceWeaponFired()
 			}
 			continue
 		}
@@ -1067,6 +1069,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			}
 			if e.FireControl.LaunchShipTube(ent, aim) != nil {
 				e.Events = append(e.Events, "Torpedo launch detected (hostile)")
+				e.noteEnemySurfaceWeaponFired()
 			}
 			continue
 		}
@@ -1080,6 +1083,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, "RBU barrage detected")
 				e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
+				e.noteEnemySurfaceWeaponFired()
 			}
 			continue
 		}
@@ -1092,6 +1096,7 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			}
 			if e.FireControl.LaunchRastrub(ent, aim, gameTime) != nil {
 				e.Events = append(e.Events, weapons.SurfaceASWRocketLabel(ent.SignatureID)+" launch detected")
+				e.noteEnemySurfaceWeaponFired()
 			}
 		}
 	}
@@ -1257,6 +1262,9 @@ func (e *Engine) friendlyQuarry(hunter *world.Entity) *world.Entity {
 	bestScore := -1.0
 	for _, ent := range e.Scenario.Entities {
 		if ent == nil || !ent.Alive() || !world.IsHostile(ent) {
+			continue
+		}
+		if ent.AllyIgnore {
 			continue
 		}
 		d := hunter.RangeYardsTo(ent)
