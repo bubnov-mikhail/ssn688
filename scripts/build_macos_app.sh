@@ -25,7 +25,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 	<key>CFBundleName</key>
 	<string>SSN688</string>
 	<key>CFBundleDisplayName</key>
-	<string>SSN-688(I) Hunter/Killer</string>
+	<string>SSN-688 Modern Submarine Combat Simulator</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

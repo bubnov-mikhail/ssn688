@@ -242,6 +242,11 @@ func writeCampaign(w *bufio.Writer, meta *campaign.RuntimeMeta) {
 	fmt.Fprintf(w, "loadout_mix=%.3f\n", meta.LoadoutMix)
 	fmt.Fprintf(w, "report_eligible=%t\n", meta.ReportEligible)
 	fmt.Fprintf(w, "between_missions=%t\n", meta.BetweenMissions)
+	fmt.Fprintf(w, "debrief_pending=%t\n", meta.DebriefPending)
+	fmt.Fprintf(w, "debrief_mission=%s\n", meta.DebriefMission)
+	for _, o := range meta.DebriefOutcomes {
+		fmt.Fprintf(w, "debrief_obj=%s|%t|%t|%t\n", o.ID, o.Identified, o.Destroyed, o.Complete)
+	}
 	var done []string
 	for id, ok := range meta.Completed {
 		if ok {
@@ -278,6 +283,14 @@ func applyCampaignField(meta *campaign.RuntimeMeta, key, val string) {
 		meta.ReportEligible, _ = strconv.ParseBool(val)
 	case "between_missions":
 		meta.BetweenMissions, _ = strconv.ParseBool(val)
+	case "debrief_pending":
+		meta.DebriefPending, _ = strconv.ParseBool(val)
+	case "debrief_mission":
+		meta.DebriefMission = campaign.MissionID(val)
+	case "debrief_obj":
+		if o, ok := parseDebriefObj(val); ok {
+			meta.DebriefOutcomes = append(meta.DebriefOutcomes, o)
+		}
 	case "completed":
 		for _, id := range strings.Split(val, ",") {
 			id = strings.TrimSpace(id)
@@ -291,6 +304,20 @@ func applyCampaignField(meta *campaign.RuntimeMeta, key, val string) {
 			meta.Vars[parts[0]] = parts[1]
 		}
 	}
+}
+
+func parseDebriefObj(val string) (campaign.ObjectiveOutcome, bool) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 4 || parts[0] == "" {
+		return campaign.ObjectiveOutcome{}, false
+	}
+	id := parts[0]
+	ident, _ := strconv.ParseBool(parts[1])
+	dest, _ := strconv.ParseBool(parts[2])
+	done, _ := strconv.ParseBool(parts[3])
+	return campaign.ObjectiveOutcome{
+		ID: id, Identified: ident, Destroyed: dest, Complete: done,
+	}, true
 }
 
 func parseTrailingInt(id string) int {
@@ -365,7 +392,13 @@ func loadClean(path string) (*sim.Engine, error) {
 		return nil, err
 	}
 
-	sc := world.NewTrainingScenario()
+	sc := &world.Scenario{
+		Name: "loaded",
+		Player: &world.Entity{
+			ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+			Status: world.StatusActive, SignatureID: "los_angeles", LengthFt: 360,
+		},
+	}
 	engine := sim.NewEngine(sc)
 	engine.Scenario.Entities = nil
 	engine.Sonar.Contacts = nil
@@ -648,8 +681,20 @@ func loadClean(path string) (*sim.Engine, error) {
 	if engine.Scenario != nil && engine.Scenario.Player != nil {
 		engine.CM.EnsureMagazine(engine.Scenario.Player.ID)
 	}
+	if bathy := campaign.ResolveMissionBathy(engine.Campaign.ScenarioID, engine.Campaign.MissionID); bathy != nil && bathy.Valid() {
+		engine.Scenario.Bathy = bathy
+	} else {
+		return nil, fmt.Errorf(
+			"save requires bathymetry from scenario %q mission %q (missing or incompatible)",
+			engine.Campaign.ScenarioID, engine.Campaign.MissionID,
+		)
+	}
 	if len(engine.Scenario.Objectives) == 0 {
-		engine.Scenario.Objectives = world.NewTrainingScenario().Objectives
+		if m := campaign.MissionByID(engine.Campaign.ScenarioID, engine.Campaign.MissionID); m != nil {
+			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives)
+		} else if m := campaign.MissionByID(campaign.DemoScenarioID, campaign.DemoMissionTraining); m != nil {
+			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives)
+		}
 	}
 	if len(engine.COMM.Inbox) == 0 {
 		engine.COMM.SeedBriefing(engine.Scenario.CommBriefing)

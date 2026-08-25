@@ -4,17 +4,19 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ssn688/sim/assets"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/world"
 )
 
-// TestLandRayHitsCatalinaNearOrigin verifies the training chart has dry land
+// TestLandRayHitsCatalinaNearOrigin verifies the demo scenario chart has dry land
 // within a few miles of the chart origin (needed for peri IR coast columns).
 func TestLandRayHitsCatalinaNearOrigin(t *testing.T) {
-	b, err := world.LoadBathymetry(assets.BathyChart)
-	if err != nil {
-		t.Fatal(err)
+	campaign.ReloadScenarios()
+	bathy := campaign.ResolveMissionBathy(campaign.DemoScenarioID, campaign.DemoMissionTraining)
+	if bathy == nil || !bathy.Valid() {
+		t.Fatal("demo scenario missing bathymetry")
 	}
+	b := *bathy
 	found := false
 	maxR := 8 * world.YardsPerNM
 	for brg := 0; brg < 360; brg += 5 {

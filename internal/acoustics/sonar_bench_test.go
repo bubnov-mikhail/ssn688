@@ -3,11 +3,12 @@ package acoustics
 import (
 	"testing"
 
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/world"
 )
 
 func benchScenario() (*world.Scenario, []float64) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	dst := make([]float64, NumBands)
 	return sc, dst
 }

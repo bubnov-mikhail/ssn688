@@ -1,12 +1,13 @@
 # AGENTS.md — гайд для ИИ-агентов и разработчиков
 
-Симулятор ПЛ **SSN-688(I) Hunter/Killer**: Go + [Ebiten v2](https://ebitengine.org/), модуль `github.com/ssn688/sim`.  
+Симулятор ПЛ **SSN-688 Modern Submarine Combat Simulator**: Go + [Ebiten v2](https://ebitengine.org/), модуль `github.com/ssn688/sim`.  
 Подробности для игроков — в [README.md](README.md). Здесь — то, что нужно агенту, чтобы не ломать архитектуру и быстро находить код.
 
 ## Обязательные привычки агента
 
 1. **После каждого изменения кода** пересобирай бинарник:
    ```bash
+   cp VERSION internal/version/VERSION
    go build -o ssn688 .
    ```
 2. **Перед сдачей фичи** прогоняй тесты затронутых пакетов (минимум):
@@ -49,9 +50,12 @@ macOS `.app`: `./scripts/build_macos_app.sh` → `open dist/SSN688.app`.
 ```
 main.go                 — Ebiten Game, audio context
 assets/                 — embed: menu_bg, bathy.bin
+scenarios/              — bundled JSON сценарии (*.json), embed через scenarios/embed.go
 internal/
   sim/                  — игровой тик, связка world/AI/weapons/sonar
-  world/                — Entity, Kind, сценарий, батиметрия, signature library
+  world/                — Entity, Kind, батиметрия, signature library, runtime Scenario
+  campaign/             — JSON-сценарии, театры, миссии, loadout, debrief, import
+  version/              — embed VERSION для semver игры и ScenarioFormatMajor
   acoustics/            — Detect, SNR, waterfall, listen bands, TMA, contacts
   weapons/              — Mk48/Type53, seeker, CM (decoy/jitter/Nixie)
   ai/                   — враг/гражданские, уклонение от торпед + CM
@@ -79,7 +83,8 @@ agent-skills/           — доменные навыки для ИИ-агент
 | Разгон судов | `world/entity.go` — `MaxSpeedAccelKtsPerSec` |
 | Подписи шума (LOFAR) | `world/signatures.go`, `acoustics/source.go` |
 | Голосовые клипы | `audio/clips.go`, `audio/voice.go`, `audio/voices/**` |
-| Новая карта / bathy / маршруты | `agent-skills/bathymetry-and-routes/SKILL.md`, `tools/gen_hormuz_bathy.py`, `internal/world/bathymetry*.go`, `diagonal_routes.go`, `coastal_routes.go`, `scenario.go` |
+| Кампания / состав миссии | `scenarios/*.json`, `internal/campaign/instantiate.go`, `scenario_load.go`, `build.go` |
+| Новая карта / bathy / маршруты | `agent-skills/bathymetry-and-routes/SKILL.md`, `tools/gen_hormuz_bathy.py`, `internal/world/bathymetry*.go`, `diagonal_routes.go`, `coastal_routes.go`, `scenarios/*.json` |
 
 ## Важные доменные правила (не ломать без явного запроса)
 
@@ -106,6 +111,19 @@ agent-skills/           — доменные навыки для ИИ-агент
 
 - Экраны живут в `internal/ui`; геометрия панелей — `layout`, цвета/шрифты — `render`.
 - Сохранение сессии / reload: `ui/session.go`, `save/save.go` — при новых полях контакта/торпеды обновляй сериализацию **и** тесты `save`.
+
+### Сценарии (JSON) и версии
+
+- Сценарии — **JSON-файлы**, не Go-код. Демо: `scenarios/demo_catalina.json` (embed в бинарник). Пользовательские: `~/Library/Application Support/ssn688/scenarios/` (рядом с saves). Формат документирован в [`scenarios/schema.json`](scenarios/schema.json).
+- **Все бинарные ассеты** (обложка, bathy) — **inline base64** в том же JSON; `asset_ref` / `use_game_default` не поддерживаются.
+- Bathymetry живёт только в сценарии. При save/reload chart берётся из theater выбранного сценария (`campaign.ResolveMissionBathy`); глобального `DefaultBathy` / `assets/bathy.bin` нет.
+- Поля semver: `format_version` (major = схема JSON, см. `version.ScenarioFormatMajor`, сейчас **2**), `version` (версия сценария), `min_game_version` (минимальная версия игры).
+- Маршруты: явные `waypoints` + `mode` (`open` | `pingpong` | `loop`); опционально `player_clearance` для расстановки ownship.
+- **При правке сценария** инкрементируй `version` по semver (patch — правки контента, minor — новые миссии/поля без ломки, major — несовместимые изменения).
+- **Версия игры** — файл `VERSION` в корне + копия `internal/version/VERSION` (embed). При **breaking change** в игре для сценариев: увеличь major в `VERSION`, обнули minor/patch; при смене JSON-схемы — увеличь `ScenarioFormatMajor` в `internal/version/version.go`.
+- Несовместимые сценарии (старый `format_version` или `min_game_version` > текущей игры) — красные в списке, без кнопок запуска; saves для них не показываются и не грузятся.
+- Импорт: главное меню **IMPORT SCENARIO** → валидация JSON, semver, дубликат (замена только если новая `version` ≥ установленной), базовая проверка base64-ассетов.
+- События (`events` в JSON): схема для event-driven поведения (COMM, юниты, радио); на load применяются COMM-расписания через `ApplyCommEvents`.
 
 ## Импорты и границы
 
@@ -135,7 +153,7 @@ world → (почти никого)
 
 - WAV офицеров — `internal/audio/voices/{capt,sonar,weps,dive,nav}/`, регистрация в `clips.go`.
 - Перегенерация TTS (Apple Silicon, `mlx-audio`): см. README → `scripts/generate_voices_kokoro.py`.
-- Батиметрия: `assets/bathy.bin`; скрипт `tools/gen_hormuz_bathy.py` (имя историческое, сцена — Santa Catalina). Подробный пайплайн — [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md).
+- Батиметрия: только внутри `scenarios/*.json` (`theaters[].bathy.data_b64`). Пересборка сетки: `tools/gen_hormuz_bathy.py` → бинарник, затем inline в JSON (`tools/gen_demo_scenario_json.go`). Подробный пайплайн — [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md).
 
 ## Коммиты (когда попросили)
 

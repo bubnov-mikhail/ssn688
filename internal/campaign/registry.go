@@ -1,15 +1,112 @@
 package campaign
 
 import (
-	"github.com/ssn688/sim/internal/world"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+
+	"github.com/ssn688/sim/internal/config"
+	"github.com/ssn688/sim/scenarios"
 )
 
-// AllScenarios returns registered campaigns in menu order.
-func AllScenarios() []ScenarioDef {
-	return []ScenarioDef{DemoScenario()}
+var (
+	scenarioMu    sync.RWMutex
+	scenarioCache []ScenarioDef
+)
+
+// ReloadScenarios clears cached scenario list (after import).
+func ReloadScenarios() {
+	scenarioMu.Lock()
+	scenarioCache = nil
+	scenarioMu.Unlock()
 }
 
-// ScenarioByID finds a campaign definition.
+// AllScenarios returns bundled + user scenarios sorted by title.
+func AllScenarios() []ScenarioDef {
+	scenarioMu.RLock()
+	if scenarioCache != nil {
+		out := append([]ScenarioDef(nil), scenarioCache...)
+		scenarioMu.RUnlock()
+		return out
+	}
+	scenarioMu.RUnlock()
+
+	scenarioMu.Lock()
+	defer scenarioMu.Unlock()
+	if scenarioCache != nil {
+		return append([]ScenarioDef(nil), scenarioCache...)
+	}
+	scenarioCache = loadAllScenarios()
+	return append([]ScenarioDef(nil), scenarioCache...)
+}
+
+func loadAllScenarios() []ScenarioDef {
+	byID := map[ScenarioID]ScenarioDef{}
+
+	loadDir := func(dir string, entries []os.DirEntry) {
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" || e.Name() == "schema.json" {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			sc, err := ParseScenarioJSON(data, path)
+			if err != nil {
+				continue
+			}
+			mergeScenario(byID, sc)
+		}
+	}
+
+	// Bundled JSON from embed.
+	bundledNames, _ := scenarios.Bundled.ReadDir(".")
+	for _, e := range bundledNames {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" || e.Name() == "schema.json" {
+			continue
+		}
+		data, err := scenarios.Bundled.ReadFile(e.Name())
+		if err != nil {
+			continue
+		}
+		sc, err := ParseScenarioJSON(data, "bundled:"+e.Name())
+		if err != nil {
+			continue
+		}
+		mergeScenario(byID, sc)
+	}
+
+	if userDir, err := config.ScenariosDir(); err == nil {
+		if entries, err := os.ReadDir(userDir); err == nil {
+			loadDir(userDir, entries)
+		}
+	}
+
+	out := make([]ScenarioDef, 0, len(byID))
+	for _, sc := range byID {
+		out = append(out, sc)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Title == out[j].Title {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Title < out[j].Title
+	})
+	return out
+}
+
+func mergeScenario(byID map[ScenarioID]ScenarioDef, sc ScenarioDef) {
+	prev, ok := byID[sc.ID]
+	if !ok || sc.Version.Compare(prev.Version) >= 0 {
+		byID[sc.ID] = sc
+	}
+}
+
+// ScenarioByID finds a loaded campaign definition.
 func ScenarioByID(id ScenarioID) *ScenarioDef {
 	for _, sc := range AllScenarios() {
 		if sc.ID == id {
@@ -20,25 +117,45 @@ func ScenarioByID(id ScenarioID) *ScenarioDef {
 	return nil
 }
 
-// MissionByID finds a mission within a scenario.
-func MissionByID(scenarioID ScenarioID, missionID MissionID) *MissionDef {
-	sc := ScenarioByID(scenarioID)
-	if sc == nil {
+// ScenarioByIDCompatible returns nil for incompatible scenarios.
+func ScenarioByIDCompatible(id ScenarioID) *ScenarioDef {
+	sc := ScenarioByID(id)
+	if sc == nil || !sc.Compatible {
 		return nil
 	}
-	for i := range sc.Missions {
-		if sc.Missions[i].ID == missionID {
-			return &sc.Missions[i]
-		}
-	}
-	return nil
+	return sc
 }
 
-// BuildMission constructs runtime scenario state for a mission.
-func BuildMission(scenarioID ScenarioID, missionID MissionID, ctx BuildContext) *world.Scenario {
-	m := MissionByID(scenarioID, missionID)
-	if m == nil || m.Build == nil {
-		return nil
+// ImportScenarioJSON validates and installs a user scenario file.
+func ImportScenarioJSON(srcPath string) (ScenarioDef, error) {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ScenarioDef{}, err
 	}
-	return m.Build(ctx)
+	sc, err := ParseScenarioJSON(data, srcPath)
+	if err != nil {
+		return ScenarioDef{}, err
+	}
+	if !sc.Compatible {
+		return ScenarioDef{}, fmt.Errorf("incompatible: %s", sc.IncompatibleReason)
+	}
+	userDir, err := config.ScenariosDir()
+	if err != nil {
+		return ScenarioDef{}, err
+	}
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		return ScenarioDef{}, err
+	}
+	dest := filepath.Join(userDir, string(sc.ID)+".json")
+	if prev, err := os.ReadFile(dest); err == nil {
+		old, perr := ParseScenarioJSON(prev, dest)
+		if perr == nil && sc.Version.Compare(old.Version) < 0 {
+			return ScenarioDef{}, fmt.Errorf("installed version %s is newer than %s", old.Version, sc.Version)
+		}
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return ScenarioDef{}, err
+	}
+	ReloadScenarios()
+	return sc, nil
 }

@@ -410,7 +410,7 @@ var libraryCatalog = []libraryEntry{
 	},
 	{
 		ID: "los_angeles", Allegiance: libFriendly, Kind: world.KindSubmarine,
-		Title:     "Los Angeles SSN — SSN-688(I) (Ownship)",
+		Title:     "Los Angeles SSN — SSN-688 (Ownship)",
 		ImageFile: "los_angeles.jpg",
 		Credit:    "Photo: U.S. Navy / public domain (Wikimedia)",
 		Summary: []string{

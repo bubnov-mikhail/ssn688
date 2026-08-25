@@ -424,8 +424,6 @@ func (a *App) buildPeriscopeIRBackground(player *world.Entity, peri *acoustics.P
 	var bathy world.Bathymetry
 	if a.Engine != nil && a.Engine.Scenario != nil && a.Engine.Scenario.Bathy != nil {
 		bathy = *a.Engine.Scenario.Bathy
-	} else {
-		bathy = world.DefaultBathy
 	}
 	if bathy.Valid() {
 		if cap(a.periLandHit) < w {

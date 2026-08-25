@@ -3,7 +3,7 @@ package world
 import "testing"
 
 func TestPrimaryObjectivesComplete(t *testing.T) {
-	sc := NewTrainingScenario()
+	sc := testMissionScenario()
 	if sc.PrimaryObjectivesComplete() {
 		t.Fatal("fresh mission should not have primaries complete")
 	}

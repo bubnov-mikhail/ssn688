@@ -3,12 +3,12 @@ package sim_test
 import (
 	"testing"
 
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/world"
 )
 
 func BenchmarkEngineTick(b *testing.B) {
-	eng := sim.NewEngine(world.NewTrainingScenario())
+	eng := sim.NewEngine(campaign.DemoRuntime())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -17,7 +17,7 @@ func BenchmarkEngineTick(b *testing.B) {
 }
 
 func BenchmarkEngineTenTicks(b *testing.B) {
-	eng := sim.NewEngine(world.NewTrainingScenario())
+	eng := sim.NewEngine(campaign.DemoRuntime())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

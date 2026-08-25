@@ -11,8 +11,8 @@ import (
 
 func (a *App) continueScenario() {
 	sc := a.selectedScenarioDef()
-	if sc == nil {
-		a.StatusMessage = "No scenario selected."
+	if sc == nil || !sc.Compatible {
+		a.StatusMessage = "Scenario is incompatible with this game version."
 		return
 	}
 	path, err := campaign.LatestSaveForScenario(sc.ID)
@@ -23,6 +23,13 @@ func (a *App) continueScenario() {
 	engine, err := save.LoadClean(path)
 	if err != nil {
 		a.StatusMessage = "Load failed: " + err.Error()
+		return
+	}
+	if engine.Campaign.BetweenMissions {
+		a.briefDebrief = false
+		a.briefMissionID = ""
+		a.Mode = ModeScenarioBrief
+		a.initScenarioBrief()
 		return
 	}
 	if engine.Clock.GameTime > 0.01 {
@@ -38,19 +45,27 @@ func (a *App) restartScenarioConfirmed() {
 	}
 	_ = campaign.DeleteScenarioSaves(sc.ID)
 	a.resetScenarioLoadout()
+	a.briefDebrief = false
+	a.briefMissionID = ""
 	a.Mode = ModeScenarioBrief
 	a.initScenarioBrief()
 	a.StatusMessage = "Scenario progress cleared."
 }
 
 func (a *App) startSelectedMission() {
+	if a.briefDebrief || !a.selectedScenarioPlayable() {
+		return
+	}
 	sc := a.selectedScenarioDef()
 	if sc == nil {
 		return
 	}
 	prog := a.scenarioProgress(sc.ID)
-	m := prog.CurrentMission(sc)
-	if m == nil {
+	m := a.briefDisplayedMission(sc)
+	if m == nil || prog.CompletedMissions[m.ID] {
+		m = prog.CurrentMission(sc)
+	}
+	if m == nil || prog.CompletedMissions[m.ID] || prog.ScenarioComplete(sc) {
 		a.StatusMessage = "Scenario already complete."
 		return
 	}
@@ -99,46 +114,44 @@ func (a *App) endMissionConfirmed() {
 		meta.Vars = map[string]string{}
 	}
 	meta.Completed[missionID] = true
-	campaign.MergeVars(meta.Vars, campaign.ResolveMissionOutputs(scDef, missionID, primaryOK))
-
-	next := campaign.Progress{
-		ScenarioID:        meta.ScenarioID,
-		CompletedMissions: meta.Completed,
-		Vars:              meta.Vars,
-		LoadoutMix:        meta.LoadoutMix,
-	}
-	nextMission := next.CurrentMission(scDef)
-
-	if nextMission == nil {
-		a.saveCampaignAutosave(meta, nil, true)
-		a.releaseSessionCaches()
-		a.Engine = nil
-		a.Mode = ModeScenarioList
-		a.SelectedScenarioID = scDef.ID
-		a.StatusMessage = "Scenario complete — progress saved."
-		return
-	}
-
-	ctx := campaign.BuildContextFromProgress(next)
-	runtime := campaign.BuildMission(scDef.ID, nextMission.ID, ctx)
-	if runtime == nil {
-		a.StatusMessage = "Failed to prepare next mission."
-		return
-	}
-	engine := sim.NewEngine(runtime)
-	meta.MissionID = nextMission.ID
-	meta.MissionHash = campaign.MissionHash(*nextMission)
+	meta.DebriefPending = true
+	meta.DebriefMission = missionID
+	meta.DebriefOutcomes = campaign.SnapshotObjectiveOutcomes(a.Engine.Scenario)
 	meta.BetweenMissions = true
 	meta.ReportEligible = false
-	engine.Campaign = meta
-	campaign.ApplyPlayerLoadout(&engine.FireControl, meta.LoadoutMix)
-	a.saveCampaignAutosave(meta, engine, false)
+	campaign.MergeVars(meta.Vars, campaign.ResolveMissionOutputs(scDef, missionID, primaryOK))
+
+	a.Engine.Campaign = meta
+	a.saveCampaignAutosave(meta, a.Engine, meta.ToProgress().ScenarioComplete(scDef))
 	a.releaseSessionCaches()
 	a.Engine = nil
 	a.Mode = ModeScenarioBrief
 	a.SelectedScenarioID = scDef.ID
+	a.briefDebrief = true
+	a.briefMissionID = missionID
 	a.initScenarioBrief()
-	a.StatusMessage = "Mission complete — autosaved for next mission."
+	a.StatusMessage = ""
+}
+
+func (a *App) acknowledgeDebriefAndSelectNext() {
+	sc := a.selectedScenarioDef()
+	if sc == nil {
+		return
+	}
+	next := campaign.NextMission(sc, a.briefMissionID)
+	if next == nil {
+		return
+	}
+	path, err := campaign.LatestSaveForScenario(sc.ID)
+	if err == nil {
+		if engine, loadErr := save.LoadClean(path); loadErr == nil {
+			engine.Campaign.DebriefPending = false
+			engine.Campaign.BetweenMissions = true
+			_ = save.Save(path, engine)
+		}
+	}
+	a.briefDebrief = false
+	a.briefMissionID = next.ID
 }
 
 func (a *App) saveCampaignAutosave(prev campaign.RuntimeMeta, nextEngine *sim.Engine, scenarioDone bool) {

@@ -13,12 +13,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	ebitenaudio "github.com/hajimehoshi/ebiten/v2/audio"
-	"github.com/ssn688/sim/assets"
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/ui"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/ssn688/sim/internal/version"
 )
 
 const sampleRate = 44100
@@ -88,12 +87,6 @@ func main() {
 		log.Printf("font init: %v", err)
 	}
 
-	if bathy, err := world.LoadBathymetry(assets.BathyChart); err != nil {
-		log.Printf("bathymetry: %v", err)
-	} else {
-		world.SetDefaultBathymetry(bathy)
-	}
-
 	settings, err := config.Load()
 	if err != nil {
 		log.Printf("settings: %v", err)
@@ -105,7 +98,7 @@ func main() {
 
 	app := ui.NewApp(settings, audioMgr)
 
-	ebiten.SetWindowTitle("SSN-688(I) Hunter/Killer")
+	ebiten.SetWindowTitle(version.Title)
 	ebiten.SetWindowSize(settings.WindowWidth, settings.WindowHeight)
 	ebiten.SetFullscreen(settings.Fullscreen)
 	ebiten.SetVsyncEnabled(true)

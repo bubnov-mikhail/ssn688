@@ -89,6 +89,14 @@ func ReadSaveCampaignMeta(path string) (RuntimeMeta, bool) {
 			meta.ReportEligible, _ = parseBool(val)
 		case "between_missions":
 			meta.BetweenMissions, _ = parseBool(val)
+		case "debrief_pending":
+			meta.DebriefPending, _ = parseBool(val)
+		case "debrief_mission":
+			meta.DebriefMission = MissionID(val)
+		case "debrief_obj":
+			if o, ok := parseDebriefOutcome(val); ok {
+				meta.DebriefOutcomes = append(meta.DebriefOutcomes, o)
+			}
 		case "completed":
 			for _, id := range strings.Split(val, ",") {
 				id = strings.TrimSpace(id)
@@ -106,6 +114,19 @@ func ReadSaveCampaignMeta(path string) (RuntimeMeta, bool) {
 	return meta, found
 }
 
+func parseDebriefOutcome(val string) (ObjectiveOutcome, bool) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 4 || parts[0] == "" {
+		return ObjectiveOutcome{}, false
+	}
+	return ObjectiveOutcome{
+		ID:         parts[0],
+		Identified: parts[1] == "true",
+		Destroyed:  parts[2] == "true",
+		Complete:   parts[3] == "true",
+	}, true
+}
+
 func parseBool(s string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "1", "true", "yes":
@@ -115,8 +136,12 @@ func parseBool(s string) (bool, error) {
 	}
 }
 
-// LatestSaveForScenario returns the newest save belonging to a campaign.
+// LatestSaveForScenario returns the newest save belonging to a compatible campaign.
 func LatestSaveForScenario(scenarioID ScenarioID) (string, error) {
+	sc := ScenarioByID(scenarioID)
+	if sc == nil || !sc.Compatible {
+		return "", os.ErrNotExist
+	}
 	dir, err := config.SavesDir()
 	if err != nil {
 		return "", err

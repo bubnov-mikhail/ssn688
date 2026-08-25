@@ -3,11 +3,11 @@ package sim
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/ssn688/sim/internal/campaign"
 )
 
 func TestCloseDoorAfterWireCutKeepsFishInEngine(t *testing.T) {
-	eng := NewEngine(world.NewTrainingScenario())
+	eng := NewEngine(campaign.DemoRuntime())
 	player := eng.Scenario.Player
 	fc := &eng.FireControl
 

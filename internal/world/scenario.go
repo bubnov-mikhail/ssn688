@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 	"strings"
-	"time"
 )
 
 // Scenario holds mission state.
@@ -52,199 +51,8 @@ type Objective struct {
 	Identified   bool
 }
 
-func NewTrainingScenario() *Scenario {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	bathy := DefaultBathy
-
-	// Coarse NW→SE PingPong lanes with lateral offsets (may cross near the island).
-	type laneSpec struct {
-		id     string
-		offset float64
-		numWP  int
-	}
-	lanes := []laneSpec{
-		{"route_grisha", -3500, 60},
-		{"route_merchant", -1200, 50},
-		{"route_tanker", 800, 50},
-		{"route_trawler", 2200, 60},
-		{"route_foxtrot", 4200, 50},
-	}
-	routes := make([]*Route, 0, len(lanes))
-	for _, ln := range lanes {
-		if r := BuildNWSETransit(&bathy, ln.id, ln.offset, ln.numWP); r != nil {
-			routes = append(routes, r)
-		}
-	}
-
-	player := &Entity{
-		ID: "player", Name: "USS Los Angeles", Kind: KindSubmarine, Side: SidePlayer,
-		Status: StatusActive, SignatureID: "los_angeles",
-		X: 0, Y: 0, DepthFt: 60, HeadingDeg: 45, SpeedKts: 0,
-		OrderedSpeed: 0, OrderedDepth: 60, OrderedHead: 45,
-		LengthFt: 360,
-	}
-	// Near SW corner, within 3000 yd of a transit lane (not sitting on it).
-	const minRouteClearYd = 800.0
-	const maxRouteClearYd = 3000.0
-	if !PlaceNearChartCorner(player, &bathy, "SW", routes, minRouteClearYd, maxRouteClearYd) {
-		placeOnWater(rng, player, 0, 4000, nil, &bathy)
-	}
-	clampSubToBottom(player, &bathy)
-
-	enemyGrisha := &Entity{
-		ID: "enemy_grisha", Name: "Hostile Corvette", Kind: KindSurfaceShip, Side: SideEnemy,
-		Status: StatusActive, SignatureID: "grisha",
-		DepthFt: 0, SpeedKts: 14, OrderedSpeed: 14, OrderedDepth: 0,
-		LengthFt: 235, AIState: "PATROL", Defcon: DefconPassive,
-		CrewSkill: RandomCrewSkill(60, 20, rng.Float64()),
-	}
-	civMerchant := &Entity{
-		ID: "civ_merchant", Name: "MV Pacific Star", Kind: KindSurfaceShip, Side: SideNeutral,
-		Status: StatusActive, SignatureID: "merchant",
-		DepthFt: 0, SpeedKts: 11, OrderedSpeed: 11, LengthFt: 520, AIState: "CRUISE",
-	}
-	civTanker := &Entity{
-		ID: "civ_tanker", Name: "MT Horizon", Kind: KindSurfaceShip, Side: SideNeutral,
-		Status: StatusActive, SignatureID: "tanker",
-		DepthFt: 0, SpeedKts: 9, OrderedSpeed: 9, LengthFt: 900, AIState: "CRUISE",
-	}
-	civTrawler := &Entity{
-		ID: "civ_trawler", Name: "FV Northern Light", Kind: KindSurfaceShip, Side: SideNeutral,
-		Status: StatusActive, SignatureID: "fishing",
-		DepthFt: 0, SpeedKts: 7, OrderedSpeed: 7, LengthFt: 140, AIState: "CRUISE",
-	}
-	enemyFoxtrot := &Entity{
-		ID: "enemy_foxtrot", Name: "Hostile SS Foxtrot", Kind: KindSubmarine, Side: SideEnemy,
-		Status: StatusActive, SignatureID: "foxtrot",
-		DepthFt: 100 + rng.Float64()*60, SpeedKts: 5, OrderedSpeed: 5,
-		LengthFt: 300, AIState: "PATROL", Defcon: DefconPassive,
-		CrewSkill: RandomCrewSkill(30, 10, rng.Float64()),
-	}
-	enemyFoxtrot.OrderedDepth = enemyFoxtrot.DepthFt
-
-	allySpruance := &Entity{
-		ID: "ally_spruance", Name: "USS Spruance", Kind: KindSurfaceShip, Side: SidePlayer,
-		Status: StatusActive, SignatureID: "spruance",
-		DepthFt: 0, SpeedKts: 12, OrderedSpeed: 12, OrderedDepth: 0,
-		LengthFt: 563, AIState: "PATROL", Defcon: DefconHostile,
-		CrewSkill: RandomCrewSkill(70, 15, rng.Float64()),
-	}
-	allySSN := &Entity{
-		ID: "ally_688", Name: "USS Bremerton", Kind: KindSubmarine, Side: SidePlayer,
-		Status: StatusActive, SignatureID: "los_angeles",
-		DepthFt: 140 + rng.Float64()*40, SpeedKts: 5, OrderedSpeed: 5,
-		LengthFt: 360, AIState: "PATROL", Defcon: DefconHostile,
-		CrewSkill: RandomCrewSkill(75, 10, rng.Float64()),
-	}
-	allySSN.OrderedDepth = allySSN.DepthFt
-
-	// Ally edge patrol: SE → SW along bottom, then up the west edge to NW.
-	if allyRoute := BuildAllyEdgePatrol(&bathy, "route_ally_edge", 24); allyRoute != nil {
-		routes = append(routes, allyRoute)
-	}
-
-	placeFrac := []struct {
-		e    *Entity
-		id   string
-		frac float64
-	}{
-		{enemyGrisha, "route_grisha", 0.22},
-		{civMerchant, "route_merchant", 0.38},
-		{civTanker, "route_tanker", 0.55},
-		{civTrawler, "route_trawler", 0.70},
-		{enemyFoxtrot, "route_foxtrot", 0.45},
-		// Start near SE (lower-right); stagger so they are not stacked.
-		{allySpruance, "route_ally_edge", 0.02},
-		{allySSN, "route_ally_edge", 0.08},
-	}
-	for _, p := range placeFrac {
-		r := FindRoute(routes, p.id)
-		if r == nil || !PlaceOnRouteFraction(p.e, r, p.frac, &bathy) {
-			if p.e.Side == SidePlayer {
-				if !PlaceNearChartCorner(p.e, &bathy, "SE", nil, 0, 0) {
-					placeAwayFrom(rng, p.e, player, 2500, 9000, nil, &bathy)
-				}
-				if r != nil {
-					AssignRoute(p.e, r)
-				}
-			} else {
-				placeAwayFrom(rng, p.e, player, 2500, 9000, nil, &bathy)
-				if r != nil {
-					AssignRoute(p.e, r)
-				}
-			}
-		}
-		if p.e.Kind == KindSubmarine {
-			clampSubToBottom(p.e, &bathy)
-		}
-	}
-
-	hostiles := []*Entity{enemyGrisha, enemyFoxtrot}
-	allies := []*Entity{allySpruance, allySSN}
-	ents := append([]*Entity{}, hostiles...)
-	ents = append(ents, allies...)
-	ents = append(ents, civMerchant, civTanker, civTrawler)
-
-	InitCombatantDamage(player)
-	for _, h := range hostiles {
-		InitCombatantDamage(h)
-	}
-	for _, a := range allies {
-		InitCombatantDamage(a)
-	}
-
-	return &Scenario{
-		Name:        "Santa Catalina Approaches",
-		Description: "Find and sink the hostile diesel boat. Identify and sink the hostile surface combatant. Identify the tanker. Do not attack civilian shipping.",
-		Player:      player,
-		Entities:    ents,
-		Bathy:       &DefaultBathy,
-		Weather:     RandomWeather(rng),
-		Routes:      routes,
-		Objectives: []Objective{
-			{
-				ID: "obj_foxtrot", Primary: true, NeedDestroy: true, TargetID: "enemy_foxtrot",
-				Description: "Locate and sink hostile diesel submarine",
-			},
-			{
-				ID: "obj_grisha", NeedIdentify: true, NeedDestroy: true, TargetID: "enemy_grisha",
-				Description: "Identify and sink hostile surface combatant",
-			},
-			{
-				ID: "obj_tanker", NeedIdentify: true, TargetID: "civ_tanker",
-				Description: "Locate and identify tanker (do not engage)",
-			},
-		},
-		CommBriefing: "" +
-			"TOP SECRET // FLASH\n" +
-			"FROM: COMSUBPAC\n" +
-			"TO: USS LOS ANGELES (SSN-688)\n" +
-			"BT\n" +
-			"PROCEED TO ASSIGNED OP AREA VICINITY SANTA CATALINA ISLAND.\n" +
-			"CONDUCT COVERT PATROL. REMAIN UNDETECTED. DO NOT ENGAGE UNTIL DIRECTED.\n" +
-			"COME TO COMMUNICATIONS DEPTH AND RAISE HF ANTENNA FOR FOLLOW-ON TASKING.\n" +
-			"BT",
-		CommSchedule: []CommScheduledMessage{{
-			ID:    "tasking_engage",
-			AtSec: 20,
-			Text: "" +
-				"TOP SECRET // IMMEDIATE\n" +
-				"FROM: COMSUBPAC\n" +
-				"TO: USS LOS ANGELES (SSN-688)\n" +
-				"BT\n" +
-				"EXECUTE.\n" +
-				"PRIMARY: LOCATE AND SINK HOSTILE DIESEL SUBMARINE IN YOUR OP AREA.\n" +
-				"SECONDARY: LOCATE, POSITIVELY IDENTIFY, AND SINK HOSTILE SURFACE COMBATANT.\n" +
-				"SECONDARY: LOCATE AND POSITIVELY IDENTIFY TANKER. DO NOT ENGAGE.\n" +
-				"ID CRITERIA: VISUAL VIA PERISCOPE INSIDE 800 YARDS, OR ACOUSTIC FINGERPRINT — 80 PCT HARMONIC MATCH WITH LIBRARY ETALON HELD TWO MINUTES.\n" +
-				"CIVILIAN SHIPPING IS NOT TO BE ENGAGED.\n" +
-				"REPORT COMPLETION VIA THIS CHANNEL.\n" +
-				"BT",
-		}},
-	}
-}
-
-func clampSubToBottom(e *Entity, bathy *Bathymetry) {
+// ClampSubToBottom keeps a sub above the charted seafloor with a 60 ft keel margin.
+func ClampSubToBottom(e *Entity, bathy *Bathymetry) {
 	if e == nil || e.Kind != KindSubmarine || bathy == nil || !bathy.Valid() {
 		return
 	}
@@ -261,7 +69,7 @@ func clampSubToBottom(e *Entity, bathy *Bathymetry) {
 
 func placeOnWater(rng *rand.Rand, e *Entity, minR, maxR float64, others []*Entity, bathy *Bathymetry) {
 	origin := &Entity{X: 0, Y: 0}
-	placeAwayFrom(rng, e, origin, minR, maxR, others, bathy)
+	PlaceAwayFrom(rng, e, origin, minR, maxR, others, bathy)
 }
 
 // placeAtBearing puts e near ref at bearingDeg °T and rangeYd, nudging if dry.
@@ -289,11 +97,11 @@ func placeAtBearing(rng *rand.Rand, e, ref *Entity, bearingDeg, rangeYd float64,
 		}
 	}
 	// Fall back to random ring.
-	placeAwayFrom(rng, e, ref, rangeYd*0.7, rangeYd*1.4, nil, bathy)
+	PlaceAwayFrom(rng, e, ref, rangeYd*0.7, rangeYd*1.4, nil, bathy)
 }
 
-// placeAwayFrom positions e on navigable water at range [minR, maxR] from ref.
-func placeAwayFrom(rng *rand.Rand, e, ref *Entity, minR, maxR float64, others []*Entity, bathy *Bathymetry) {
+// PlaceAwayFrom positions e on navigable water at range [minR, maxR] from ref.
+func PlaceAwayFrom(rng *rand.Rand, e, ref *Entity, minR, maxR float64, others []*Entity, bathy *Bathymetry) {
 	if ref == nil {
 		ref = &Entity{}
 	}

@@ -15,9 +15,6 @@ type Bathymetry struct {
 	Depths        []float32
 }
 
-// DefaultBathy is loaded once from the embedded mission chart.
-var DefaultBathy Bathymetry
-
 // LoadBathymetry parses a BATH binary chart.
 func LoadBathymetry(data []byte) (Bathymetry, error) {
 	if len(data) < 36 || string(data[0:4]) != "BATH" {
@@ -47,11 +44,6 @@ func LoadBathymetry(data []byte) (Bathymetry, error) {
 		CellSize: cell,
 		Depths:   depths,
 	}, nil
-}
-
-// SetDefaultBathymetry installs the mission chart used by placement and the plot.
-func SetDefaultBathymetry(b Bathymetry) {
-	DefaultBathy = b
 }
 
 func (b Bathymetry) Valid() bool {

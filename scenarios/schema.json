@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ssn688/sim/scenarios/schema.json",
+  "title": "SSN-688 Scenario",
+  "description": "Portable campaign scenario for SSN-688 Modern Submarine Combat Simulator. All binary assets (cover art, custom bathymetry) must be inlined as base64 in the same JSON file. Game version and format compatibility use semantic versioning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "version",
+    "min_game_version",
+    "id",
+    "title",
+    "backstory",
+    "theaters",
+    "missions"
+  ],
+  "properties": {
+    "format_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "JSON schema semver. Major must match the game's ScenarioFormatMajor (currently 1). Breaking schema changes bump major."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Scenario content version. Increment patch for edits, minor for additive content, major for breaking scenario changes."
+    },
+    "min_game_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Minimum game binary version required to run this scenario."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Stable scenario identifier; used in save filenames and import paths."
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "backstory": { "type": "string" },
+    "cover": { "$ref": "#/$defs/coverAsset" },
+    "postscript_success": { "type": "string" },
+    "postscript_failure": { "type": "string" },
+    "theaters": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/theater" }
+    },
+    "missions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/mission" }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" },
+      "description": "Optional scenario-level events (reserved; mission events are preferred)."
+    }
+  },
+  "$defs": {
+    "coverAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cover image inlined as base64. JPEG or PNG recommended.",
+      "required": ["mime", "data_b64"],
+      "properties": {
+        "mime": {
+          "type": "string",
+          "enum": ["image/jpeg", "image/jpg", "image/png", "image/webp"]
+        },
+        "data_b64": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "Standard base64 (no data: URL prefix)."
+        }
+      }
+    },
+    "bathyAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Theater bathymetry inlined as base64 BATH grid. Required for every theater.",
+      "required": ["mime", "data_b64"],
+      "properties": {
+        "mime": { "const": "application/octet-stream" },
+        "data_b64": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "Raw bytes of a bathy.bin file (magic BATH)."
+        }
+      }
+    },
+    "theater": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "bathy"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "bathy": { "$ref": "#/$defs/bathyAsset" }
+      }
+    },
+    "mission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "description", "theater_id", "routes", "player", "units", "objectives"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "cover": { "$ref": "#/$defs/coverAsset" },
+        "theater_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "routes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/route" }
+        },
+        "player": { "$ref": "#/$defs/unit" },
+        "units": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/unit" }
+        },
+        "objectives": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/objective" }
+        },
+        "comm_briefing": { "type": "string" },
+        "comm_schedule": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/commMessage" }
+        },
+        "events": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/event" }
+        },
+        "debrief_lead": { "type": "string" },
+        "debrief_lines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/debriefLine" }
+        },
+        "outputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/output" }
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mode", "waypoints"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["open", "pingpong", "loop"],
+          "description": "open = one-way stop at end; pingpong = reverse at ends; loop = closed cycle (wrap last→first). For loop, optionally repeat the first waypoint as the last."
+        },
+        "waypoints": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/waypoint" }
+        },
+        "player_clearance": {
+          "type": "boolean",
+          "description": "If true, this route is used when placing ownship near a chart corner (min/max route distance)."
+        }
+      }
+    },
+    "waypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "description": "Yards east of chart origin" },
+        "y": { "type": "number", "description": "Yards north of chart origin" }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind", "side", "signature_id", "spawn"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["submarine", "surface_ship", "torpedo"]
+        },
+        "side": {
+          "type": "string",
+          "enum": ["player", "enemy", "neutral"]
+        },
+        "signature_id": { "type": "string" },
+        "length_ft": { "type": "number", "minimum": 0 },
+        "speed_kts": { "type": "number", "minimum": 0 },
+        "depth_ft": { "type": "number" },
+        "depth_jitter": { "type": "number", "minimum": 0 },
+        "heading_deg": { "type": "number" },
+        "ai_state": { "type": "string" },
+        "defcon": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "crew_skill": { "type": "number" },
+        "crew_jitter": { "type": "number", "minimum": 0 },
+        "combatant": { "type": "boolean" },
+        "spawn": {
+          "type": "string",
+          "enum": ["corner", "route"]
+        },
+        "corner": { "type": "string", "enum": ["SW", "SE", "NW", "NE"] },
+        "min_route_yd": { "type": "number", "minimum": 0 },
+        "max_route_yd": { "type": "number", "minimum": 0 },
+        "route_id": { "type": "string" },
+        "route_frac": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fallback_corner": { "type": "string", "enum": ["SW", "SE", "NW", "NE"] },
+        "fallback_min_yd": { "type": "number", "minimum": 0 },
+        "fallback_max_yd": { "type": "number", "minimum": 0 }
+      }
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "target_id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "description": { "type": "string" },
+        "target_id": { "type": "string" },
+        "primary": { "type": "boolean" },
+        "need_identify": { "type": "boolean" },
+        "need_destroy": { "type": "boolean" },
+        "hidden": { "type": "boolean" }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string" },
+        "when_primary_complete": { "type": "boolean" }
+      }
+    },
+    "debriefLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective_id", "on_success", "on_fail"],
+      "properties": {
+        "objective_id": { "type": "string" },
+        "on_success": { "type": "string" },
+        "on_fail": { "type": "string" }
+      }
+    },
+    "commMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "at_sec", "text"],
+      "properties": {
+        "id": { "type": "string" },
+        "at_sec": { "type": "number", "minimum": 0 },
+        "text": { "type": "string" }
+      }
+    },
+    "eventWhen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["time", "objective_complete", "objective_identified", "unit_destroyed", "var_eq"]
+        },
+        "at_sec": { "type": "number", "minimum": 0 },
+        "objective_id": { "type": "string" },
+        "unit_id": { "type": "string" },
+        "var": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    },
+    "eventAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["comm_schedule", "set_defcon", "set_ai_state", "set_var", "reveal_objective"]
+        },
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "at_sec": { "type": "number", "minimum": 0 },
+        "unit_id": { "type": "string" },
+        "defcon": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "ai_state": { "type": "string" },
+        "var": { "type": "string" },
+        "value": { "type": "string" },
+        "objective_id": { "type": "string" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "when", "actions"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "when": { "$ref": "#/$defs/eventWhen" },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/eventAction" }
+        }
+      }
+    }
+  }
+}

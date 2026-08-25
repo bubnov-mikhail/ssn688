@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/sim"
 	"github.com/ssn688/sim/internal/world"
@@ -13,7 +14,7 @@ import (
 
 func benchApp() *App {
 	a := NewApp(config.Settings{}, nil)
-	a.Engine = sim.NewEngine(world.NewTrainingScenario())
+	a.Engine = sim.NewEngine(campaign.DemoRuntime())
 	a.ensureTactical()
 	return a
 }
@@ -37,7 +38,7 @@ func TestWaterfallChipCacheReusesLayout(t *testing.T) {
 }
 
 func TestAppendAllEntitiesNoAllocWhenWarm(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	dst := make([]*world.Entity, 0, 16)
 	dst = sc.AppendAllEntities(dst)
 	allocs := testing.AllocsPerRun(100, func() {
@@ -179,4 +180,3 @@ func BenchmarkPeriscopeIRFrame(b *testing.B) {
 		})
 	}
 }
-

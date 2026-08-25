@@ -107,3 +107,32 @@ func TestShootWithPrearmedSeekerDefersSearch(t *testing.T) {
 		t.Fatal("expected deferred search flag")
 	}
 }
+
+func TestToggleSeekerAfterClearArmsSearch(t *testing.T) {
+	fc := NewFireControl()
+	fish := &Torpedo{
+		ID: "t1", Alive: true, Mode: ModeWire, ClearDistYd: TubeClearYd + 1,
+		HeadingDeg: 10, OrderedHead: 10, GyroCourseDeg: 10,
+	}
+	fc.ToggleSeeker(fish)
+	if fish.Mode != ModeSearch || !fish.SeekerOn || !fish.EnableSearchAfterClear {
+		t.Fatalf("enable: mode=%d seek=%v defer=%v", fish.Mode, fish.SeekerOn, fish.EnableSearchAfterClear)
+	}
+	fc.ToggleSeeker(fish)
+	if fish.Mode != ModeWire || fish.SeekerOn || fish.EnableSearchAfterClear {
+		t.Fatalf("disable: mode=%d seek=%v defer=%v", fish.Mode, fish.SeekerOn, fish.EnableSearchAfterClear)
+	}
+}
+
+func TestToggleSeekerBeforeClearOnlyDefers(t *testing.T) {
+	fc := NewFireControl()
+	fish := &Torpedo{ID: "t1", Alive: true, Mode: ModeWire, ClearDistYd: 0}
+	fc.ToggleSeeker(fish)
+	if fish.Mode != ModeWire || fish.SeekerOn || !fish.EnableSearchAfterClear {
+		t.Fatalf("defer on: mode=%d seek=%v defer=%v", fish.Mode, fish.SeekerOn, fish.EnableSearchAfterClear)
+	}
+	fc.ToggleSeeker(fish)
+	if fish.EnableSearchAfterClear {
+		t.Fatal("expected defer cleared")
+	}
+}

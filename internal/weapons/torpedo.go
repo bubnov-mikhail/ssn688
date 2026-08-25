@@ -742,6 +742,7 @@ func (fc *FireControl) EnableSeeker(torp *Torpedo) {
 
 // ToggleSeeker turns ModeSearch on/off while the wire is intact.
 // With a cut wire the seeker can only be enabled (autonomous fish).
+// Before tube-clear, only the deferred EnableSearchAfterClear flag is toggled.
 func (fc *FireControl) ToggleSeeker(torp *Torpedo) {
 	if torp == nil || !torp.Alive {
 		return
@@ -750,8 +751,8 @@ func (fc *FireControl) ToggleSeeker(torp *Torpedo) {
 		torp.EnableSearchAfterClear = !torp.EnableSearchAfterClear
 		return
 	}
-	if torp.Mode == ModeSearch || torp.SeekerOn {
-		if torp.WireCut {
+	if torp.Mode == ModeSearch || torp.SeekerOn || torp.EnableSearchAfterClear {
+		if torp.WireCut && (torp.Mode == ModeSearch || torp.SeekerOn) {
 			return // autonomous — cannot cancel search without a wire
 		}
 		torp.SeekerOn = false
@@ -761,11 +762,9 @@ func (fc *FireControl) ToggleSeeker(torp *Torpedo) {
 		torp.GyroCourseDeg = torp.HeadingDeg
 		return
 	}
-	if torp.EnableSearchAfterClear {
-		torp.EnableSearchAfterClear = false
-		return
-	}
 	torp.EnableSearchAfterClear = true
+	torp.Mode = ModeSearch
+	torp.SeekerOn = true
 }
 
 func (fc *FireControl) WireSteer(torp *Torpedo, deltaHead, deltaDepth float64) {
@@ -974,20 +973,19 @@ func (t *Torpedo) Advance(dt, gameTime float64, targets []*world.Entity, layerAt
 		return det
 	}
 
-	// Influence fuse only while actively searching (not wire-run / transit).
-	if t.Armed && t.Age > 2 && t.Mode == ModeSearch {
+	// Influence fuse: warshots while searching; once tube-cleared, also on wire
+	// (blue-on-blue / exercise steer-backs). Enemy fish only fuse on player side.
+	fuseActive := t.Armed && t.Age > 2 && t.Mode == ModeSearch
+	if t.Armed && t.Age > 2 && t.TubeCleared() && t.TerminalMode != TerminalSilent {
+		fuseActive = true
+	}
+	if fuseActive {
 		proxYd := ProximityKillYd
 		if t.Class == ClassUMGT1 {
 			proxYd = UMGT1ProximityYd
 		}
 		for _, tgt := range targets {
-			if tgt == nil || !tgt.Alive() {
-				continue
-			}
-			if tgt.Kind != world.KindSubmarine && tgt.Kind != world.KindSurfaceShip {
-				continue
-			}
-			if tgt.Side == t.Side {
+			if !t.validFuseTarget(tgt) {
 				continue
 			}
 			d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
@@ -1045,6 +1043,22 @@ func (t *Torpedo) checkGrounding(bathy *world.Bathymetry, prevX, prevY float64) 
 	return nil
 }
 
+// validFuseTarget reports whether proximity fuse may terminate on tgt.
+// All combat/exercise fish may hit any ship or sub (including launcher side /
+// neutrals). Soft-kill decoy fish stay unarmed and never call this.
+func (t *Torpedo) validFuseTarget(tgt *world.Entity) bool {
+	if t == nil || tgt == nil || !tgt.Alive() {
+		return false
+	}
+	return tgt.Kind == world.KindSubmarine || tgt.Kind == world.KindSurfaceShip
+}
+
+// validSeekShip reports whether active search may lock a surface/sub target.
+// Countermeasures are handled separately. No IFF — acoustic lock on any hull.
+func (t *Torpedo) validSeekShip(tgt *world.Entity) bool {
+	return t.validFuseTarget(tgt)
+}
+
 func (t *Torpedo) terminalDetonation(hit *world.Entity) *Detonation {
 	if t == nil {
 		return nil
@@ -1091,6 +1105,9 @@ func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFu
 		isCM := tgt.Kind == world.KindCountermeasure
 		isShip := tgt.Kind == world.KindSubmarine || tgt.Kind == world.KindSurfaceShip
 		if !isCM && !isShip {
+			continue
+		}
+		if isShip && !t.validSeekShip(tgt) {
 			continue
 		}
 		// Wire-run never seduces on decoys — only ModeSearch (caller).
@@ -1155,6 +1172,19 @@ func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFu
 					score *= EnemyShipCloseBias
 				} else {
 					score *= 1.25
+				}
+			}
+			// Hostile seekers: prefer the intended quarry / player-side hulls when
+			// several contacts sit in the cone (AI aims at friendlies; fuse is still IFF-blind).
+			if gullible {
+				if t.TargetID != "" && tgt.ID == t.TargetID {
+					score *= 1.55
+				} else if world.IsFriendly(tgt) {
+					score *= 1.35
+				} else if tgt.Side == world.SideEnemy {
+					score *= 0.55 // other hostiles — possible, but not preferred
+				} else {
+					score *= 0.75 // neutrals less sticky than friendlies
 				}
 			}
 			// Prior lock on this ship sticks a little.

@@ -117,7 +117,7 @@ type App struct {
 	compassDrag            bool
 	selectedContactID      string
 	selectedPlotMarkerID   string
-	pendingPlotMarker      bool // M pressed while already on PLOT
+	pendingPlotMarker      bool            // M pressed while already on PLOT
 	reportedTorpedoIDs     map[string]bool // hostile fish already announced by WEPS
 	ownTorpedoIDs          map[string]bool // player Mk48 IDs (alive or spent — suppress hostile alert)
 	torpedoThreatActive    map[string]bool // torpedoes currently assessed as threatening ownship
@@ -152,11 +152,13 @@ type App struct {
 	hitShakeBuf   *ebiten.Image
 	dcTabAlert    bool // blink DC nav until player opens Damage Control
 
-	SelectedScenarioID campaign.ScenarioID
-	ScenarioListIndex  int
-	LoadoutMix             float64
-	LoadoutTubes           campaign.TubeLoadout
-	loadoutDragging        bool
+	SelectedScenarioID      campaign.ScenarioID
+	ScenarioListIndex       int
+	briefDebrief            bool
+	briefMissionID          campaign.MissionID
+	LoadoutMix              float64
+	LoadoutTubes            campaign.TubeLoadout
+	loadoutDragging         bool
 	loadoutOrdnanceMenuTube int
 	confirm                 confirmDialog
 }
@@ -209,9 +211,17 @@ func (a *App) refreshLoadList() {
 	entries, _ := os.ReadDir(dir)
 	var files []string
 	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sav" {
-			files = append(files, filepath.Join(dir, e.Name()))
+		if e.IsDir() || filepath.Ext(e.Name()) != ".sav" {
+			continue
 		}
+		path := filepath.Join(dir, e.Name())
+		if meta, ok := campaign.ReadSaveCampaignMeta(path); ok {
+			sc := campaign.ScenarioByID(meta.ScenarioID)
+			if sc == nil || !sc.Compatible {
+				continue
+			}
+		}
+		files = append(files, path)
 	}
 	sort.Strings(files)
 	a.LoadFiles = files

@@ -142,6 +142,14 @@ func wepsCtrlSpinLayout() (spinY, spinH, btnW, g0, d0, inner, toggleX int) {
 	return
 }
 
+// wepsFishSeekerLatched is true when the seeker is on or deferred-armed (UI label/latch).
+func wepsFishSeekerLatched(fish *weapons.Torpedo) bool {
+	if fish == nil {
+		return false
+	}
+	return fish.Mode == weapons.ModeSearch || fish.SeekerOn || fish.EnableSearchAfterClear
+}
+
 func (a *App) wepsCtrlButtons(fc *weapons.FireControl) []sonarUIButton {
 	mode, fish := a.wepsControlMode(fc)
 	spinY, spinH, btnW, g0, d0, inner, toggleX := wepsCtrlSpinLayout()
@@ -150,11 +158,7 @@ func (a *App) wepsCtrlButtons(fc *weapons.FireControl) []sonarUIButton {
 	switch mode {
 	case wepsCtrlWire:
 		if fish != nil {
-			if !fish.TubeCleared() {
-				seekOn = fish.EnableSearchAfterClear
-			} else {
-				seekOn = fish.Mode == weapons.ModeSearch || fish.SeekerOn
-			}
+			seekOn = wepsFishSeekerLatched(fish)
 		}
 	case wepsCtrlPrep:
 		seekOn = fc != nil && fc.SeekerEnabled
@@ -250,11 +254,7 @@ func (a *App) wepsButtonLatched(id string, fc *weapons.FireControl) bool {
 	seekOn := fc.SeekerEnabled
 	if mode == wepsCtrlWire && fish != nil {
 		speedHigh = fish.CruiseKts >= 40
-		if !fish.TubeCleared() {
-			seekOn = fish.EnableSearchAfterClear
-		} else {
-			seekOn = fish.Mode == weapons.ModeSearch || fish.SeekerOn
-		}
+		seekOn = wepsFishSeekerLatched(fish)
 	}
 	switch id {
 	case "spd_low":
@@ -557,14 +557,9 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 					a.Audio.PlayClip(audio.ClipWepsSpeedLow, "Torpedo speed LOW.")
 				}
 			case "seek":
-				wasSearch := fish.Mode == weapons.ModeSearch || fish.SeekerOn || fish.EnableSearchAfterClear
+				wasSearch := wepsFishSeekerLatched(fish)
 				fc.ToggleSeeker(fish)
-				nowSearch := false
-				if !fish.TubeCleared() {
-					nowSearch = fish.EnableSearchAfterClear
-				} else {
-					nowSearch = fish.Mode == weapons.ModeSearch || fish.SeekerOn
-				}
+				nowSearch := wepsFishSeekerLatched(fish)
 				if nowSearch && !wasSearch {
 					a.Audio.PlayClip(audio.ClipWepsSeekerOn, "")
 				} else if wasSearch && !nowSearch {

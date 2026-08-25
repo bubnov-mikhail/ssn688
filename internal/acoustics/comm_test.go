@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -97,7 +98,7 @@ func TestCOMMCatchUpDeliversBacklog(t *testing.T) {
 }
 
 func TestTrainingBriefingPresent(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	if sc.CommBriefing == "" {
 		t.Fatal("missing briefing")
 	}

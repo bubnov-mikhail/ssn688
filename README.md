@@ -1,6 +1,6 @@
-# SSN-688(I) Hunter/Killer
+# SSN-688 Modern Submarine Combat Simulator
 
-Симулятор подводной лодки в духе **688(I) Hunter/Killer** на **Go** + [Ebiten](https://ebitengine.org/).
+Симулятор подводной лодки класса **Los Angeles (SSN-688)** на **Go** + [Ebiten](https://ebitengine.org/).
 
 Сценарий: **Santa Catalina** (батиметрия ETOPO), охота на надводные и подводные цели с пассивом/активом, буксируемой антенной, Mk48 / Harpoon и вражеским ASW AI.
 
@@ -192,10 +192,11 @@ python scripts/generate_voices_kokoro.py unable_deeper.wav deploy_towed.wav
 
 ## Батиметрия
 
-`assets/bathy.bin` — сетка глубин Catalina (NOAA ETOPO 2022). Пересборка:
+Глубины живут **внутри сценария** (`theaters[].bathy.data_b64` в JSON). Пересборка Catalina-сетки:
 
 ```bash
-python tools/gen_hormuz_bathy.py
+python tools/gen_hormuz_bathy.py          # → tools/bathy_catalina.bin
+go run ./tools/gen_demo_scenario_json.go  # inline cover + bathy into scenarios/demo_catalina.json
 ```
 
 (Имя скрипта историческое; viewport — Santa Catalina.)

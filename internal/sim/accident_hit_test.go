@@ -3,12 +3,13 @@ package sim
 import (
 	"testing"
 
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
 )
 
 func TestDebugAccidentHitSkipsDefcon(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	eng := NewEngine(sc)
 	var target *world.Entity
 	for _, e := range sc.Entities {
@@ -49,7 +50,7 @@ func TestDebugAccidentHitSkipsDefcon(t *testing.T) {
 }
 
 func TestAccidentDetonationFlagSkipsNotify(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	eng := NewEngine(sc)
 	var grisha *world.Entity
 	for _, e := range sc.Entities {
@@ -71,7 +72,7 @@ func TestAccidentDetonationFlagSkipsNotify(t *testing.T) {
 }
 
 func TestCivilianSinkingSkipsCookOff(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	eng := NewEngine(sc)
 	var civ *world.Entity
 	for _, e := range sc.Entities {
@@ -93,7 +94,7 @@ func TestCivilianSinkingSkipsCookOff(t *testing.T) {
 }
 
 func TestWarshipSinkingSchedulesCookOff(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	eng := NewEngine(sc)
 	var war *world.Entity
 	for _, e := range sc.Entities {

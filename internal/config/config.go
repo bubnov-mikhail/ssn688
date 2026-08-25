@@ -100,3 +100,12 @@ func SavesDir() (string, error) {
 	}
 	return filepath.Join(dir, "ssn688", "saves"), nil
 }
+
+// ScenariosDir is the user folder for imported scenario JSON files.
+func ScenariosDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "ssn688", "scenarios"), nil
+}

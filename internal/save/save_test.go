@@ -14,8 +14,9 @@ import (
 )
 
 func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	eng := sim.NewEngine(sc)
+	stampDemoCampaign(eng)
 
 	player := eng.Scenario.Player
 	player.X, player.Y = 1234.5, -678.25
@@ -290,6 +291,10 @@ game_time=10.000
 time_scale=1.000
 paused=false
 
+[campaign]
+scenario_id=demo_catalina
+mission_id=catalina_training
+
 [entity:player]
 name=USS Los Angeles
 kind=0
@@ -346,15 +351,21 @@ objective=obj_surface|Destroy hostile surface combatant|false|enemy_surface
 }
 
 func TestSaveCampaignRoundTrip(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	eng := sim.NewEngine(sc)
 	eng.Campaign = campaign.RuntimeMeta{
-		ScenarioID:  campaign.DemoScenarioID,
-		MissionID:   campaign.DemoMissionTraining,
-		MissionHash: "abc123",
-		LoadoutMix:  0.35,
-		Completed:   map[campaign.MissionID]bool{},
-		Vars:        map[string]string{"foxrot_neutralized": "true"},
+		ScenarioID:     campaign.DemoScenarioID,
+		MissionID:      campaign.DemoMissionTraining,
+		MissionHash:    "abc123",
+		LoadoutMix:     0.35,
+		DebriefPending: true,
+		DebriefMission: campaign.DemoMissionTraining,
+		DebriefOutcomes: []campaign.ObjectiveOutcome{
+			{ID: "obj_grisha", Identified: true, Destroyed: false, Complete: false},
+			{ID: "obj_tanker", Identified: true, Complete: true},
+		},
+		Completed: map[campaign.MissionID]bool{campaign.DemoMissionTraining: true},
+		Vars:      map[string]string{"foxrot_neutralized": "true"},
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "camp.sav")
@@ -372,6 +383,15 @@ func TestSaveCampaignRoundTrip(t *testing.T) {
 	if got.Campaign.ScenarioID != campaign.DemoScenarioID || got.Campaign.LoadoutMix != 0.35 {
 		t.Fatalf("campaign round trip failed: %+v", got.Campaign)
 	}
+	if !got.Campaign.DebriefPending || got.Campaign.DebriefMission != campaign.DemoMissionTraining {
+		t.Fatalf("debrief flags: %+v", got.Campaign)
+	}
+	if len(got.Campaign.DebriefOutcomes) != 2 || !got.Campaign.DebriefOutcomes[1].Identified {
+		t.Fatalf("debrief outcomes: %+v", got.Campaign.DebriefOutcomes)
+	}
+	if !meta.DebriefPending || len(meta.DebriefOutcomes) != 2 {
+		t.Fatalf("meta debrief: %+v", meta)
+	}
 }
 
 func findEnt(e *sim.Engine, id string) *world.Entity {
@@ -381,6 +401,21 @@ func findEnt(e *sim.Engine, id string) *world.Entity {
 		}
 	}
 	return nil
+}
+
+func stampDemoCampaign(eng *sim.Engine) {
+	if eng.Campaign.ScenarioID == "" {
+		eng.Campaign.ScenarioID = campaign.DemoScenarioID
+	}
+	if eng.Campaign.MissionID == "" {
+		eng.Campaign.MissionID = campaign.DemoMissionTraining
+	}
+	if eng.Campaign.Completed == nil {
+		eng.Campaign.Completed = map[campaign.MissionID]bool{}
+	}
+	if eng.Campaign.Vars == nil {
+		eng.Campaign.Vars = map[string]string{}
+	}
 }
 
 func assertNear(t *testing.T, name string, got, want float64) {

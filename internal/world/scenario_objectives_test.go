@@ -5,8 +5,24 @@ import (
 	"testing"
 )
 
+func testMissionScenario() *Scenario {
+	fox := &Entity{ID: "enemy_foxtrot", Status: StatusActive}
+	grisha := &Entity{ID: "enemy_grisha", Status: StatusActive}
+	tanker := &Entity{ID: "civ_tanker", Status: StatusActive}
+	player := &Entity{ID: "player", Status: StatusActive}
+	return &Scenario{
+		Player:   player,
+		Entities: []*Entity{fox, grisha, tanker},
+		Objectives: []Objective{
+			{ID: "obj_foxtrot", Primary: true, NeedDestroy: true, TargetID: "enemy_foxtrot", Description: "sink diesel"},
+			{ID: "obj_grisha", NeedIdentify: true, NeedDestroy: true, TargetID: "enemy_grisha", Description: "ID and sink surface"},
+			{ID: "obj_tanker", NeedIdentify: true, TargetID: "civ_tanker", Description: "ID tanker"},
+		},
+	}
+}
+
 func TestTrainingObjectivesIdentifyAndDestroy(t *testing.T) {
-	sc := NewTrainingScenario()
+	sc := testMissionScenario()
 	if len(sc.Objectives) != 3 {
 		t.Fatalf("want 3 objectives, got %d", len(sc.Objectives))
 	}
@@ -28,7 +44,6 @@ func TestTrainingObjectivesIdentifyAndDestroy(t *testing.T) {
 		t.Fatal("fresh scenario should not be complete")
 	}
 
-	// Sink sub without ID — primary done.
 	for _, e := range sc.Entities {
 		if e.ID == "enemy_foxtrot" {
 			e.Status = StatusSunk
@@ -42,7 +57,6 @@ func TestTrainingObjectivesIdentifyAndDestroy(t *testing.T) {
 		t.Fatal("grisha must not complete without ID+kill")
 	}
 
-	// Sink Grisha without ID — still open.
 	for _, e := range sc.Entities {
 		if e.ID == "enemy_grisha" {
 			e.Status = StatusSunk
@@ -70,7 +84,7 @@ func TestTrainingObjectivesIdentifyAndDestroy(t *testing.T) {
 }
 
 func TestMissionStatusReportShowsIDAndPriority(t *testing.T) {
-	sc := NewTrainingScenario()
+	sc := testMissionScenario()
 	sc.NoteIdentified("civ_tanker")
 	rep := sc.MissionStatusReport()
 	if !strings.Contains(rep, "PRI") || !strings.Contains(rep, "SEC") {
@@ -84,19 +98,6 @@ func TestMissionStatusReportShowsIDAndPriority(t *testing.T) {
 	}
 	if !strings.Contains(rep, "KILL:NO") {
 		t.Fatalf("kill status missing:\n%s", rep)
-	}
-}
-
-func TestFollowOnTaskingMentionsIdentify(t *testing.T) {
-	sc := NewTrainingScenario()
-	if len(sc.CommSchedule) == 0 || sc.CommSchedule[0].AtSec != 20 {
-		t.Fatal("expected 20s follow-on")
-	}
-	txt := sc.CommSchedule[0].Text
-	for _, needle := range []string{"PRIMARY", "SECONDARY", "IDENTIFY", "800", "80 PCT", "TANKER"} {
-		if !strings.Contains(txt, needle) {
-			t.Fatalf("tasking missing %q:\n%s", needle, txt)
-		}
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/sim"
 	"github.com/ssn688/sim/internal/world"
@@ -13,7 +14,7 @@ import (
 
 func TestOwnTorpedoContactRecognizedAfterDetonation(t *testing.T) {
 	app := NewApp(config.DefaultSettings(), nil)
-	eng := sim.NewEngine(world.NewTrainingScenario())
+	eng := sim.NewEngine(campaign.DemoRuntime())
 	app.Engine = eng
 	app.markOwnTorpedo("MK48-1")
 
@@ -55,7 +56,7 @@ func TestIncomingTorpedoAlertPlaysVoice(t *testing.T) {
 
 	mgr := audio.NewManager(44100)
 	app := NewApp(config.DefaultSettings(), mgr)
-	eng := sim.NewEngine(world.NewTrainingScenario())
+	eng := sim.NewEngine(campaign.DemoRuntime())
 	app.Engine = eng
 	player := eng.Scenario.Player
 	player.X, player.Y = 0, 0

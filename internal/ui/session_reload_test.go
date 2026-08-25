@@ -6,10 +6,10 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
 	"github.com/ssn688/sim/internal/save"
 	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/world"
 )
 
 func TestReloadAfterSessionDispose(t *testing.T) {
@@ -95,7 +95,14 @@ func TestLoadReplacesRunningEngineWithoutExit(t *testing.T) {
 	a.passivePPI = ebiten.NewImage(32, 32)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.sav")
-	_ = save.Save(path, sim.NewEngine(world.NewTrainingScenario()))
+	engSave := sim.NewEngine(campaign.DemoRuntime())
+	engSave.Campaign = campaign.RuntimeMeta{
+		ScenarioID: campaign.DemoScenarioID,
+		MissionID:  campaign.DemoMissionTraining,
+		Completed:  map[campaign.MissionID]bool{},
+		Vars:       map[string]string{},
+	}
+	_ = save.Save(path, engSave)
 
 	eng, err := save.LoadClean(path)
 	if err != nil {

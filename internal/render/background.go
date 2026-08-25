@@ -18,34 +18,31 @@ var (
 	menuOverlay     *ebiten.Image
 )
 
-// ScenarioCover returns a cached cover image from assets/scenarios/.
-func ScenarioCover(name string) (*ebiten.Image, error) {
-	scenarioCoverMu.Lock()
-	defer scenarioCoverMu.Unlock()
-	if img, ok := scenarioCoverCache[name]; ok {
-		return img, nil
-	}
-	data, err := assets.ScenarioCovers.ReadFile(name)
-	if err != nil {
-		return nil, err
-	}
-	dec, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	img := ebiten.NewImageFromImage(dec)
-	scenarioCoverCache[name] = img
-	return img, nil
-}
-
-// DrawScenarioCover draws a cover image letterboxed into the given rect.
-func DrawScenarioCover(screen *ebiten.Image, name string, x, y, w, h int) {
-	img, err := ScenarioCover(name)
-	if err != nil || img == nil {
+// DrawScenarioCoverBytes draws cover image from raw bytes (JSON scenarios).
+func DrawScenarioCoverBytes(screen *ebiten.Image, cacheKey string, data []byte, x, y, w, h int) {
+	if len(data) == 0 {
 		FillRect(screen, x, y, w, h, ColorPanelInset)
 		DrawText(screen, "NO ART", x+w/2-28, y+h/2, ColorDim, true)
 		return
 	}
+	scenarioCoverMu.Lock()
+	img, ok := scenarioCoverCache[cacheKey]
+	if !ok {
+		dec, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			scenarioCoverMu.Unlock()
+			FillRect(screen, x, y, w, h, ColorPanelInset)
+			DrawText(screen, "NO ART", x+w/2-28, y+h/2, ColorDim, true)
+			return
+		}
+		img = ebiten.NewImageFromImage(dec)
+		scenarioCoverCache[cacheKey] = img
+	}
+	scenarioCoverMu.Unlock()
+	drawCoverImage(screen, img, x, y, w, h)
+}
+
+func drawCoverImage(screen *ebiten.Image, img *ebiten.Image, x, y, w, h int) {
 	bw, bh := img.Bounds().Dx(), img.Bounds().Dy()
 	if bw <= 0 || bh <= 0 {
 		return

@@ -5,12 +5,6 @@ import "embed"
 //go:embed menu_bg.jpg
 var MenuBG []byte
 
-//go:embed scenarios/*.jpg
-var ScenarioCovers embed.FS
-
-//go:embed bathy.bin
-var BathyChart []byte
-
 //go:embed library/*.jpg
 var LibraryPhotos embed.FS
 

@@ -2,11 +2,13 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/render"
+	"github.com/ssn688/sim/internal/version"
 )
 
 type menuItem struct {
@@ -16,6 +18,7 @@ type menuItem struct {
 
 const (
 	menuActionScenarios = iota
+	menuActionImportScenario
 	menuActionLoad
 	menuActionSettings
 	menuActionQuit
@@ -24,6 +27,7 @@ const (
 func (a *App) menuItems() []menuItem {
 	return []menuItem{
 		{Label: "SCENARIOS", Action: menuActionScenarios},
+		{Label: "IMPORT SCENARIO", Action: menuActionImportScenario},
 		{Label: "LOAD GAME", Action: menuActionLoad},
 		{Label: "SETTINGS", Action: menuActionSettings},
 		{Label: "QUIT", Action: menuActionQuit},
@@ -45,7 +49,7 @@ func (a *App) menuButtonRect(index int) (x, y, w, h int) {
 	const (
 		btnH   = 48
 		gap    = 14
-		startY = 340
+		startY = 360
 	)
 	w = a.menuButtonWidth()
 	h = btnH
@@ -71,6 +75,8 @@ func (a *App) activateMenuItem(index int) error {
 		a.ScenarioListIndex = 0
 		a.ensureScenarioSelection()
 		a.StatusMessage = ""
+	case menuActionImportScenario:
+		a.importScenarioFromOS()
 	case menuActionLoad:
 		a.refreshLoadList()
 		a.Mode = ModeLoad
@@ -109,16 +115,27 @@ func (a *App) updateMenu() error {
 	return nil
 }
 
+func menuTitleLines() []string {
+	const breakAt = "Submarine "
+	if i := strings.Index(version.Title, breakAt); i >= 0 {
+		return []string{
+			version.Title[:i+len("Submarine")],
+			version.Title[i+len(breakAt):],
+		}
+	}
+	return []string{version.Title}
+}
+
 func (a *App) drawMenu(screen *ebiten.Image) {
 	render.DrawMenuBackground(screen)
 
-	title := "SSN-688(I) HUNTER/KILLER"
-	titleW := len(title) * 14
-	render.DrawTextLarge(screen, title, (render.ScreenW-titleW)/2, 108, render.ColorText)
-
-	subtitle := "MODERN SUBMARINE COMBAT SIMULATOR"
-	subW := len(subtitle) * 8
-	render.DrawText(screen, subtitle, (render.ScreenW-subW)/2, 158, render.ColorPhosphorDim, false)
+	const titleLineH = 44
+	titleY := 88
+	for _, line := range menuTitleLines() {
+		lineW := render.TitleWidth(line)
+		render.DrawTextTitle(screen, line, (render.ScreenW-lineW)/2, titleY, render.ColorText)
+		titleY += titleLineH
+	}
 
 	mx, my := ebiten.CursorPosition()
 	for i, item := range a.menuItems() {
@@ -131,7 +148,7 @@ func (a *App) drawMenu(screen *ebiten.Image) {
 		render.DrawBevelButton(screen, x, y, w, h, item.Label, hover, pressed)
 	}
 
-	hint := "CLICK OR UP/DOWN + ENTER"
-	hintW := len(hint) * 7
-	render.DrawText(screen, hint, (render.ScreenW-hintW)/2, 620, render.ColorPhosphorDim, true)
+	ver := version.Display()
+	verW := render.SmallLabelWidth(ver)
+	render.DrawText(screen, ver, (render.ScreenW-verW)/2, render.ScreenH-20, render.ColorPhosphorDim, true)
 }

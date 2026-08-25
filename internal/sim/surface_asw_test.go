@@ -3,11 +3,12 @@ package sim
 import (
 	"testing"
 
+	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/world"
 )
 
 func TestEnemyGrishaRBUAtOverlapRange(t *testing.T) {
-	sc := world.NewTrainingScenario()
+	sc := campaign.DemoRuntime()
 	e := NewEngine(sc)
 	player := sc.Player
 	if player == nil {

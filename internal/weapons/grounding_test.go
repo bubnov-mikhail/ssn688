@@ -101,3 +101,110 @@ func TestExerciseTorpedoSignalsInsteadOfDetonating(t *testing.T) {
 		t.Fatalf("expected signal-only terminal effect, got %+v", det)
 	}
 }
+
+func TestExerciseTorpedoSignalsOnOwnship(t *testing.T) {
+	own := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 200,
+	}
+	fish := &Torpedo{
+		ID: "MK48X-2", ParentSubID: "player", Side: world.SidePlayer,
+		X: 0, Y: 0, DepthFt: 200, HeadingDeg: 90, OrderedHead: 90,
+		SpeedKts: 55, CruiseKts: 55, RunDepthFt: 200,
+		Armed: true, Alive: true, Mode: ModeWire, Age: 5,
+		LastPingTime: -1, OrdnanceType: OrdnanceMk48Exercise,
+		TerminalMode: TerminalSignal, ClearDistYd: TubeClearYd + 10,
+	}
+	det := fish.Advance(0.1, 1, []*world.Entity{own}, nil, nil)
+	if fish.Alive || det == nil {
+		t.Fatalf("exercise fish should terminate on ownship, alive=%v det=%+v", fish.Alive, det)
+	}
+	if !det.SignalOnly {
+		t.Fatalf("expected signal-only, got %+v", det)
+	}
+}
+
+func TestWarshotDetonatesOnOwnship(t *testing.T) {
+	own := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 200,
+	}
+	fish := &Torpedo{
+		ID: "MK48-9", ParentSubID: "player", Side: world.SidePlayer,
+		X: 0, Y: 0, DepthFt: 200, HeadingDeg: 90, OrderedHead: 90,
+		SpeedKts: 55, CruiseKts: 55, RunDepthFt: 200,
+		Armed: true, Alive: true, Mode: ModeSearch, Age: 5,
+		LastPingTime: -1, OrdnanceType: OrdnanceMk48,
+		TerminalMode: TerminalExplode, ClearDistYd: 500,
+	}
+	det := fish.Advance(0.1, 1, []*world.Entity{own}, nil, nil)
+	if fish.Alive || det == nil || det.SignalOnly || det.Hit != own {
+		t.Fatalf("warshot should detonate on ownship, alive=%v det=%+v", fish.Alive, det)
+	}
+}
+
+func TestEnemyTorpedoFusesOnAnyPlatform(t *testing.T) {
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 200,
+	}
+	ally := &world.Entity{
+		ID: "ally_688", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 200,
+	}
+	enemy := &world.Entity{
+		ID: "enemy_other", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 200,
+	}
+	civ := &world.Entity{
+		ID: "civ_tanker", Kind: world.KindSurfaceShip, Side: world.SideNeutral,
+		Status: world.StatusActive, X: 40, Y: 0, DepthFt: 0,
+	}
+	mkEnemyFish := func() *Torpedo {
+		return &Torpedo{
+			ID: "ETORP-1", ParentSubID: "enemy_foxtrot", TargetID: "player", Side: world.SideEnemy,
+			X: 0, Y: 0, DepthFt: 200, HeadingDeg: 90, OrderedHead: 90,
+			SpeedKts: 55, CruiseKts: 55, RunDepthFt: 200,
+			Armed: true, Alive: true, Mode: ModeSearch, Age: 5,
+			LastPingTime: -1, OrdnanceType: OrdnanceMk48,
+			TerminalMode: TerminalExplode, ClearDistYd: 500,
+		}
+	}
+
+	for _, tgt := range []*world.Entity{player, ally, enemy, civ} {
+		fish := mkEnemyFish()
+		// Match depth for sub proximity; surface fish uses under-keel rule.
+		if tgt.Kind == world.KindSurfaceShip {
+			fish.DepthFt = 50
+			fish.RunDepthFt = 50
+		}
+		det := fish.Advance(0.1, 1, []*world.Entity{tgt}, nil, nil)
+		if fish.Alive || det == nil || det.Hit != tgt {
+			t.Fatalf("enemy fish should hit %s, alive=%v det=%+v", tgt.ID, fish.Alive, det)
+		}
+	}
+}
+
+func TestEnemySeekerPrefersFriendlyOverNeutral(t *testing.T) {
+	fish := &Torpedo{
+		ID: "ETORP-2", ParentSubID: "enemy_foxtrot", TargetID: "player", Side: world.SideEnemy,
+		X: 0, Y: 0, DepthFt: 200, HeadingDeg: 90, OrderedHead: 90,
+		SpeedKts: 40, CruiseKts: 40, RunDepthFt: 200,
+		Armed: true, Alive: true, Mode: ModeSearch, Age: 5,
+		SeekerOn: true, LastPingTime: -1, ClearDistYd: 500,
+		OrdnanceType: OrdnanceMk48, TerminalMode: TerminalExplode,
+	}
+	// Both well inside cone/range; friendly should win despite being slightly farther.
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 900, Y: 0, DepthFt: 200,
+	}
+	civ := &world.Entity{
+		ID: "civ_tanker", Kind: world.KindSurfaceShip, Side: world.SideNeutral,
+		Status: world.StatusActive, X: 700, Y: 0, DepthFt: 0,
+	}
+	best := fish.acquireInCone([]*world.Entity{civ, player}, nil, 10)
+	if best == nil || best.ID != "player" {
+		t.Fatalf("expected prefer player over nearer neutral, got %v", best)
+	}
+}

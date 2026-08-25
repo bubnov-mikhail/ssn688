@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Rebuild assets/bathy.bin from NOAA ETOPO 2022 for Santa Catalina.
+"""Rebuild tools/bathy_catalina.bin from NOAA ETOPO 2022 for Santa Catalina.
 
 Viewport is a 20x20 nautical mile square centered on 33.30 N, 118.45 W.
 Source: NOAA NCEI ETOPO 2022 via ERDDAP (oceanwatch.pifsc.noaa.gov).
+Inline the result into scenarios/*.json via tools/gen_demo_scenario_json.go.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ ERDDAP_URL = (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "assets" / "bathy.bin"
+OUT = ROOT / "tools" / "bathy_catalina.bin"
 
 
 def elev_to_game_ft(z_m: float) -> float:

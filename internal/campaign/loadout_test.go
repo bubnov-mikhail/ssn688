@@ -93,7 +93,7 @@ func TestDemoScenarioRegistry(t *testing.T) {
 	if sc == nil || len(sc.Missions) != 1 {
 		t.Fatal("demo scenario should have one mission")
 	}
-	if sc.CoverFile == "" {
+	if len(sc.CoverData) == 0 && sc.CoverFile == "" {
 		t.Fatal("demo scenario needs cover art")
 	}
 }

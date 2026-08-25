@@ -21,6 +21,7 @@ const (
 var (
 	once       sync.Once
 	faceLarge  font.Face
+	faceTitle  font.Face
 	faceMedium font.Face
 	faceSmall  font.Face
 	faceButton font.Face
@@ -35,6 +36,7 @@ func InitFonts() error {
 			return
 		}
 		faceLarge, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: 24, DPI: 72, Hinting: font.HintingFull})
+		faceTitle, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: 34, DPI: 72, Hinting: font.HintingFull})
 		faceMedium, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: 16, DPI: 72, Hinting: font.HintingFull})
 		faceSmall, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: 12, DPI: 72, Hinting: font.HintingFull})
 		faceButton, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: 11, DPI: 72, Hinting: font.HintingFull})
@@ -76,6 +78,14 @@ func ButtonLabelBaseline(boxY, boxH int) int {
 	}
 	m := faceButton.Metrics()
 	return boxY + (boxH+m.Ascent.Ceil()-m.Descent.Ceil())/2
+}
+
+// TitleWidth returns the pixel width of title-font text.
+func TitleWidth(label string) int {
+	if faceTitle != nil {
+		return font.MeasureString(faceTitle, label).Ceil()
+	}
+	return len(label) * 14
 }
 
 // LabelWidth returns the pixel width of medium (body) text.
@@ -124,6 +134,15 @@ func DrawTextLarge(screen *ebiten.Image, txt string, x, y int, clr color.Color) 
 	drawFace(screen, txt, x, y, clr, faceLarge)
 }
 
+// DrawTextTitle draws the main menu / splash title (largest face).
+func DrawTextTitle(screen *ebiten.Image, txt string, x, y int, clr color.Color) {
+	if faceTitle == nil {
+		DrawTextLarge(screen, txt, x, y, clr)
+		return
+	}
+	drawFace(screen, txt, x, y, clr, faceTitle)
+}
+
 // DrawScreenTitle draws a primary instrument-panel title (large phosphor green).
 func DrawScreenTitle(screen *ebiten.Image, txt string, x, y int) {
 	DrawTextLarge(screen, txt, x, y, ColorPhosphorDim)
@@ -169,6 +188,7 @@ var (
 	ColorMonitorFace   = color.RGBA{10, 10, 12, 255}
 	ColorBorder        = color.RGBA{70, 72, 78, 255}
 	ColorText          = color.RGBA{178, 180, 186, 255}
+	ColorMuted         = color.RGBA{108, 110, 116, 255}
 	ColorDim           = color.RGBA{0, 140, 100, 255}
 	ColorWarn      = color.RGBA{255, 200, 0, 255}
 	ColorDanger    = color.RGBA{255, 60, 40, 255}
