@@ -235,7 +235,18 @@ func convertUnitJSON(u unitJSON) (UnitSpec, error) {
 		RouteID: u.RouteID, RouteFrac: u.RouteFrac,
 		FallbackCorner: u.FallbackCorner, FallbackMinYd: u.FallbackMinYd, FallbackMaxYd: u.FallbackMaxYd,
 		RequireVar: u.RequireVar, UnlessVar: u.UnlessVar, AllyIgnore: u.AllyIgnore,
+		Payload: convertPayloadJSON(u.Payload),
 	}, nil
+}
+
+func convertPayloadJSON(p *unitPayloadJSON) *UnitPayload {
+	if p == nil {
+		return nil
+	}
+	return &UnitPayload{
+		Torpedoes: p.Torpedoes, ASWRockets: p.ASWRockets, ShipTubes: p.ShipTubes,
+		RBU: p.RBU, SAM: p.SAM, CIWS: p.CIWS,
+	}
 }
 
 func resolveCover(blob *assetBlobJSON, cacheKey string) ([]byte, string, error) {

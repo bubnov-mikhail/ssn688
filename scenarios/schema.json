@@ -19,7 +19,7 @@
     "format_version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
-      "description": "JSON schema semver. Major must match the game's ScenarioFormatMajor (currently 1). Breaking schema changes bump major."
+      "description": "JSON schema semver. Major must match the game's ScenarioFormatMajor (currently 2). Breaking schema changes bump major."
     },
     "version": {
       "type": "string",
@@ -228,7 +228,21 @@
         "fallback_max_yd": { "type": "number", "minimum": 0 },
         "require_var": { "type": "string" },
         "unless_var": { "type": "string" },
-        "ally_ignore": { "type": "boolean" }
+        "ally_ignore": { "type": "boolean" },
+        "payload": { "$ref": "#/$defs/unitPayload" }
+      }
+    },
+    "unitPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional magazine overrides for AI platforms. Omitted fields keep class defaults from signature_id.",
+      "properties": {
+        "torpedoes": { "type": "integer", "minimum": 0, "description": "Heavy fish magazine (subs)" },
+        "asw_rockets": { "type": "integer", "minimum": 0, "description": "Rastrub / Otvet / ASROC cells" },
+        "ship_tubes": { "type": "integer", "minimum": 0, "description": "Lightweight ASW tube fish" },
+        "rbu": { "type": "integer", "minimum": 0, "description": "RBU-6000 salvos" },
+        "sam": { "type": "integer", "minimum": 0, "description": "Point-defense SAM rounds" },
+        "ciws": { "type": "integer", "minimum": 0, "description": "CIWS bursts" }
       }
     },
     "objective": {

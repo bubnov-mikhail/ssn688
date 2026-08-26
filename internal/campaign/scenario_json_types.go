@@ -87,6 +87,16 @@ type unitJSON struct {
 	RequireVar     string  `json:"require_var,omitempty"`
 	UnlessVar      string  `json:"unless_var,omitempty"`
 	AllyIgnore     bool    `json:"ally_ignore,omitempty"`
+	Payload        *unitPayloadJSON `json:"payload,omitempty"`
+}
+
+type unitPayloadJSON struct {
+	Torpedoes  *int `json:"torpedoes,omitempty"`
+	ASWRockets *int `json:"asw_rockets,omitempty"`
+	ShipTubes  *int `json:"ship_tubes,omitempty"`
+	RBU        *int `json:"rbu,omitempty"`
+	SAM        *int `json:"sam,omitempty"`
+	CIWS       *int `json:"ciws,omitempty"`
 }
 
 type objectiveJSON struct {

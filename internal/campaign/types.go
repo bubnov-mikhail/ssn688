@@ -128,6 +128,7 @@ type UnitSpec struct {
 	RequireVar     string // spawn only when campaign var is "true"
 	UnlessVar      string // skip when campaign var is "true"
 	AllyIgnore     bool   // allied AI must not attack this unit
+	Payload        *UnitPayload
 }
 
 // MissionDef is the static definition of one mission.

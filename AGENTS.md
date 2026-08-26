@@ -19,7 +19,7 @@
 4. **Не трогай** `.venv-tts/`, `dist/`, сгенерированные `.app`, чужие секреты. Бинарник `ssn688` в `.gitignore` — его можно пересобирать локально.
 5. Меняй только то, что нужно задаче. Не рефакторь «заодно», не добавляй лишние markdown-файлы без запроса.
 6. Стиль кода: существующие паттерны пакета, короткие комментарии «почему», без шумных docstrings на очевидное.
-7. **Доменные навыки** — каталог [`agent-skills/`](agent-skills/README.md). Перед новой картой, `bathy.bin`, маршрутами или расстановкой у берега **прочитай подходящий `SKILL.md`** (см. таблицу в README каталога).
+7. **Доменные навыки** — каталог [`agent-skills/`](agent-skills/README.md). Перед новой картой, `bathy.bin`, маршрутами, расстановкой у берега или **созданием сценария/миссий** **прочитай подходящий `SKILL.md`** (см. таблицу в README каталога).
 
 ## Навыки агентов (`agent-skills/`)
 
@@ -28,6 +28,7 @@
 | Путь | Тема |
 |------|------|
 | [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md) | ETOPO → `bathy.bin`, рельеф/берег на PLOT, маршруты без выхода на сушу, глубины ПЛ ниже термоклина |
+| [`agent-skills/scenario-authoring/SKILL.md`](agent-skills/scenario-authoring/SKILL.md) | Портативные JSON-сценарии и миссии, narrative/COMM/events, вывод в `scenarios_generated/` |
 
 При совпадении задачи с описанием навыка — **сначала навык**, потом правки кода. Новые навыки добавляй в `agent-skills/<имя>/SKILL.md` и строку в [`agent-skills/README.md`](agent-skills/README.md).
 
@@ -83,8 +84,9 @@ agent-skills/           — доменные навыки для ИИ-агент
 | Разгон судов | `world/entity.go` — `MaxSpeedAccelKtsPerSec` |
 | Подписи шума (LOFAR) | `world/signatures.go`, `acoustics/source.go` |
 | Голосовые клипы | `audio/clips.go`, `audio/voice.go`, `audio/voices/**` |
-| Кампания / состав миссии | `scenarios/*.json`, `internal/campaign/instantiate.go`, `scenario_load.go`, `build.go` |
+| Кампания / состав миссии | `scenarios/*.json`, `agent-skills/scenario-authoring/SKILL.md`, `internal/campaign/instantiate.go`, `scenario_load.go`, `build.go` |
 | Новая карта / bathy / маршруты | `agent-skills/bathymetry-and-routes/SKILL.md`, `tools/gen_hormuz_bathy.py`, `internal/world/bathymetry*.go`, `diagonal_routes.go`, `coastal_routes.go`, `scenarios/*.json` |
+| Новый сценарий (импорт) | `agent-skills/scenario-authoring/SKILL.md` → `scenarios_generated/*.json` (не в git) |
 
 ## Важные доменные правила (не ломать без явного запроса)
 

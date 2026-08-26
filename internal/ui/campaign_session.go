@@ -88,6 +88,7 @@ func (a *App) startSelectedMission() {
 	engine.Campaign.BetweenMissions = false
 	a.ensureLoadoutTubes()
 	campaign.ApplyTubeLoadout(&engine.FireControl, a.LoadoutTubes, a.LoadoutMix)
+	campaign.ApplyUnitPayloads(&engine.FireControl, m, prog.Vars)
 	a.beginGameSession(engine)
 }
 
