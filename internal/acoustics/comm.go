@@ -24,6 +24,12 @@ type COMMState struct {
 	Inbox        []world.CommInboxEntry
 	DeliveredIDs map[string]bool
 	NotifyPending bool // UI: flash + voice for a newly delivered scheduled message
+
+	// TrafficWaiting is true while due schedule entries are undelivered (mast down).
+	TrafficWaiting bool
+	// TrafficWaitingNotify: rising edge / new due messages — UI status + voice cue.
+	TrafficWaitingNotify bool
+	waitingDueCount      int
 }
 
 func (c *COMMState) ensure() {
@@ -145,6 +151,52 @@ func (c *COMMState) AdvanceMastMotion(dt, gameTime float64, player *world.Entity
 		c.Extension = math.Max(0, c.Extension-dt/world.ESMMastLowerSec)
 	}
 	return events, false
+}
+
+// CountDueUndelivered returns scheduled messages with AtSec <= gameTime not yet in inbox.
+func CountDueUndelivered(comm *COMMState, scenario *world.Scenario, gameTime float64) int {
+	if comm == nil || scenario == nil {
+		return 0
+	}
+	comm.ensure()
+	n := 0
+	for i := range scenario.CommSchedule {
+		msg := &scenario.CommSchedule[i]
+		if msg.ID == "" || msg.Text == "" {
+			continue
+		}
+		if gameTime < msg.AtSec {
+			continue
+		}
+		if comm.DeliveredIDs[msg.ID] {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// UpdateCOMMTrafficWaiting sets TrafficWaiting / TrafficWaitingNotify for UI cues
+// while due traffic sits undelivered (typically mast stowed). Call every tick.
+func UpdateCOMMTrafficWaiting(comm *COMMState, scenario *world.Scenario, player *world.Entity, gameTime float64) {
+	if comm == nil {
+		return
+	}
+	comm.ensure()
+	if player != nil {
+		player.EnsureDamage()
+		if player.Damage.Destroyed(world.SysCOMM) || comm.Sheared {
+			comm.TrafficWaiting = false
+			comm.waitingDueCount = 0
+			return
+		}
+	}
+	n := CountDueUndelivered(comm, scenario, gameTime)
+	if n > comm.waitingDueCount {
+		comm.TrafficWaitingNotify = true
+	}
+	comm.waitingDueCount = n
+	comm.TrafficWaiting = n > 0
 }
 
 // UpdateCOMM delivers all scheduled traffic that is due once the mast is up.

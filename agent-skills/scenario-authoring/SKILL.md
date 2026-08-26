@@ -76,9 +76,27 @@ Task Progress:
 - [ ] Validate mentally vs schema; bump version
 - [ ] Write to scenarios_generated/<id>.json
 - [ ] Tell user to IMPORT SCENARIO in-game
+- [ ] Cleanup: remove this job's temp files from tools/
 ```
 
 Эталон структуры и ветвления: `tools/gen_demo_scenario_json.go` + `scenarios/demo_catalina.json`.
+
+## Уборка после причёсывания
+
+Когда сценарий **закончен** (контент уложен в `scenarios_generated/<id>.json`, правок больше не планируется в этой сессии) — **прибрать за собой** в `tools/`.
+
+Cover и bathy уже inline в JSON (`data_b64`); оставлять дубликаты на диске не нужно.
+
+| Удалить | Примеры |
+|---------|---------|
+| Cover этой генерации | `tools/<scenario>_cover.png`, `tools/*_cover.jpg` |
+| Bathy театра этой работы | `tools/bathy_<theater>.bin` (не трогать `bathy_catalina.bin`, если он часть демо-пайплайна) |
+| Одноразовые генераторы | `tools/gen_<scenario>_*.go`, `tools/gen_<theater>_bathy.py`, созданные только под этот сценарий |
+| Временный кэш ETOPO/subset | `tools/.etopo_cache/` или скачанные csv/nc **только** для этого театра |
+
+**Не удалять** общие эталоны: `tools/gen_hormuz_bathy.py`, `tools/gen_demo_scenario_json.go`, vendor и прочие shared tools.
+
+Если пользователь явно просит **оставить пайплайн пересборки** — генераторы и `bathy_*.bin` не трогать; cover всё равно можно удалить после inline.
 
 ## Структура JSON (кратко)
 
@@ -109,3 +127,4 @@ Objective: `need_identify` / `need_destroy` / `primary` / `hidden` + var-фил�
 - [ ] Хотя бы несколько reactive COMM / events
 - [ ] Файл в `scenarios_generated/`, не в git
 - [ ] `format_version` 2.x.x, осмысленный `version`
+- [ ] После финала: убраны temp-файлы этой работы из `tools/` (cover, bathy.bin, одноразовые gen_*)

@@ -132,6 +132,11 @@
           "items": { "$ref": "#/$defs/objective" }
         },
         "comm_briefing": { "type": "string" },
+        "start_time": {
+          "type": "string",
+          "pattern": "^([01]?\\d|2[0-3]):[0-5]\\d$",
+          "description": "Mission wall-clock start as HH:MM (24h). Game still counts seconds from 0; UI/COMM add elapsed to this start."
+        },
         "comm_schedule": {
           "type": "array",
           "items": { "$ref": "#/$defs/commMessage" }

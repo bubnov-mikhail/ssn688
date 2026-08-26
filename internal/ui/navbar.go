@@ -124,14 +124,18 @@ func (a *App) drawNavBar(screen *ebiten.Image) {
 		hover := i == a.navHoverIdx && my >= y
 		dcAlert := it.Screen == ScreenDamage && a.dcTabAlert
 		dcBlink := dcAlert && a.dcTabBlinkOn()
+		mastAlert := it.Screen == ScreenMast && a.mastTabAlert
+		mastBlink := mastAlert && a.mastTabBlinkOn()
+		tabAlert := dcAlert || mastAlert
+		tabBlink := dcBlink || mastBlink
 
 		if active {
 			render.FillRect(screen, x+2, y+4, slotW-4, navBarH-6, render.ColorPanelMid)
 			render.DrawLine(screen, float64(x+2), float64(y+4), float64(x+slotW-2), float64(y+4), render.ColorPhosphor)
-		} else if dcBlink {
+		} else if tabBlink {
 			render.FillRect(screen, x+2, y+4, slotW-4, navBarH-6, render.ColorDanger)
 			render.DrawLine(screen, float64(x+2), float64(y+4), float64(x+slotW-2), float64(y+4), render.ColorWarn)
-		} else if dcAlert {
+		} else if tabAlert {
 			render.FillRect(screen, x+4, y+6, slotW-8, navBarH-10, render.ColorPanelMid)
 			render.DrawLine(screen, float64(x+4), float64(y+6), float64(x+slotW-4), float64(y+6), render.ColorDanger)
 		} else if hover {
@@ -142,8 +146,8 @@ func (a *App) drawNavBar(screen *ebiten.Image) {
 		if active || hover {
 			clr = render.ColorPhosphor
 		}
-		if dcAlert {
-			if dcBlink {
+		if tabAlert {
+			if tabBlink {
 				clr = render.ColorWarn
 			} else {
 				clr = render.ColorDanger

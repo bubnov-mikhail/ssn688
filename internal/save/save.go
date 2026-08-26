@@ -689,18 +689,21 @@ func loadClean(path string) (*sim.Engine, error) {
 			engine.Campaign.ScenarioID, engine.Campaign.MissionID,
 		)
 	}
-	if len(engine.Scenario.Objectives) == 0 {
-		vars := engine.Campaign.Vars
-		if m := campaign.MissionByID(engine.Campaign.ScenarioID, engine.Campaign.MissionID); m != nil {
-			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, vars)
-		} else if m := campaign.MissionByID(campaign.DemoScenarioID, campaign.DemoMissionTraining); m != nil {
-			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, vars)
+	if m := campaign.MissionByID(engine.Campaign.ScenarioID, engine.Campaign.MissionID); m != nil {
+		engine.Scenario.StartTimeSec = m.StartTimeSec
+		if len(engine.Scenario.Objectives) == 0 {
+			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, engine.Campaign.Vars)
 		}
-	}
-	if len(engine.Scenario.MissionEvents) == 0 {
-		if m := campaign.MissionByID(engine.Campaign.ScenarioID, engine.Campaign.MissionID); m != nil {
+		if len(engine.Scenario.MissionEvents) == 0 {
 			events := campaign.FilterEvents(m.Events, engine.Campaign.Vars)
 			engine.Scenario.MissionEvents = campaign.ToWorldEvents(events)
+		}
+	} else if m := campaign.MissionByID(campaign.DemoScenarioID, campaign.DemoMissionTraining); m != nil {
+		if engine.Scenario.StartTimeSec == 0 {
+			engine.Scenario.StartTimeSec = m.StartTimeSec
+		}
+		if len(engine.Scenario.Objectives) == 0 {
+			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, engine.Campaign.Vars)
 		}
 	}
 	if engine.Scenario.FiredEventIDs == nil {

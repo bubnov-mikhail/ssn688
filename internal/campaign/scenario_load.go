@@ -151,6 +151,11 @@ func convertMissionJSON(mj missionJSON) (MissionDef, error) {
 		DebriefLead:  mj.DebriefLead,
 		Events:       mj.Events,
 	}
+	startSec, err := world.ParseStartTimeHHMM(mj.StartTime)
+	if err != nil {
+		return MissionDef{}, fmt.Errorf("start_time: %w", err)
+	}
+	m.StartTimeSec = startSec
 	if cover, key, err := resolveCover(mj.Cover, "mission:"+mj.ID); err != nil {
 		return MissionDef{}, err
 	} else if len(cover) > 0 {

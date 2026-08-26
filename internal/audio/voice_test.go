@@ -15,6 +15,7 @@ func TestLoadVoiceClips(t *testing.T) {
 	}
 	for _, id := range []ClipID{
 		ClipCaptHoldSimulation, ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost, ClipCaptCommMessage,
+		ClipCaptCommTrafficWaiting,
 		ClipSonarPassiveOn, ClipSonarDeployTowed, ClipSonarActiveOnline,
 		ClipWepsWireCut, ClipWepsTorpedoInWater, ClipWepsTorpedoHeadingOwnship,
 		ClipDiveMakeDepth, ClipDiveUnableDeeper, ClipDiveHoldDepth, ClipNavSpeedDouble,

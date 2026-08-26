@@ -23,6 +23,8 @@ type Scenario struct {
 	CommBriefing string
 	// CommSchedule delivers traffic when COMM mast is raised at/after AtSec.
 	CommSchedule []CommScheduledMessage
+	// StartTimeSec is seconds from midnight for wall-clock UI/COMM (mission start_time).
+	StartTimeSec float64
 	// Routes are coastal / transit lanes assigned to AI units by RouteID.
 	Routes []*Route
 	// MissionEvents are declarative when/then hooks (reveal objective, late COMM, …).

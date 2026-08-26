@@ -1312,6 +1312,7 @@
           ]
         }
       ],
+      "start_time": "04:30",
       "theater_id": "catalina",
       "title": "Santa Catalina Approaches",
       "units": [
@@ -2898,6 +2899,7 @@
           ]
         }
       ],
+      "start_time": "18:45",
       "theater_id": "catalina",
       "title": "Catalina Counterstroke",
       "units": [
@@ -3028,5 +3030,5 @@
     }
   ],
   "title": "Shadows off Catalina",
-  "version": "1.2.6"
+  "version": "1.2.7"
 }

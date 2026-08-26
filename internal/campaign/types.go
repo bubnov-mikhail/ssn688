@@ -146,6 +146,7 @@ type MissionDef struct {
 	CommBriefing string
 	CommSchedule []world.CommScheduledMessage
 	Events       []EventDef
+	StartTimeSec float64 // seconds from midnight (from start_time HH:MM)
 	// Build overrides data-driven instantiate. Nil = Instantiate from fields above.
 	Build        func(ctx BuildContext) *world.Scenario
 	Objectives   []ObjectiveTemplate

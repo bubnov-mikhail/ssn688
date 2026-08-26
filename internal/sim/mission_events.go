@@ -88,7 +88,7 @@ func (e *Engine) applyMissionEventActions(ev world.MissionEvent, gameTime float6
 				}
 			}
 			e.Scenario.CommSchedule = append(e.Scenario.CommSchedule, world.CommScheduledMessage{
-				ID: id, AtSec: at, Text: campaign.ExpandUnitPlaceholders(act.Text, byID),
+				ID: id, AtSec: at, Text: campaign.ExpandPlaceholders(act.Text, byID, e.Scenario.StartTimeSec, at),
 			})
 		case "set_defcon":
 			for _, ent := range e.Scenario.Entities {

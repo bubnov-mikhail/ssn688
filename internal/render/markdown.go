@@ -229,7 +229,7 @@ func MarkdownLinesForCOMM(timeLabel, body string, maxW int) []MDLine {
 	var out []MDLine
 	if timeLabel != "" {
 		out = append(out, MDLine{Text: timeLabel, Style: MDStamp})
-		out = append(out, MDLine{}) // keep T+ stamp clear of following H1 baseline
+		out = append(out, MDLine{}) // keep wall-clock stamp clear of following H1 baseline
 	}
 	out = append(out, ParseMarkdown(body, maxW, true)...)
 	out = append(out, MDLine{}) // gap between messages

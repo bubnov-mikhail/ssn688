@@ -131,38 +131,57 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, ctx BuildContext) *world.Sce
 
 	events := FilterEvents(m.Events, vars)
 	schedule := ApplyCommEvents(m.CommSchedule, events)
-	schedule = expandCommPlaceholders(schedule, ents)
+	byID := entityMap(append([]*world.Entity{player}, ents...))
+	schedule = expandCommPlaceholders(schedule, byID, m.StartTimeSec)
+	briefing := ExpandPlaceholders(m.CommBriefing, byID, m.StartTimeSec, 0)
 
 	return &world.Scenario{
-		Name:         m.Title,
-		Description:  m.Description,
-		Player:       player,
-		Entities:     ents,
-		Bathy:        bathy,
-		Weather:      world.RandomWeather(rng),
-		Routes:       routes,
-		Objectives:   RuntimeObjectives(m.Objectives, vars),
-		CommBriefing: m.CommBriefing,
-		CommSchedule: schedule,
+		Name:          m.Title,
+		Description:   m.Description,
+		Player:        player,
+		Entities:      ents,
+		Bathy:         bathy,
+		Weather:       world.RandomWeather(rng),
+		Routes:        routes,
+		Objectives:    RuntimeObjectives(m.Objectives, vars),
+		CommBriefing:  briefing,
+		CommSchedule:  schedule,
+		StartTimeSec:  m.StartTimeSec,
 		MissionEvents: ToWorldEvents(events),
 	}
 }
 
 var unitPlaceholderRe = regexp.MustCompile(`\{\{unit\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}\}`)
 
-func expandCommPlaceholders(schedule []world.CommScheduledMessage, ents []*world.Entity) []world.CommScheduledMessage {
+func entityMap(ents []*world.Entity) map[string]*world.Entity {
 	byID := map[string]*world.Entity{}
 	for _, e := range ents {
 		if e != nil && e.ID != "" {
 			byID[e.ID] = e
 		}
 	}
+	return byID
+}
+
+func expandCommPlaceholders(schedule []world.CommScheduledMessage, byID map[string]*world.Entity, startSec float64) []world.CommScheduledMessage {
 	out := make([]world.CommScheduledMessage, len(schedule))
 	for i, m := range schedule {
 		out[i] = m
-		out[i].Text = ExpandUnitPlaceholders(m.Text, byID)
+		// mission_time uses transmit AtSec so late mast pickup still shows HQ send clock.
+		out[i].Text = ExpandPlaceholders(m.Text, byID, startSec, m.AtSec)
 	}
 	return out
+}
+
+// ExpandPlaceholders replaces {{mission_time}} and {{unit.<id>.<field>}} tokens.
+func ExpandPlaceholders(text string, byID map[string]*world.Entity, startSec, elapsedSec float64) string {
+	if text == "" {
+		return text
+	}
+	if strings.Contains(text, "{{mission_time}}") {
+		text = strings.ReplaceAll(text, "{{mission_time}}", world.FormatMissionClock(startSec, elapsedSec))
+	}
+	return ExpandUnitPlaceholders(text, byID)
 }
 
 // ExpandUnitPlaceholders replaces {{unit.<id>.<field>}} tokens.

@@ -194,6 +194,7 @@ func (e *Engine) tick(dt float64) {
 			e.Events = append(e.Events, evs...)
 		}
 		acoustics.UpdateCOMM(&e.COMM, e.Scenario, player, t)
+		acoustics.UpdateCOMMTrafficWaiting(&e.COMM, e.Scenario, player, t)
 		if evs, sheared := e.Periscope.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
 			e.Events = append(e.Events, evs...)
 		}

@@ -53,6 +53,39 @@ func TestCOMMScheduleRequiresMastUp(t *testing.T) {
 	}
 }
 
+func TestCOMMTrafficWaitingWhileMastDown(t *testing.T) {
+	sc := &world.Scenario{
+		CommSchedule: []world.CommScheduledMessage{{
+			ID: "m1", AtSec: 10, Text: "EXECUTE.",
+		}},
+	}
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Status: world.StatusActive,
+		DepthFt: 60, Damage: world.NewFullHealth(),
+	}
+	var comm acoustics.COMMState
+	acoustics.UpdateCOMMTrafficWaiting(&comm, sc, player, 5)
+	if comm.TrafficWaiting || comm.TrafficWaitingNotify {
+		t.Fatal("nothing due yet")
+	}
+	acoustics.UpdateCOMMTrafficWaiting(&comm, sc, player, 10)
+	if !comm.TrafficWaiting || !comm.TrafficWaitingNotify {
+		t.Fatalf("expected waiting+notify, waiting=%v notify=%v", comm.TrafficWaiting, comm.TrafficWaitingNotify)
+	}
+	comm.TrafficWaitingNotify = false
+	acoustics.UpdateCOMMTrafficWaiting(&comm, sc, player, 15)
+	if !comm.TrafficWaiting || comm.TrafficWaitingNotify {
+		t.Fatal("should stay waiting without re-notify")
+	}
+	comm.Order = acoustics.COMMMastRaise
+	comm.Extension = 1
+	acoustics.UpdateCOMM(&comm, sc, player, 15)
+	acoustics.UpdateCOMMTrafficWaiting(&comm, sc, player, 15)
+	if comm.TrafficWaiting {
+		t.Fatal("waiting should clear after delivery")
+	}
+}
+
 func TestCOMMCatchUpDeliversBacklog(t *testing.T) {
 	sc := &world.Scenario{
 		CommSchedule: []world.CommScheduledMessage{

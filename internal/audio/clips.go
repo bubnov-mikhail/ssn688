@@ -22,7 +22,8 @@ const (
 	ClipCaptOwnshipHit     ClipID = "capt/ownship_hit"
 	ClipCaptCriticalDamage ClipID = "capt/critical_damage"
 	ClipCaptOwnshipLost    ClipID = "capt/ownship_lost"
-	ClipCaptCommMessage    ClipID = "capt/comm_message"
+	ClipCaptCommMessage         ClipID = "capt/comm_message"
+	ClipCaptCommTrafficWaiting  ClipID = "capt/comm_traffic_waiting"
 
 	ClipSonarPassiveOn           ClipID = "sonar/passive_on"
 	ClipSonarPassiveOff          ClipID = "sonar/passive_off"

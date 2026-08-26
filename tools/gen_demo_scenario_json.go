@@ -106,7 +106,7 @@ func demoDocument() map[string]any {
 	bathyAsset, bathy := bathyAssetAndChart()
 	return map[string]any{
 		"format_version":   "2.0.0",
-		"version":          "1.2.6",
+		"version":          "1.2.7",
 		"min_game_version": "1.0.0",
 		"id":               "demo_catalina",
 		"title":            "Shadows off Catalina",
@@ -201,6 +201,7 @@ func demoMission1(bathy *world.Bathymetry) map[string]any {
 			"## Notes\n\n" +
 			"Allied forces hold the eastern patrol belt. Remain undetected until follow-on tasking via COMM.",
 		"theater_id": "catalina",
+		"start_time": "04:30",
 		"routes": []any{
 			routeFrom(world.BuildNWSETransit(bathy, "route_grisha", -3500, 60), true, "pingpong"),
 			routeFrom(world.BuildNWSETransit(bathy, "route_merchant", -1200, 50), true, "pingpong"),
@@ -342,6 +343,7 @@ func demoMission2(bathy *world.Bathymetry) map[string]any {
 			"- Spruance remains eastern support (assists on hostile surface fire)\n" +
 			"- Bremerton has been redirected",
 		"theater_id": "catalina",
+		"start_time": "18:45",
 		"routes": []any{
 			routeFrom(world.BuildNWSETransit(bathy, "route_grisha", -3500, 60), true, "pingpong"),
 			routeFrom(world.BuildNWSETransit(bathy, "route_merchant", -1200, 50), true, "pingpong"),

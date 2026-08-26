@@ -13,7 +13,7 @@ func TestParseBundledDemoJSON(t *testing.T) {
 	if !sc.Compatible {
 		t.Fatalf("demo should be compatible: %s", sc.IncompatibleReason)
 	}
-	if sc.Version.String() != "1.2.6" {
+	if sc.Version.String() != "1.2.7" {
 		t.Fatalf("version %s", sc.Version)
 	}
 	if sc.FormatVersion.Major != 2 {

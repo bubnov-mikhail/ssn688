@@ -151,6 +151,7 @@ type App struct {
 	hitShakeAt    time.Time
 	hitShakeBuf   *ebiten.Image
 	dcTabAlert    bool // blink DC nav until player opens Damage Control
+	mastTabAlert  bool // blink MAST nav while due COMM traffic is undelivered
 
 	SelectedScenarioID      campaign.ScenarioID
 	ScenarioListIndex       int
@@ -366,6 +367,14 @@ func (a *App) updateGame() {
 			a.Audio.PlayESMHit()
 		}
 	}
+	if a.Engine.COMM.TrafficWaitingNotify {
+		a.Engine.COMM.TrafficWaitingNotify = false
+		a.StatusMessage = "HF TRAFFIC PENDING — raise COMM mast"
+		if a.Audio != nil {
+			a.Audio.PlayClip(audio.ClipCaptCommTrafficWaiting, "Flash traffic waiting. Raise the communications mast.")
+		}
+	}
+	a.mastTabAlert = a.Engine.COMM.TrafficWaiting
 	if a.Engine.COMM.NotifyPending {
 		a.Engine.COMM.NotifyPending = false
 		a.StatusMessage = "FLASH TRAFFIC — new message on COMM"
@@ -754,8 +763,15 @@ func (a *App) drawGameHeader(screen *ebiten.Image) {
 	render.FillRect(screen, 0, 0, render.ScreenW, gameHeaderH, render.ColorPanelBezel)
 	render.FillRect(screen, 0, 2, render.ScreenW, gameHeaderH-2, render.ColorPanelDark)
 	render.DrawText(screen, fmt.Sprintf("SSN-688  |  TIME %s  |  SPEED %s  |  SCREEN %s",
-		formatTime(a.Engine.Clock.GameTime), a.Engine.Clock.SpeedLabel(), screenName(a.CurrentScreen)), 20, 28, render.ColorText, false)
+		a.missionClockLabel(), a.Engine.Clock.SpeedLabel(), screenName(a.CurrentScreen)), 20, 28, render.ColorText, false)
 	a.drawHeaderButtons(screen)
+}
+
+func (a *App) missionClockLabel() string {
+	if a.Engine == nil || a.Engine.Scenario == nil {
+		return formatElapsedClock(0)
+	}
+	return world.FormatMissionClock(a.Engine.Scenario.StartTimeSec, a.Engine.Clock.GameTime)
 }
 
 func screenName(s Screen) string {
@@ -766,11 +782,8 @@ func screenName(s Screen) string {
 	return "UNKNOWN"
 }
 
-func formatTime(sec float64) string {
-	h := int(sec) / 3600
-	m := (int(sec) % 3600) / 60
-	s := int(sec) % 60
-	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+func formatElapsedClock(sec float64) string {
+	return world.FormatMissionClock(0, sec)
 }
 
 func clamp(v, lo, hi float64) float64 {

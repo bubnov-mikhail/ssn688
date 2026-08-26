@@ -149,3 +149,10 @@ func (a *App) dcTabBlinkOn() bool {
 	}
 	return (time.Now().UnixNano()/int64(dcTabBlinkPeriod))%2 == 0
 }
+
+func (a *App) mastTabBlinkOn() bool {
+	if !a.mastTabAlert {
+		return false
+	}
+	return (time.Now().UnixNano()/int64(dcTabBlinkPeriod))%2 == 0
+}

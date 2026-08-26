@@ -40,6 +40,7 @@ type missionJSON struct {
 	Units        []unitJSON          `json:"units"`
 	CommBriefing string              `json:"comm_briefing,omitempty"`
 	CommSchedule []commMsgJSON       `json:"comm_schedule,omitempty"`
+	StartTime    string              `json:"start_time,omitempty"` // HH:MM 24h wall clock
 	Objectives   []objectiveJSON     `json:"objectives"`
 	Outputs      []outputJSON        `json:"outputs,omitempty"`
 	DebriefLead  string              `json:"debrief_lead,omitempty"`

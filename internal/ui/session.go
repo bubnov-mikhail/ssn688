@@ -103,6 +103,7 @@ func (a *App) releaseSessionCaches() {
 	a.hitVignetteAt = time.Time{}
 	a.hitShakeAt = time.Time{}
 	a.dcTabAlert = false
+	a.mastTabAlert = false
 	disposeImage(&a.hitShakeBuf)
 }
 

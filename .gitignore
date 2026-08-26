@@ -8,5 +8,7 @@ dist/
 /tmp/
 saves/
 *.sav
+# Portable generated campaigns (import via IMPORT SCENARIO; regenerate via tools/).
+scenarios_generated/*.json
 # 3D source meshes live under ~/ssn688/tools/vendor/ (not in-repo).
 tools/vendor/

@@ -37,6 +37,7 @@ Bathy = BATH v1 grid. New theater → [bathymetry-and-routes](../bathymetry-and-
 | `units` | Traffic + combatants |
 | `objectives` | Primary/secondary/hidden tasks |
 | `comm_briefing` | Immediate COMM on start (mast up) |
+| `start_time` | Wall clock `HH:MM` (24h); UI/COMM = start + elapsed |
 | `comm_schedule` | Timed COMM `{ id, at_sec, text }` |
 | `events` | When/then rules |
 | `outputs` | Campaign vars on mission end |
@@ -161,10 +162,11 @@ All `when` may also use `require_var` / `unless_var`.
 
 Use `payload` to deplete or reinforce for narrative (veteran survivor, green crew).
 
-## COMM placeholders
+COMM placeholders: `{{unit.<id>.pos}}` (PLOT lat/lon), `.course`, `.speed`, `.depth`, `.x`, `.y`, `.name`, `.id`,
+and `{{mission_time}}` (wall clock HH:MM:SS from mission `start_time` + elapsed / message AtSec).
+Expanded via `ExpandPlaceholders`.
 
-`{{unit.<id>.pos}}` (PLOT lat/lon), `.course`, `.speed`, `.depth`, `.x`, `.y`, `.name`, `.id`  
-Expanded at COMM delivery (`ExpandUnitPlaceholders`).
+Mission `start_time` (`HH:MM` 24h) sets the wall clock origin; sim still counts seconds from 0.
 
 ## Markdown subset
 

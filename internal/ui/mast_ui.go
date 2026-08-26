@@ -614,9 +614,11 @@ func (a *App) mastCommMessageLines() []render.MDLine {
 	}
 	var lines []render.MDLine
 	for _, msg := range a.Engine.COMM.Inbox {
-		min := int(msg.TimeSec) / 60
-		sec := int(msg.TimeSec) % 60
-		stamp := fmt.Sprintf("[T+%02d:%02d]", min, sec)
+		start := 0.0
+		if a.Engine.Scenario != nil {
+			start = a.Engine.Scenario.StartTimeSec
+		}
+		stamp := "[" + world.FormatMissionClock(start, msg.TimeSec) + "]"
 		lines = append(lines, render.MarkdownLinesForCOMM(stamp, msg.Text, maxW)...)
 	}
 	return lines

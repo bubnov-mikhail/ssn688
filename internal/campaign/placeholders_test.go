@@ -31,3 +31,11 @@ func TestExpandUnitPlaceholders(t *testing.T) {
 		t.Fatalf("expected intact unknowns, got %q", ExpandUnitPlaceholders(raw, byID))
 	}
 }
+
+func TestExpandMissionTimePlaceholder(t *testing.T) {
+	start := 4*3600 + 30*60
+	got := ExpandPlaceholders("Zulu {{mission_time}} execute.", nil, float64(start), 90)
+	if got != "Zulu 04:31:30 execute." {
+		t.Fatalf("got %q", got)
+	}
+}

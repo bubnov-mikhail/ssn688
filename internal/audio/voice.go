@@ -179,7 +179,8 @@ func isCriticalClip(id ClipID) bool {
 	switch id {
 	case ClipWepsTorpedoInWater, ClipWepsTorpedoHeadingOwnship, ClipWepsImpactConfirmed,
 		ClipCaptHoldSimulation,
-		ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost, ClipCaptCommMessage:
+		ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost, ClipCaptCommMessage,
+		ClipCaptCommTrafficWaiting:
 		return true
 	default:
 		// Tube fire callouts are short and situational — treat as critical.
@@ -495,6 +496,8 @@ func humanSubtitle(id ClipID) string {
 		return "Own ship lost. We are sinking."
 	case ClipCaptCommMessage:
 		return "Flash traffic. Incoming message."
+	case ClipCaptCommTrafficWaiting:
+		return "Flash traffic waiting. Raise the communications mast."
 	case ClipSonarPassiveOn:
 		return "Passive sonar online."
 	case ClipSonarPassiveOff:

@@ -42,6 +42,7 @@ LINES: list[tuple[str, str, str]] = [
     ("capt", "critical_damage.wav", "Critical damage. System casualty."),
     ("capt", "ownship_lost.wav", "Own ship lost. We are sinking."),
     ("capt", "comm_message.wav", "Flash traffic. Incoming message."),
+    ("capt", "comm_traffic_waiting.wav", "Flash traffic waiting. Raise the communications mast."),
     ("sonar", "passive_on.wav", "Passive sonar online."),
     ("sonar", "passive_off.wav", "Passive sonar offline."),
     ("sonar", "active_standby.wav", "Active sonar standby."),
