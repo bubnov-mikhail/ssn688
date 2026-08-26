@@ -6,6 +6,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 )
 
@@ -33,8 +34,8 @@ func (a *App) cmQuickButtons(decoyN, jitterN int) []uiButton {
 	pad := 14
 	innerW := pw - pad*2
 	specs := []struct{ id, label, tip string }{
-		{"cm_quick_decoy", fmt.Sprintf("DECOY  %d", decoyN), "Launch acoustic decoy (ADC) toward nearest threat"},
-		{"cm_quick_jitter", fmt.Sprintf("JITTER  %d", jitterN), "Launch broadband jammer toward nearest threat"},
+		{"cm_quick_decoy", fmt.Sprintf("%s  %d", a.L(i18n.UIDecoy), decoyN), "Launch acoustic decoy (ADC) toward nearest threat"},
+		{"cm_quick_jitter", fmt.Sprintf("%s  %d", a.L(i18n.UIJitter), jitterN), "Launch broadband jammer toward nearest threat"},
 	}
 	btnW := (innerW - cmQuickBtnGap) / 2
 	if btnW < 80 {
@@ -76,11 +77,11 @@ func (a *App) updateCMQuickPanel() {
 				continue
 			}
 			if b.ID == "cm_quick_decoy" && decoyN <= 0 {
-				a.StatusMessage = "DECOY magazine empty."
+				a.Status(i18n.StatusDecoyEmpty)
 				break
 			}
 			if b.ID == "cm_quick_jitter" && jitterN <= 0 {
-				a.StatusMessage = "JITTER magazine empty."
+				a.Status(i18n.StatusJitterEmpty)
 				break
 			}
 			a.uiPressedID = b.ID
@@ -120,14 +121,14 @@ func (a *App) drawCMQuickPanel(screen *ebiten.Image) {
 
 	px, py, pw, ph := a.cmQuickPanelRect()
 	render.DrawConsolePanel(screen, px, py, pw, ph)
-	render.DrawText(screen, "COUNTERMEASURES", px+12, py+20, render.ColorPlateLabel, true)
-	render.DrawText(screen, "Expendable soft-kill — toward nearest threat", px+12, py+40, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UICountermeas), px+12, py+20, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UICMSubtitle), px+12, py+40, render.ColorPhosphorDim, true)
 
-	render.DrawText(screen, fmt.Sprintf("ADC LEFT  %d", decoyN), px+12, py+68, render.ColorPhosphor, true)
-	render.DrawText(screen, fmt.Sprintf("JITTER LEFT  %d", jitterN), px+12, py+88, render.ColorPhosphor, true)
+	render.DrawText(screen, fmt.Sprintf("%s  %d", a.L(i18n.UIADCLeft), decoyN), px+12, py+68, render.ColorPhosphor, true)
+	render.DrawText(screen, fmt.Sprintf("%s  %d", a.L(i18n.UIJitterLeft), jitterN), px+12, py+88, render.ColorPhosphor, true)
 
 	if decoyN <= 0 && jitterN <= 0 {
-		render.DrawText(screen, "MAGAZINE EMPTY", px+12, py+112, render.ColorWarn, true)
+		render.DrawText(screen, a.L(i18n.UIMagazineEmpty), px+12, py+112, render.ColorWarn, true)
 	}
 
 	mx, my := ebiten.CursorPosition()

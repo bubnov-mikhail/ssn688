@@ -10,6 +10,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -55,10 +56,10 @@ type coastSegment struct {
 }
 
 type bathyViewKey struct {
-	zoom                 float64
-	centerX, centerY     float64
-	mapX, mapY           int
-	mapW, mapH           int
+	zoom             float64
+	centerX, centerY float64
+	mapX, mapY       int
+	mapW, mapH       int
 }
 
 // tacticalMapView maps world yards to screen pixels for a plot panel.
@@ -156,13 +157,13 @@ func (a *App) updateTacticalUI() {
 			m := a.Engine.AddPlotMarker(wx, wy)
 			a.selectedPlotMarkerID = m.ID
 			a.selectedContactID = ""
-			a.StatusMessage = fmt.Sprintf("Marker %s placed", m.ID)
+			a.Statusf(i18n.StatusMarkerPlaced, m.ID)
 			return
 		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) || inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
 		if a.selectedPlotMarkerID != "" && a.Engine.DeletePlotMarker(a.selectedPlotMarkerID) {
-			a.StatusMessage = fmt.Sprintf("Marker %s deleted", a.selectedPlotMarkerID)
+			a.Statusf(i18n.StatusMarkerDeleted, a.selectedPlotMarkerID)
 			a.selectedPlotMarkerID = ""
 			return
 		}
@@ -240,10 +241,10 @@ func (a *App) updateTacticalUI() {
 			if m := a.tacticalMarkerAt(mx, my); m != nil {
 				a.selectedPlotMarkerID = m.ID
 				a.selectedContactID = ""
-				a.StatusMessage = fmt.Sprintf("Selected marker %s", m.ID)
+				a.Statusf(i18n.StatusMarkerSelected, m.ID)
 			} else if c := a.tacticalContactAt(mx, my); c != nil {
 				a.selectContact(sonar, c)
-				a.StatusMessage = fmt.Sprintf("Selected %s", contactLongLabel(c))
+				a.Statusf(i18n.StatusContactSelected, contactLongLabel(c))
 			} else {
 				a.selectedPlotMarkerID = ""
 			}
@@ -350,17 +351,20 @@ func bearingDeg(x0, y0, x1, y1 float64) float64 {
 	return deg
 }
 
-func (a *App) tacticalButtons() []uiButton {
-	cachedTacticalButtonsOnce.Do(initTacticalButtons)
-	return cachedTacticalButtons
+var cachedTacticalButtons struct {
+	mu   sync.Mutex
+	lang string
+	btns []uiButton
 }
 
-var (
-	cachedTacticalButtonsOnce sync.Once
-	cachedTacticalButtons     []uiButton
-)
+func (a *App) tacticalButtons() []uiButton {
+	lang := a.Lang()
+	cachedTacticalButtons.mu.Lock()
+	defer cachedTacticalButtons.mu.Unlock()
+	if cachedTacticalButtons.lang == lang && cachedTacticalButtons.btns != nil {
+		return cachedTacticalButtons.btns
+	}
 
-func initTacticalButtons() {
 	const inset = 8
 	const gap = 6
 	y := tacticalPanelY + inset
@@ -368,7 +372,7 @@ func initTacticalButtons() {
 	btns := []uiButton{
 		{ID: "tac_zoom_in", Label: "+", Tooltip: "Zoom in", Y: y, H: 28},
 		{ID: "tac_zoom_out", Label: "-", Tooltip: "Zoom out", Y: y, H: 28},
-		{ID: "tac_fit", Label: "FIT", Tooltip: "Center on ownship and fit known contacts", Y: y, H: 28},
+		{ID: "tac_fit", Label: a.L(i18n.UIFit), Tooltip: a.L(i18n.UITipFitMap), Y: y, H: 28},
 	}
 	for i := range btns {
 		btns[i].W = render.ButtonWidth(btns[i].Label, 10)
@@ -376,7 +380,9 @@ func initTacticalButtons() {
 	btns[2].X = right - btns[2].W
 	btns[1].X = btns[2].X - gap - btns[1].W
 	btns[0].X = btns[1].X - gap - btns[0].W
-	cachedTacticalButtons = btns
+	cachedTacticalButtons.btns = btns
+	cachedTacticalButtons.lang = lang
+	return cachedTacticalButtons.btns
 }
 
 func (a *App) handleTacticalButton(id string) {
@@ -581,9 +587,9 @@ func contactDisplaySide(c *acoustics.Contact) world.Side {
 func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
 	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
-	title := "TACTICAL PLOT"
+	title := a.L(i18n.UITitlePlot)
 	if a.Settings.Debug {
-		title = "TACTICAL PLOT · DEBUG"
+		title = a.L(i18n.UITitlePlot) + " · DEBUG"
 	}
 	render.DrawScreenTitle(screen, title, tacticalPanelX+20, tacticalPanelY+28)
 
@@ -1159,13 +1165,13 @@ func drawContactPictogram(screen *ebiten.Image, cx, cy int, kind world.EntityKin
 
 func drawOwnshipSymbol(screen *ebiten.Image, sx, sy, heading float64, clr color.Color) {
 	rad := heading * math.Pi / 180
-	tipX := sx + math.Sin(rad)*10
-	tipY := sy - math.Cos(rad)*10
-	lx := sx + math.Sin(rad+2.5)*7
-	ly := sy - math.Cos(rad+2.5)*7
-	rx := sx + math.Sin(rad-2.5)*7
-	ry := sy - math.Cos(rad-2.5)*7
-	render.DrawLine(screen, tipX, tipY, lx, ly, clr)
-	render.DrawLine(screen, tipX, tipY, rx, ry, clr)
-	render.FillRect(screen, int(sx)-2, int(sy)-2, 5, 5, clr)
+	// Same overall footprint as the old chevron (~15×9 px): sharp filled isosceles.
+	const tipR, baseR, halfBase = 10.0, 5.0, 4.5
+	fx, fy := math.Sin(rad), -math.Cos(rad)
+	px, py := math.Cos(rad), math.Sin(rad) // starboard perpendicular
+	tipX, tipY := sx+fx*tipR, sy+fy*tipR
+	bx, by := sx-fx*baseR, sy-fy*baseR
+	lx, ly := bx+px*halfBase, by+py*halfBase
+	rx, ry := bx-px*halfBase, by-py*halfBase
+	render.FillTriangle(screen, tipX, tipY, lx, ly, rx, ry, clr)
 }

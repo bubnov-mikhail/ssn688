@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/fastmath"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -166,18 +167,18 @@ func (a *App) drawPeriscopeOptic(screen *ebiten.Image, x, y, w, h int, peri *aco
 	cx := ox + ow/2
 	cy := oy + oh/2
 	hdrY := y + 16
-	render.DrawText(screen, "IR SENSOR", x+pad, hdrY, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIIRSensor), x+pad, hdrY, render.ColorPhosphorDim, true)
 	brgTxt := fmt.Sprintf("BRG %03.0f°T", trueBrg)
 	render.DrawText(screen, brgTxt, cx-len(brgTxt)*3, hdrY, render.ColorPhosphor, true)
 	render.DrawText(screen, fmt.Sprintf("FOV %.0f°  %s", fov, peri.ZoomLabel()), x+w-110, hdrY, render.ColorPhosphorDim, true)
 
 	if !up {
 		a.periMarkerHits = a.periMarkerHits[:0]
-		msg := "SCOPE STOWED"
+		msg := a.L(i18n.UIScopeStowed)
 		if peri.Sheared || player.Damage.Destroyed(world.SysPeriscope) {
-			msg = "NO OPTIC"
+			msg = a.L(i18n.UINoOptic)
 		} else if peri.MastMoving() {
-			msg = "OPTIC MOTION"
+			msg = a.L(i18n.UIOpticMotion)
 		}
 		render.FillRect(screen, ox, oy, ow, oh, color.RGBA{12, 16, 14, 255})
 		render.DrawText(screen, msg, cx-len(msg)*3, cy-4, render.ColorDim, true)
@@ -780,7 +781,7 @@ func absInt(v int) int {
 
 func periLandHashElev(x, y, brg float64) float64 {
 	// Stable soft variation so ridges are not perfectly flat after smoothing.
-	n := math.Sin(x*0.0011+brg*0.07) * 0.5 + math.Sin(y*0.0009-brg*0.03)*0.5
+	n := math.Sin(x*0.0011+brg*0.07)*0.5 + math.Sin(y*0.0009-brg*0.03)*0.5
 	return (n + 1) * 0.5
 }
 
@@ -907,9 +908,9 @@ func (a *App) drawPeriTransientFX(pix []byte, w, h, horizonY int, player *world.
 	// Visual IR: short punchy flash + slow water-column rise/hang/fall (~12.3s).
 	// Do not cap by acoustic flash — tonnes of spray outlive the sensor washout cue.
 	const (
-		colRise = 4.0
-		colHang = 0.3
-		colFall = 8.0
+		colRise  = 4.0
+		colHang  = 0.3
+		colFall  = 8.0
 		softTail = 1.5
 	)
 	visDur := colRise + colHang + colFall + softTail

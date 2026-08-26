@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -140,6 +141,19 @@ func (a *App) trySelectESMRFContact(mx, my int) bool {
 	return true
 }
 
+func (a *App) localizeWeather(w world.Weather) string {
+	switch w {
+	case world.WeatherCalm:
+		return a.L(i18n.UIWeatherCalm)
+	case world.WeatherLight:
+		return a.L(i18n.UIWeatherLight)
+	case world.WeatherStorm:
+		return a.L(i18n.UIWeatherHigh)
+	default:
+		return w.String()
+	}
+}
+
 func (a *App) mastButtons() []uiButton {
 	y := mastCtrlY
 	cx := mastSideX + 14
@@ -151,17 +165,17 @@ func (a *App) mastButtons() []uiButton {
 		step = a.Engine.Periscope.TrainStepDeg()
 	}
 	return []uiButton{
-		{ID: "esm_raise", Label: "RAISE ESM", Tooltip: "Raise ESM mast", X: mastMainX + 20, Y: y, W: 140, H: 36},
-		{ID: "esm_lower", Label: "LOWER ESM", Tooltip: "Stow ESM mast", X: mastMainX + 172, Y: y, W: 140, H: 36},
-		{ID: "comm_raise", Label: "RAISE", Tooltip: "Raise COMM mast", X: cx, Y: cy, W: 100, H: 32},
-		{ID: "comm_lower", Label: "LOWER", Tooltip: "Stow COMM mast", X: cx + 108, Y: cy, W: 100, H: 32},
-		{ID: "comm_report", Label: "REPORT", Tooltip: "Transmit mission status (COMM mast must be raised)", X: cx + 216, Y: cy, W: 110, H: 32},
-		{ID: "peri_raise", Label: "RAISE", Tooltip: "Raise periscope", X: px, Y: py, W: 90, H: 32},
-		{ID: "peri_lower", Label: "LOWER", Tooltip: "Stow periscope", X: px + 98, Y: py, W: 90, H: 32},
-		{ID: "peri_left", Label: "< LEFT", Tooltip: fmt.Sprintf("Train periscope left %.0f°", step), X: px + 210, Y: py, W: 90, H: 32},
-		{ID: "peri_right", Label: "RIGHT >", Tooltip: fmt.Sprintf("Train periscope right %.0f°", step), X: px + 308, Y: py, W: 100, H: 32},
-		{ID: "peri_zoom_out", Label: "ZOOM -", Tooltip: "Wider field of view", X: px + 430, Y: py, W: 90, H: 32},
-		{ID: "peri_zoom_in", Label: "ZOOM +", Tooltip: "Narrower field of view", X: px + 528, Y: py, W: 90, H: 32},
+		{ID: "esm_raise", Label: a.L(i18n.UIRaiseESM), Tooltip: "Raise ESM mast", X: mastMainX + 20, Y: y, W: 140, H: 36},
+		{ID: "esm_lower", Label: a.L(i18n.UILowerESM), Tooltip: "Stow ESM mast", X: mastMainX + 172, Y: y, W: 140, H: 36},
+		{ID: "comm_raise", Label: a.L(i18n.UIRaise), Tooltip: "Raise COMM mast", X: cx, Y: cy, W: 100, H: 32},
+		{ID: "comm_lower", Label: a.L(i18n.UILower), Tooltip: "Stow COMM mast", X: cx + 108, Y: cy, W: 100, H: 32},
+		{ID: "comm_report", Label: a.L(i18n.UIReport), Tooltip: "Transmit mission status (COMM mast must be raised)", X: cx + 216, Y: cy, W: 110, H: 32},
+		{ID: "peri_raise", Label: a.L(i18n.UIRaise), Tooltip: "Raise periscope", X: px, Y: py, W: 90, H: 32},
+		{ID: "peri_lower", Label: a.L(i18n.UILower), Tooltip: "Stow periscope", X: px + 98, Y: py, W: 90, H: 32},
+		{ID: "peri_left", Label: a.L(i18n.UIPeriLeft), Tooltip: a.Lf(i18n.UITipPeriLeft, step), X: px + 210, Y: py, W: 90, H: 32},
+		{ID: "peri_right", Label: a.L(i18n.UIPeriRight), Tooltip: a.Lf(i18n.UITipPeriRight, step), X: px + 308, Y: py, W: 100, H: 32},
+		{ID: "peri_zoom_out", Label: a.L(i18n.UIZoomOut), Tooltip: "Wider field of view", X: px + 430, Y: py, W: 90, H: 32},
+		{ID: "peri_zoom_in", Label: a.L(i18n.UIZoomIn), Tooltip: "Narrower field of view", X: px + 528, Y: py, W: 90, H: 32},
 	}
 }
 
@@ -195,24 +209,24 @@ func (a *App) handleMastButton(id string) {
 		a.playMastHydraulicFX()
 	case "comm_report":
 		if !comm.MastUp() {
-			a.StatusMessage = "Unable to transmit — raise COMM mast first."
+			a.Status(i18n.StatusTransmitNeedCOMM)
 			break
 		}
 		player := a.Engine.Scenario.Player
 		if player.DepthFt > world.ESMMastMaxDepthFt+0.5 {
-			a.StatusMessage = "Unable to transmit — come to periscope depth (≤60 ft)."
+			a.Status(i18n.StatusTransmitNeedPD)
 			break
 		}
 		a.Engine.Scenario.CheckObjectives()
 		if !a.Engine.Scenario.PrimaryObjectivesComplete() {
-			a.StatusMessage = "Unable to transmit — primary objectives not complete."
+			a.Status(i18n.StatusTransmitNeedObjectives)
 			break
 		}
 		gt := a.Engine.Clock.GameTime
 		report := a.Engine.Scenario.MissionStatusReport()
 		comm.AppendLocalTraffic(gt, report)
 		a.Engine.Campaign.ReportEligible = true
-		a.StatusMessage = "Mission status transmitted on COMM — END MISSION enabled."
+		a.Status(i18n.StatusTransmitDone)
 		a.mastCommScroll = 1 << 20
 	case "peri_raise":
 		ok, msg := peri.OrderRaise(player)
@@ -227,16 +241,16 @@ func (a *App) handleMastButton(id string) {
 		a.playMastHydraulicFX()
 	case "peri_left":
 		peri.TrainLeft()
-		a.StatusMessage = fmt.Sprintf("Periscope train %+.0f° rel / %03.0f°T", peri.TrainRelDeg, peri.TrueBearingDeg(player.HeadingDeg))
+		a.Statusf(i18n.StatusPeriTrain, peri.TrainRelDeg, peri.TrueBearingDeg(player.HeadingDeg))
 	case "peri_right":
 		peri.TrainRight()
-		a.StatusMessage = fmt.Sprintf("Periscope train %+.0f° rel / %03.0f°T", peri.TrainRelDeg, peri.TrueBearingDeg(player.HeadingDeg))
+		a.Statusf(i18n.StatusPeriTrain, peri.TrainRelDeg, peri.TrueBearingDeg(player.HeadingDeg))
 	case "peri_zoom_in":
 		peri.ZoomIn()
-		a.StatusMessage = "Periscope zoom " + peri.ZoomLabel()
+		a.Statusf(i18n.StatusPeriZoom, peri.ZoomLabel())
 	case "peri_zoom_out":
 		peri.ZoomOut()
-		a.StatusMessage = "Periscope zoom " + peri.ZoomLabel()
+		a.Statusf(i18n.StatusPeriZoom, peri.ZoomLabel())
 	}
 }
 
@@ -253,23 +267,23 @@ func (a *App) playMastRaiseDenied(reason string) {
 	}
 	switch {
 	case strings.Contains(reason, "Too fast"):
-		a.Audio.PlayClip(audio.ClipDiveHoldDepth, reason)
+		a.Audio.PlayClip(audio.ClipDiveHoldDepth, i18n.LocalizeRuntimeMessage(reason, a.Lang()))
 	case strings.Contains(reason, "Too deep"):
-		a.Audio.PlayClip(audio.ClipDiveUnableDeeper, reason)
+		a.Audio.PlayClip(audio.ClipDiveUnableDeeper, i18n.LocalizeRuntimeMessage(reason, a.Lang()))
 	case strings.Contains(reason, "destroyed"):
-		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, reason)
+		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, i18n.LocalizeRuntimeMessage(reason, a.Lang()))
 	}
 }
 
 func (a *App) drawMast(screen *ebiten.Image) {
 	render.DrawConsolePanel(screen, mastPanelX, mastPanelY, mastPanelW, mastPanelH)
-	render.DrawScreenTitle(screen, "MAST — ESM / COMM / SCOPE", mastPanelX+20, mastPanelY+28)
+	render.DrawScreenTitle(screen, a.L(i18n.UITitleMast), mastPanelX+20, mastPanelY+28)
 
 	weather := world.WeatherLight
 	if a.Engine != nil && a.Engine.Scenario != nil {
 		weather = a.Engine.Scenario.Weather
 	}
-	render.DrawText(screen, "SEA STATE: "+weather.String(), mastPanelX+20, mastPanelY+48, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UISeaState)+" "+a.localizeWeather(weather), mastPanelX+20, mastPanelY+48, render.ColorPlateLabel, true)
 
 	a.drawMastMainPlate(screen)
 	a.drawMastSidePlate(screen)
@@ -291,7 +305,7 @@ func (a *App) drawMastPlate(screen *ebiten.Image, x, y, w, h int, title string) 
 }
 
 func (a *App) drawMastMainPlate(screen *ebiten.Image) {
-	a.drawMastPlate(screen, mastMainX, mastMainY, mastMainW, mastMainH, "ESM SUITE")
+	a.drawMastPlate(screen, mastMainX, mastMainY, mastMainW, mastMainH, a.L(i18n.UIESMSuite))
 
 	if a.Engine == nil {
 		return
@@ -300,24 +314,24 @@ func (a *App) drawMastMainPlate(screen *ebiten.Image) {
 	esm := &a.Engine.ESM
 	player.EnsureDamage()
 
-	status := "STOWED"
+	status := a.L(i18n.UIStowed)
 	statusClr := render.ColorDim
 	switch {
 	case player.Damage.Destroyed(world.SysESM) || esm.Sheared:
-		status = "DESTROYED"
+		status = a.L(i18n.UIDestroyed)
 		statusClr = render.ColorDanger
 	case esm.MastUp():
-		status = "RAISED — RECEIVING"
+		status = a.L(i18n.UIRaisedRecv)
 		statusClr = render.ColorPhosphor
 	case esm.MastMoving():
 		if esm.Order == acoustics.ESMMastRaise {
-			status = fmt.Sprintf("RAISING %.0f%%", esm.Extension*100)
+			status = fmt.Sprintf("%s %.0f%%", a.L(i18n.UIRaising), esm.Extension*100)
 		} else {
-			status = fmt.Sprintf("LOWERING %.0f%%", esm.Extension*100)
+			status = fmt.Sprintf("%s %.0f%%", a.L(i18n.UILowering), esm.Extension*100)
 		}
 		statusClr = render.ColorAmber
 	}
-	render.DrawText(screen, "MAST: "+status, mastMainX+20, mastMainY+40, statusClr, true)
+	render.DrawText(screen, a.L(i18n.UIMastLabel)+" "+status, mastMainX+20, mastMainY+40, statusClr, true)
 
 	// Bearing heat strip (000 center).
 	stripX := mastMainX + 20
@@ -357,32 +371,32 @@ func (a *App) drawPeriscopeBlock(screen *ebiten.Image) {
 	peri := &a.Engine.Periscope
 	player.EnsureDamage()
 
-	render.DrawText(screen, "PERISCOPE", mastMainX+20, mastPeriY+14, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UIPeriscope), mastMainX+20, mastPeriY+14, render.ColorPlateLabel, true)
 
-	status := "STOWED"
+	status := a.L(i18n.UIStowed)
 	statusClr := render.ColorDim
 	switch {
 	case player.Damage.Destroyed(world.SysPeriscope) || peri.Sheared:
-		status = "DESTROYED"
+		status = a.L(i18n.UIDestroyed)
 		statusClr = render.ColorDanger
 	case peri.MastUp():
-		status = "RAISED — IR SENSOR"
+		status = a.L(i18n.UIRaisedIR)
 		statusClr = render.ColorPhosphor
 	case peri.MastMoving():
 		if peri.Order == acoustics.PeriMastRaise {
-			status = fmt.Sprintf("RAISING %.0f%%", peri.Extension*100)
+			status = fmt.Sprintf("%s %.0f%%", a.L(i18n.UIRaising), peri.Extension*100)
 		} else {
-			status = fmt.Sprintf("LOWERING %.0f%%", peri.Extension*100)
+			status = fmt.Sprintf("%s %.0f%%", a.L(i18n.UILowering), peri.Extension*100)
 		}
 		statusClr = render.ColorAmber
 	}
-	render.DrawText(screen, "SCOPE: "+status, mastMainX+140, mastPeriY+14, statusClr, true)
+	render.DrawText(screen, a.L(i18n.UIScopeLabel)+" "+status, mastMainX+140, mastPeriY+14, statusClr, true)
 	lockTxt := ""
 	if peri.Locked() {
-		lockTxt = "   LOCK"
+		lockTxt = "   " + a.L(i18n.UILock)
 	}
-	render.DrawText(screen, fmt.Sprintf("ZOOM %s   TRAIN %+.0f°   BRG %03.0f°T%s",
-		peri.ZoomLabel(), peri.TrainRelDeg, peri.TrueBearingDeg(player.HeadingDeg), lockTxt),
+	render.DrawText(screen, fmt.Sprintf("%s %s   %s %+.0f°   %s %03.0f°T%s",
+		a.L(i18n.UIZoom), peri.ZoomLabel(), a.L(i18n.UITrain), peri.TrainRelDeg, a.L(i18n.UIBearing), peri.TrueBearingDeg(player.HeadingDeg), lockTxt),
 		mastMainX+420, mastPeriY+14, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
@@ -428,7 +442,7 @@ func (a *App) mastPeriscopeViewRect() (x, y, w, h int) {
 
 func (a *App) drawESMBearingStrip(screen *ebiten.Image, x, y, w, h int) {
 	render.FillRect(screen, x, y, w, h, render.ColorPanelInset)
-	render.DrawText(screen, "BEARING", x+4, y-4, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIBearing), x+4, y-4, render.ColorPhosphorDim, true)
 
 	esm := &a.Engine.ESM
 	up := esm.MastUp()
@@ -539,7 +553,7 @@ func esmHeatColor(v float64) color.Color {
 }
 
 func (a *App) drawESMIlluminationBar(screen *ebiten.Image, x, y, w, h int, illum float64) {
-	render.DrawText(screen, "OWN MAST ILLUMINATION (hostile/neutral search radars)", x, y-6, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIOwnMastIllum), x, y-6, render.ColorPhosphorDim, true)
 	const segs = 12
 	segW := w / segs
 	band := acoustics.IlluminationBand(illum)
@@ -572,18 +586,18 @@ func (a *App) drawESMIlluminationBar(screen *ebiten.Image, x, y, w, h int, illum
 		}
 		render.FillRect(screen, sx+1, y+4, segW-2, h-8, face)
 	}
-	label := "SAFE"
+	label := a.L(i18n.UISafe)
 	clr := color.RGBA{40, 160, 80, 255}
 	switch band {
 	case 1:
-		label = "DETECTABLE"
+		label = a.L(i18n.UIDetectable)
 		clr = color.RGBA{210, 170, 40, 255}
 	case 2:
-		label = "PAINTED"
+		label = a.L(i18n.UIPainted)
 		clr = color.RGBA{200, 50, 40, 255}
 	}
 	if !a.Engine.ESM.MastUp() {
-		label = "MAST DOWN"
+		label = a.L(i18n.UIMastDown)
 		clr = render.ColorDim
 	}
 	render.DrawText(screen, label, x+w-len(label)*7, y+h+14, clr, true)
@@ -619,13 +633,13 @@ func (a *App) mastCommMessageLines() []render.MDLine {
 			start = a.Engine.Scenario.StartTimeSec
 		}
 		stamp := "[" + world.FormatMissionClock(start, msg.TimeSec) + "]"
-		lines = append(lines, render.MarkdownLinesForCOMM(stamp, msg.Text, maxW)...)
+		lines = append(lines, render.MarkdownLinesForCOMM(stamp, msg.DisplayText(a.Lang()), maxW)...)
 	}
 	return lines
 }
 
 func (a *App) drawMastSidePlate(screen *ebiten.Image) {
-	a.drawMastPlate(screen, mastSideX, mastSideY, mastSideW, mastSideH, "COMM / CONTACTS")
+	a.drawMastPlate(screen, mastSideX, mastSideY, mastSideW, mastSideH, a.L(i18n.UICOMContacts))
 
 	if a.Engine == nil {
 		return
@@ -638,24 +652,24 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	wx := mastSideX + 14
 
 	// —— COMM mast header ——
-	status := "STOWED"
+	status := a.L(i18n.UIStowed)
 	statusClr := render.ColorDim
 	switch {
 	case player.Damage.Destroyed(world.SysCOMM) || comm.Sheared:
-		status = "DESTROYED"
+		status = a.L(i18n.UIDestroyed)
 		statusClr = render.ColorDanger
 	case comm.MastUp():
-		status = "RAISED — RECEIVING"
+		status = a.L(i18n.UIRaisedRecv)
 		statusClr = render.ColorPhosphor
 	case comm.MastMoving():
 		if comm.Order == acoustics.COMMMastRaise {
-			status = fmt.Sprintf("RAISING %.0f%%", comm.Extension*100)
+			status = fmt.Sprintf("%s %.0f%%", a.L(i18n.UIRaising), comm.Extension*100)
 		} else {
-			status = fmt.Sprintf("LOWERING %.0f%%", comm.Extension*100)
+			status = fmt.Sprintf("%s %.0f%%", a.L(i18n.UILowering), comm.Extension*100)
 		}
 		statusClr = render.ColorAmber
 	}
-	render.DrawText(screen, "COMM MAST: "+status, wx, mastSideY+40, statusClr, true)
+	render.DrawText(screen, a.L(i18n.UICOMMast)+" "+status, wx, mastSideY+40, statusClr, true)
 
 	mx, my := ebiten.CursorPosition()
 	for _, b := range a.mastButtons() {
@@ -696,7 +710,7 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	a.mastCommScroll = clampContactTableScroll(a.mastCommScroll, len(lines), vis)
 	start, end := contactTableWindow(len(lines), a.mastCommScroll, vis)
 	if len(lines) == 0 {
-		render.DrawText(screen, "No traffic", msgX+6, msgY+16, render.ColorDim, true)
+		render.DrawText(screen, a.L(i18n.UINoTraffic), msgX+6, msgY+16, render.ColorDim, true)
 	} else {
 		render.DrawMDLines(screen, lines, start, end, msgX+6, msgY+12, true)
 	}
@@ -704,16 +718,16 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 
 	// —— RF intercept table (lower band) ——
 	tableY := mastSideY + (mastSideH*3)/5
-	render.DrawText(screen, "RF INTERCEPT LOG", wx, tableY-28, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "EQIP = radar set, not hull ID", wx, tableY-12, render.ColorDim, true)
+	render.DrawText(screen, a.L(i18n.UIRFLog), wx, tableY-28, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIEQIPHint), wx, tableY-12, render.ColorDim, true)
 	render.DrawLine(screen, float64(mastSideX+8), float64(tableY), float64(mastSideX+mastSideW-8), float64(tableY), color.RGBA{78, 78, 84, 255})
-	render.DrawText(screen, "ID", wx, tableY+18, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG", wx+36, tableY+18, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "SRC", wx+72, tableY+18, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "EQIP", wx+118, tableY+18, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RF%", wx+230, tableY+18, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "LAST", wx+278, tableY+18, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "SGNL", wx+278, tableY+32, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColID), wx, tableY+18, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColBRG), wx+36, tableY+18, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColSRC), wx+72, tableY+18, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColEQIP), wx+118, tableY+18, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColRF), wx+230, tableY+18, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColLast), wx+278, tableY+18, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColSgnl), wx+278, tableY+32, render.ColorPhosphorDim, true)
 
 	tx, rowY0, tw, _, maxRows := a.mastESMRFTableRect()
 	contacts := a.mastESMRFContacts()

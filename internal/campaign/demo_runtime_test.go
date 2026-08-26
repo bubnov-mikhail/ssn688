@@ -171,13 +171,13 @@ func TestDemoDiagonalRoutes(t *testing.T) {
 func TestDemoFollowOnTasking(t *testing.T) {
 	ReloadScenarios()
 	sc := DemoRuntime()
-	if sc.CommBriefing == "" {
+	if sc == nil || sc.CommBriefing.GetText("en") == "" {
 		t.Fatal("missing briefing")
 	}
 	if len(sc.CommSchedule) == 0 || sc.CommSchedule[0].AtSec != 20 {
 		t.Fatal("expected 20s follow-on")
 	}
-	txt := sc.CommSchedule[0].Text
+	txt := sc.CommSchedule[0].Text.GetText("en")
 	for _, needle := range []string{"Primary", "Secondary", "identify", "3000", "80%", "tanker"} {
 		if !strings.Contains(strings.ToLower(txt), strings.ToLower(needle)) {
 			t.Fatalf("tasking missing %q:\n%s", needle, txt)

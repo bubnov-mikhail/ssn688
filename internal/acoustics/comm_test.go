@@ -5,6 +5,7 @@ import (
 
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/campaign"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -29,7 +30,7 @@ func TestCOMMMastAutoRetractOnSpeed(t *testing.T) {
 func TestCOMMScheduleRequiresMastUp(t *testing.T) {
 	sc := &world.Scenario{
 		CommSchedule: []world.CommScheduledMessage{{
-			ID: "m1", AtSec: 5, Text: "EXECUTE.",
+			ID: "m1", AtSec: 5, Text: i18n.T("EXECUTE.", "EXECUTE."),
 		}},
 	}
 	player := &world.Entity{
@@ -37,7 +38,7 @@ func TestCOMMScheduleRequiresMastUp(t *testing.T) {
 		DepthFt: 60, Damage: world.NewFullHealth(),
 	}
 	var comm acoustics.COMMState
-	comm.SeedBriefing("BRIEF")
+	comm.SeedBriefing(i18n.T("BRIEF", "BRIEF"))
 	acoustics.UpdateCOMM(&comm, sc, player, 30)
 	if len(comm.Inbox) != 1 {
 		t.Fatalf("mast down should not deliver schedule, inbox=%d", len(comm.Inbox))
@@ -56,7 +57,7 @@ func TestCOMMScheduleRequiresMastUp(t *testing.T) {
 func TestCOMMTrafficWaitingWhileMastDown(t *testing.T) {
 	sc := &world.Scenario{
 		CommSchedule: []world.CommScheduledMessage{{
-			ID: "m1", AtSec: 10, Text: "EXECUTE.",
+			ID: "m1", AtSec: 10, Text: i18n.T("EXECUTE.", "EXECUTE."),
 		}},
 	}
 	player := &world.Entity{
@@ -89,9 +90,9 @@ func TestCOMMTrafficWaitingWhileMastDown(t *testing.T) {
 func TestCOMMCatchUpDeliversBacklog(t *testing.T) {
 	sc := &world.Scenario{
 		CommSchedule: []world.CommScheduledMessage{
-			{ID: "early", AtSec: 10, Text: "MSG A"},
-			{ID: "mid", AtSec: 20, Text: "MSG B"},
-			{ID: "late", AtSec: 50, Text: "MSG C"},
+			{ID: "early", AtSec: 10, Text: i18n.T("MSG A", "MSG A")},
+			{ID: "mid", AtSec: 20, Text: i18n.T("MSG B", "MSG B")},
+			{ID: "late", AtSec: 50, Text: i18n.T("MSG C", "MSG C")},
 		},
 	}
 	player := &world.Entity{
@@ -132,7 +133,7 @@ func TestCOMMCatchUpDeliversBacklog(t *testing.T) {
 
 func TestTrainingBriefingPresent(t *testing.T) {
 	sc := campaign.DemoRuntime()
-	if sc.CommBriefing == "" {
+	if sc == nil || sc.CommBriefing.GetText(i18n.LangEN) == "" {
 		t.Fatal("missing briefing")
 	}
 	if len(sc.CommSchedule) == 0 || sc.CommSchedule[0].AtSec != 20 {

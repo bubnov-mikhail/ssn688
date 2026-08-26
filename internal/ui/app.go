@@ -16,6 +16,7 @@ import (
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/sim"
@@ -155,10 +156,10 @@ type App struct {
 
 	SelectedScenarioID      campaign.ScenarioID
 	ScenarioListIndex       int
-	scenarioBackstoryScroll  int
-	scenarioBriefDescScroll  int
-	briefDebrief             bool
-	briefMissionID           campaign.MissionID
+	scenarioBackstoryScroll int
+	scenarioBriefDescScroll int
+	briefDebrief            bool
+	briefMissionID          campaign.MissionID
 	LoadoutMix              float64
 	LoadoutTubes            campaign.TubeLoadout
 	loadoutDragging         bool
@@ -167,6 +168,8 @@ type App struct {
 }
 
 func NewApp(settings config.Settings, audioMgr *audio.Manager) *App {
+	settings.Language = i18n.NormalizeLang(settings.Language)
+	i18n.SetLang(settings.Language)
 	return &App{
 		Mode:                ModeMenu,
 		Settings:            settings,
@@ -308,8 +311,8 @@ func (a *App) updateGame() {
 		env := &a.Engine.Acoustics.Env
 		active := env.LayerSurveyActive(a.Engine.Clock.GameTime)
 		if a.layerSurveyWasActive && !active && env.LayerSurveyKnown {
-			a.StatusMessage = "BT cast complete — thermocline boundaries plotted."
-			a.Audio.PlayClip(audio.ClipSonarLayerSurveyComplete, "Layer survey complete.")
+			a.Status(i18n.StatusBTCastComplete)
+			a.Audio.PlayClip(audio.ClipSonarLayerSurveyComplete, a.L(i18n.VoiceLayerSurveyComplete))
 		}
 		a.layerSurveyWasActive = active
 	}
@@ -332,30 +335,30 @@ func (a *App) updateGame() {
 		if isWeaponImpactEvent(ev) {
 			sub := ""
 			if strings.HasPrefix(ev, "Torpedo struck bottom") {
-				sub = "Torpedo impact."
+				sub = i18n.LocalizeRuntimeMessage("Torpedo impact.", a.Lang())
 			}
 			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, sub)
 		}
 		if strings.HasPrefix(ev, "AUTO-RETRACT") {
 			switch {
 			case strings.Contains(ev, "towed array") && strings.Contains(ev, "masts"):
-				a.Audio.PlayClip(audio.ClipSonarRetractTowed, "Masts and towed array auto-stowed to prevent damage.")
+				a.Audio.PlayClip(audio.ClipSonarRetractTowed, a.L(i18n.StatusAutoRetractBoth))
 			case strings.Contains(ev, "towed array"):
-				a.Audio.PlayClip(audio.ClipSonarRetractTowed, "Towed array auto-retract to prevent cable damage.")
+				a.Audio.PlayClip(audio.ClipSonarRetractTowed, a.L(i18n.StatusAutoRetractTowed))
 			default:
-				a.Audio.PlayClip(audio.ClipDiveMakeDepth, "Masts auto-lowering to prevent damage.")
+				a.Audio.PlayClip(audio.ClipDiveMakeDepth, a.L(i18n.StatusAutoLowerMasts))
 			}
 		} else if strings.Contains(ev, "RBU barrage") {
-			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, "RBU barrage inbound.")
+			a.Audio.PlayClip(audio.ClipWepsImpactConfirmed, a.L(i18n.StatusRBUBarrage))
 		} else if strings.HasPrefix(ev, "Contact ") && strings.Contains(ev, " identified:") {
-			a.Audio.PlayClip(audio.ClipSonarContactClassified, ev)
+			a.Audio.PlayClip(audio.ClipSonarContactClassified, i18n.LocalizeRuntimeMessage(ev, a.Lang()))
 		}
 		a.playOwnshipCasualtyVoice(ev)
 		if isOwnshipDamageFXEvent(ev) {
 			a.triggerOwnshipHitFX()
 		}
 		if ev == "Torpedo launch detected (hostile)" {
-			a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, "Torpedo in the water.")
+			a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, a.L(i18n.VoiceTorpedoInWater))
 			a.markLatestHostileTorpedoReported()
 		}
 	}
@@ -369,31 +372,31 @@ func (a *App) updateGame() {
 	}
 	if a.Engine.COMM.TrafficWaitingNotify {
 		a.Engine.COMM.TrafficWaitingNotify = false
-		a.StatusMessage = "HF TRAFFIC PENDING — raise COMM mast"
+		a.StatusMessage = a.L(i18n.UIStatusHFTrafficPending)
 		if a.Audio != nil {
-			a.Audio.PlayClip(audio.ClipCaptCommTrafficWaiting, "Flash traffic waiting. Raise the communications mast.")
+			a.Audio.PlayClip(audio.ClipCaptCommTrafficWaiting, a.L(i18n.VoiceCommTrafficWaiting))
 		}
 	}
 	a.mastTabAlert = a.Engine.COMM.TrafficWaiting
 	if a.Engine.COMM.NotifyPending {
 		a.Engine.COMM.NotifyPending = false
-		a.StatusMessage = "FLASH TRAFFIC — new message on COMM"
+		a.StatusMessage = a.L(i18n.UIStatusFlashTraffic)
 		if a.Audio != nil {
-			a.Audio.PlayClip(audio.ClipCaptCommMessage, "Flash traffic. Incoming message.")
+			a.Audio.PlayClip(audio.ClipCaptCommMessage, a.L(i18n.VoiceCommMessage))
 		}
 		// Keep newest traffic visible in the scroll pane.
 		a.mastCommScroll = 1 << 20
 	}
 
 	if a.Engine.Scenario.MissionComplete() {
-		a.StatusMessage = "MISSION COMPLETE — all assigned tasks met."
+		a.StatusMessage = a.L(i18n.UIStatusMissionComplete)
 	}
 	if a.Engine.Scenario.MissionFailed() {
 		msg := a.Engine.Scenario.FailReason
 		if msg == "" {
-			msg = "MISSION FAILED"
+			msg = a.L(i18n.UIStatusMissionFailedBare)
 		}
-		a.StatusMessage = "MISSION FAILED — " + msg
+		a.StatusMessage = a.L(i18n.UIStatusMissionFailed) + msg
 	}
 
 	// Active ping sound (same loud echolocator sample as enemy pings).
@@ -643,9 +646,9 @@ func (a *App) handleScreenInput() {
 
 	switch a.CurrentScreen {
 	case ScreenPassive:
-		a.updateSonarUIButtons(cachedPassiveArrayButtons(), sonar)
-		a.updateSonarUIButtons(cachedPassiveBandButtons(), sonar)
-		a.updateSonarUIButtons(cachedPassiveTowedButtons(), sonar)
+		a.updateSonarUIButtons(a.cachedPassiveArrayButtons(), sonar)
+		a.updateSonarUIButtons(a.cachedPassiveBandButtons(), sonar)
+		a.updateSonarUIButtons(a.cachedPassiveTowedButtons(), sonar)
 		a.handleSonarArrayKeys(sonar, true)
 		a.updatePassiveScreen(sonar)
 		if inpututil.IsKeyJustPressed(ebiten.KeyP) {
@@ -659,7 +662,7 @@ func (a *App) handleScreenInput() {
 	case ScreenActive:
 		a.updateActiveScreen(sonar)
 	case ScreenSpectrum:
-		a.updateSonarUIButtons(cachedSpectrumArrayButtons(), sonar)
+		a.updateSonarUIButtons(a.cachedSpectrumArrayButtons(), sonar)
 		a.handleSonarArrayKeys(sonar, false)
 		a.updateSpectrumScreen(sonar)
 		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
@@ -734,7 +737,7 @@ func (a *App) drawGame(screen *ebiten.Image) {
 	a.drawCMQuickPanel(screen)
 
 	if a.StatusMessage != "" {
-		render.DrawText(screen, a.StatusMessage, 20, render.ScreenH-navBarH-18, render.ColorWarn, false)
+		render.DrawText(screen, a.displayStatus(), 20, render.ScreenH-navBarH-18, render.ColorWarn, false)
 	}
 	if sub, ok := a.Audio.Subtitle(); ok {
 		render.FillRect(screen, 200, render.ScreenH-navBarH-50, render.ScreenW-400, 36, render.ColorPanelDark)
@@ -742,16 +745,16 @@ func (a *App) drawGame(screen *ebiten.Image) {
 	}
 
 	if a.Mode == ModePaused {
-		render.DrawTextLarge(screen, "PAUSED", 720, 420, render.ColorDanger)
+		render.DrawTextLarge(screen, a.L(i18n.UIPaused), 720, 420, render.ColorDanger)
 	}
 	if a.confirmActive() {
 		a.drawConfirmDialog(screen)
 	}
 	if a.Engine != nil && a.Engine.Scenario != nil && a.Engine.Scenario.Player != nil {
 		if a.Engine.Scenario.Player.Status == world.StatusSinking {
-			render.DrawTextLarge(screen, "OWN SHIP HIT - SINKING", 520, 460, render.ColorDanger)
+			render.DrawTextLarge(screen, a.L(i18n.UIOwnshipSinking), 520, 460, render.ColorDanger)
 		} else if a.Engine.Scenario.Player.Status == world.StatusSunk {
-			render.DrawTextLarge(screen, "OWN SHIP LOST", 650, 460, render.ColorDanger)
+			render.DrawTextLarge(screen, a.L(i18n.UIOwnshipLost), 650, 460, render.ColorDanger)
 		}
 	}
 
@@ -762,8 +765,10 @@ func (a *App) drawGame(screen *ebiten.Image) {
 func (a *App) drawGameHeader(screen *ebiten.Image) {
 	render.FillRect(screen, 0, 0, render.ScreenW, gameHeaderH, render.ColorPanelBezel)
 	render.FillRect(screen, 0, 2, render.ScreenW, gameHeaderH-2, render.ColorPanelDark)
-	render.DrawText(screen, fmt.Sprintf("SSN-688  |  TIME %s  |  SPEED %s  |  SCREEN %s",
-		a.missionClockLabel(), a.Engine.Clock.SpeedLabel(), screenName(a.CurrentScreen)), 20, 28, render.ColorText, false)
+	render.DrawText(screen, fmt.Sprintf("SSN-688  |  %s %s  |  %s %s  |  %s %s",
+		a.L(i18n.UIHeaderTime), a.missionClockLabel(),
+		a.L(i18n.UIHeaderSpeed), a.Engine.Clock.SpeedLabel(),
+		a.L(i18n.UIHeaderScreen), a.screenName(a.CurrentScreen)), 20, 28, render.ColorText, false)
 	a.drawHeaderButtons(screen)
 }
 
@@ -774,12 +779,29 @@ func (a *App) missionClockLabel() string {
 	return world.FormatMissionClock(a.Engine.Scenario.StartTimeSec, a.Engine.Clock.GameTime)
 }
 
-func screenName(s Screen) string {
-	names := []string{"PASSIVE", "ACTIVE", "SPECTRUM", "LIBRARY", "WEPS", "MANEUVER", "TACTICAL", "DC", "MAST"}
-	if int(s) < len(names) {
-		return names[s]
+func (a *App) screenName(s Screen) string {
+	switch s {
+	case ScreenPassive:
+		return a.L(i18n.UINavPassive)
+	case ScreenActive:
+		return a.L(i18n.UINavActive)
+	case ScreenSpectrum:
+		return a.L(i18n.UINavSpectrum)
+	case ScreenLibrary:
+		return a.L(i18n.UINavLibrary)
+	case ScreenFireControl:
+		return a.L(i18n.UINavWeps)
+	case ScreenManeuver:
+		return a.L(i18n.UINavHelm)
+	case ScreenTactical:
+		return a.L(i18n.UINavPlot)
+	case ScreenDamage:
+		return a.L(i18n.UINavDC)
+	case ScreenMast:
+		return a.L(i18n.UINavMast)
+	default:
+		return "?"
 	}
-	return "UNKNOWN"
 }
 
 func formatElapsedClock(sec float64) string {
@@ -809,7 +831,7 @@ func (a *App) drawPassive(screen *ebiten.Image) {
 	player := a.Engine.Scenario.Player
 	render.DrawPassiveConsole(screen)
 
-	a.drawArraySelector(screen, sonar, layout.PassiveArrayLabelX, layout.PassiveArrayLabelY, cachedPassiveArrayButtons())
+	a.drawArraySelector(screen, sonar, layout.PassiveArrayLabelX, layout.PassiveArrayLabelY, a.cachedPassiveArrayButtons())
 	a.drawListenBandSelector(screen, sonar)
 	a.drawTowedControls(screen, sonar)
 	a.drawPassiveContactTable(screen, sonar)
@@ -820,28 +842,31 @@ func (a *App) drawPassive(screen *ebiten.Image) {
 	// Section legends — light gray engraved labels, no nameplates.
 	titleX := layout.PassiveTitleLabelX
 	titleY := layout.PassiveTitleLabelY + 20
-	render.DrawScreenTitle(screen, "BEARING WATERFALL", titleX, titleY)
+	render.DrawScreenTitle(screen, a.L(i18n.UITitleWaterfall), titleX, titleY)
 
 	sel := selectedContactLabel(sonar, a.selectedContactID)
 	passiveExtra := ""
 	if a.Engine.Clock.GameTime < sonar.SonarDeafUntil {
-		passiveExtra = fmt.Sprintf("  |  SONAR BLIND %.0fs", sonar.SonarDeafUntil-a.Engine.Clock.GameTime)
+		passiveExtra = fmt.Sprintf("  |  %s %.0fs", a.L(i18n.UISonarBlind), sonar.SonarDeafUntil-a.Engine.Clock.GameTime)
 	}
-	render.DrawText(screen, fmt.Sprintf("CONTACTS: %d  |  ARRAY: %s  |  SELECTED: %s  |  LAYER: %s%s",
-		len(sonar.Contacts), a.sonarArrayLabel(sonar), sel,
-		a.Engine.Acoustics.Env.LayerNameKnown(player.DepthFt), passiveExtra),
+	render.DrawText(screen, fmt.Sprintf("%s: %d  |  %s: %s  |  %s: %s  |  %s: %s%s",
+		a.L(i18n.UIContacts), len(sonar.Contacts),
+		a.L(i18n.UIArray), a.sonarArrayLabel(sonar),
+		a.L(i18n.UISelected), sel,
+		a.L(i18n.UILayer), i18n.LocalizeLayerName(a.Engine.Acoustics.Env.LayerNameKnown(player.DepthFt), a.Lang()),
+		passiveExtra),
 		layout.PassiveStatusTextX, layout.PassiveStatusTextY, render.ColorDim, false)
 
 	selfNoise := acoustics.PassiveSelfNoiseSeverity(sonar.PassiveArray, player.SpeedKts, player.DepthFt, sonar.TowedCablePct)
 	noiseY := layout.PassiveSelfNoiseMonitorY + 22
-	render.DrawText(screen, "SELF-NOISE", layout.PassiveSelfNoiseLabelX, noiseY, render.ColorPlateLabel, true)
-	label := "QUIET"
+	render.DrawText(screen, a.L(i18n.UISelfNoise), layout.PassiveSelfNoiseLabelX, noiseY, render.ColorPlateLabel, true)
+	label := a.L(i18n.UIQuiet)
 	if selfNoise > 0.75 {
-		label = "DEAFENING"
+		label = a.L(i18n.UIDeafening)
 	} else if selfNoise > 0.45 {
-		label = "FLOW NOISE"
+		label = a.L(i18n.UIFlowNoise)
 	} else if selfNoise > 0.15 {
-		label = "RISING"
+		label = a.L(i18n.UIRising)
 	}
 	render.DrawText(screen, label, layout.PassiveSelfNoiseStatusX, noiseY, render.ColorAmber, true)
 	barX := layout.PassiveSelfNoiseBarX
@@ -874,11 +899,11 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	render.DrawConsolePanel(screen, activePanelX, activePanelY, activePanelW, 700)
 	render.DrawConsolePanel(screen, activeSideX, activeSideY, activeSideW, 700)
 	render.DrawMonitor(screen, activePlotX, activePlotY, activePlotW, activePlotH)
-	render.DrawScreenTitle(screen, "ACTIVE SONAR", layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
-	status := "STANDBY"
+	render.DrawScreenTitle(screen, a.L(i18n.UITitleActive), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
+	status := a.L(i18n.UIStandby)
 	statusClr := render.ColorPlateLabel
 	if sonar.ActiveEnabled {
-		status = "TRANSMIT READY"
+		status = a.L(i18n.UITransmitReady)
 		statusClr = render.ColorActive
 	}
 	echoYd := a.activeEchoReachYd(sonar)
@@ -893,7 +918,7 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	a.drawActiveContactTable(screen, sonar)
 
 	if a.activeSonarDamaged() {
-		msg := "ACTIVE SONAR DAMAGED — NO TRANSMIT"
+		msg := a.L(i18n.UIActiveDamaged)
 		render.DrawText(screen, msg, activePlotX+180, activePlotY+activePlotH/2, render.ColorWarn, false)
 	}
 
@@ -959,11 +984,11 @@ func (a *App) playOwnshipCasualtyVoice(ev string) {
 	switch {
 	case strings.HasPrefix(ev, "PLAYER SUBMARINE FATAL DAMAGE"),
 		strings.HasPrefix(ev, "PLAYER SUBMARINE LOST"):
-		a.Audio.PlayClip(audio.ClipCaptOwnshipLost, "Own ship lost. We are sinking.")
+		a.Audio.PlayClip(audio.ClipCaptOwnshipLost, a.L(i18n.VoiceOwnshipLost))
 	case strings.HasPrefix(ev, "OWN SHIP CRITICAL"):
-		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, "Critical damage. System casualty.")
+		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, a.L(i18n.VoiceCriticalDamage))
 	case strings.HasPrefix(ev, "OWN SHIP HIT"):
-		a.Audio.PlayClip(audio.ClipCaptOwnshipHit, "Own ship hit. Systems damaged.")
+		a.Audio.PlayClip(audio.ClipCaptOwnshipHit, a.L(i18n.VoiceOwnshipHit))
 	}
 }
 
@@ -987,8 +1012,8 @@ func (a *App) pollHostileTorpedoAlerts() {
 			continue
 		}
 		a.reportedTorpedoIDs[id] = true
-		a.StatusMessage = fmt.Sprintf("Torpedo in the water — contact %s.", c.ID)
-		a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, "Torpedo in the water.")
+		a.Statusf(i18n.StatusTorpedoInWaterContact, c.ID)
+		a.Audio.PlayClip(audio.ClipWepsTorpedoInWater, a.L(i18n.VoiceTorpedoInWater))
 	}
 }
 
@@ -1042,8 +1067,8 @@ func (a *App) pollTorpedoCollisionAlerts() {
 		current[id] = true
 		if !a.torpedoThreatActive[id] {
 			a.torpedoThreatActive[id] = true
-			a.StatusMessage = fmt.Sprintf("Incomming torpedo! Contact %s crossing ownship track.", c.ID)
-			a.Audio.PlayClip(audio.ClipWepsTorpedoHeadingOwnship, "Incomming torpedo!")
+			a.Statusf(i18n.StatusIncomingTorpedoContact, c.ID)
+			a.Audio.PlayClip(audio.ClipWepsTorpedoHeadingOwnship, a.L(i18n.VoiceIncomingTorpedo))
 		}
 	}
 
@@ -1058,8 +1083,8 @@ func (a *App) pollTorpedoCollisionAlerts() {
 		current[id] = true
 		if !a.torpedoThreatActive[id] {
 			a.torpedoThreatActive[id] = true
-			a.StatusMessage = fmt.Sprintf("Incomming torpedo! Own fish %s crossing ownship track.", t.ID)
-			a.Audio.PlayClip(audio.ClipWepsTorpedoHeadingOwnship, "Incomming torpedo!")
+			a.Statusf(i18n.StatusIncomingTorpedoOwnFish, t.ID)
+			a.Audio.PlayClip(audio.ClipWepsTorpedoHeadingOwnship, a.L(i18n.VoiceIncomingTorpedo))
 		}
 	}
 

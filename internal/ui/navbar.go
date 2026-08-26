@@ -5,6 +5,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 )
 
@@ -29,15 +30,15 @@ func (a *App) navBarY() int {
 
 func (a *App) navItems() []navItem {
 	return []navItem{
-		{ScreenPassive, render.IconPassive, "PASSIVE", "Passive sonar — towed array display", "F1"},
-		{ScreenActive, render.IconActive, "ACTIVE", "Active sonar — transmit and receive", "F2"},
-		{ScreenSpectrum, render.IconSpectrum, "SPECTRUM", "Spectrum analyzer — classify by frequency", "F3"},
-		{ScreenLibrary, render.IconLibrary, "LIBRARY", "Threat library — platforms, weapons, tactics", "F4"},
-		{ScreenFireControl, render.IconWeapons, "WEPS", "Fire control — torpedo tubes and launch", "F5"},
-		{ScreenManeuver, render.IconManeuver, "HELM", "Maneuvering room — speed, course, depth", "F6"},
-		{ScreenMast, render.IconMast, "MAST", "ESM / COMM / periscope — intercept, traffic, optic", "F8"},
-		{ScreenDamage, render.IconDamage, "DC", "Damage control — systems status and repair", "F7"},
-		{ScreenTactical, render.IconTactical, "PLOT", "Tactical plot — overview of the battlespace", "M"},
+		{ScreenPassive, render.IconPassive, a.L(i18n.UINavPassive), a.L(i18n.UINavTipPassive), "F1"},
+		{ScreenActive, render.IconActive, a.L(i18n.UINavActive), a.L(i18n.UINavTipActive), "F2"},
+		{ScreenSpectrum, render.IconSpectrum, a.L(i18n.UINavSpectrum), a.L(i18n.UINavTipSpectrum), "F3"},
+		{ScreenLibrary, render.IconLibrary, a.L(i18n.UINavLibrary), a.L(i18n.UINavTipLibrary), "F4"},
+		{ScreenFireControl, render.IconWeapons, a.L(i18n.UINavWeps), a.L(i18n.UINavTipWeps), "F5"},
+		{ScreenManeuver, render.IconManeuver, a.L(i18n.UINavHelm), a.L(i18n.UINavTipHelm), "F6"},
+		{ScreenMast, render.IconMast, a.L(i18n.UINavMast), a.L(i18n.UINavTipMast), "F8"},
+		{ScreenDamage, render.IconDamage, a.L(i18n.UINavDC), a.L(i18n.UINavTipDC), "F7"},
+		{ScreenTactical, render.IconTactical, a.L(i18n.UINavPlot), a.L(i18n.UINavTipPlot), "M"},
 	}
 }
 

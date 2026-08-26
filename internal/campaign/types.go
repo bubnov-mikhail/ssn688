@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/version"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -22,7 +23,7 @@ const DemoMissionCounterstroke MissionID = "catalina_counterstroke"
 // ObjectiveTemplate describes a mission task before runtime state exists.
 type ObjectiveTemplate struct {
 	ID           string
-	Description  string
+	Description  LocText
 	TargetID     string
 	Primary      bool
 	NeedIdentify bool
@@ -49,8 +50,8 @@ type BuildContext struct {
 // DebriefLine appends a result paragraph based on one objective's outcome.
 type DebriefLine struct {
 	ObjectiveID string
-	OnSuccess   string
-	OnFail      string
+	OnSuccess   LocText
+	OnFail      LocText
 }
 
 // ObjectiveOutcome is a persisted snapshot of one task at mission end.
@@ -102,7 +103,7 @@ const (
 // UnitSpec is a spawnable platform (ownship or traffic/combatant).
 type UnitSpec struct {
 	ID             string
-	Name           string
+	Name           LocText
 	Kind           world.EntityKind
 	Side           world.Side
 	SignatureID    string
@@ -133,48 +134,48 @@ type UnitSpec struct {
 
 // MissionDef is the static definition of one mission.
 type MissionDef struct {
-	ID           MissionID
-	Title        string
-	Description  string
-	CoverFile    string // optional; falls back to scenario cover
-	CoverData    []byte
+	ID            MissionID
+	Title         LocText
+	Description   LocText
+	CoverFile     string // optional; falls back to scenario cover
+	CoverData     []byte
 	CoverCacheKey string
-	TheaterID    TheaterID
-	Routes       []RouteSpec
-	Player       UnitSpec
-	Units        []UnitSpec
-	CommBriefing string
-	CommSchedule []world.CommScheduledMessage
-	Events       []EventDef
-	StartTimeSec float64 // seconds from midnight (from start_time HH:MM)
+	TheaterID     TheaterID
+	Routes        []RouteSpec
+	Player        UnitSpec
+	Units         []UnitSpec
+	CommBriefing  LocText
+	CommSchedule  []world.CommScheduledMessage
+	Events        []EventDef
+	StartTimeSec  float64 // seconds from midnight (from start_time HH:MM)
 	// Build overrides data-driven instantiate. Nil = Instantiate from fields above.
 	Build        func(ctx BuildContext) *world.Scenario
 	Objectives   []ObjectiveTemplate
 	Outputs      []OutputRule
-	DebriefLead  string
+	DebriefLead  LocText
 	DebriefLines []DebriefLine
 }
 
 // ScenarioDef is a campaign: linked missions with narrative framing.
 type ScenarioDef struct {
-	ID                ScenarioID
-	Title             string
-	Backstory         string
-	CoverFile         string // legacy bundled path; prefer CoverData
-	CoverData         []byte
-	CoverCacheKey     string
-	PostscriptSuccess string
-	PostscriptFailure string
-	Theaters          []TheaterDef
-	Missions          []MissionDef
-	Events            []EventDef
+	ID                 ScenarioID
+	Title              LocText
+	Backstory          LocText
+	CoverFile          string // legacy bundled path; prefer CoverData
+	CoverData          []byte
+	CoverCacheKey      string
+	PostscriptSuccess  LocText
+	PostscriptFailure  LocText
+	Theaters           []TheaterDef
+	Missions           []MissionDef
+	Events             []EventDef
 
-	FormatVersion     SemVer
-	Version           SemVer
-	MinGameVersion    SemVer
-	Compatible        bool
+	FormatVersion      SemVer
+	Version            SemVer
+	MinGameVersion     SemVer
+	Compatible         bool
 	IncompatibleReason string
-	SourcePath        string
+	SourcePath         string
 }
 
 // ApplyCompatibility marks whether this scenario can run on the current game.
@@ -232,7 +233,7 @@ type RuntimeMeta struct {
 }
 
 func MissionHash(m MissionDef) string {
-	sum := sha256.Sum256([]byte(string(m.ID) + "|" + m.Title))
+	sum := sha256.Sum256([]byte(string(m.ID) + "|" + m.Title.GetText(i18n.LangEN)))
 	return hex.EncodeToString(sum[:6])
 }
 

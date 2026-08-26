@@ -91,10 +91,10 @@ func IdentifyContact(c *Contact, em *world.Entity, by string, gameTime float64) 
 	c.IdentifiedBy = by
 	c.IdentifiedAt = gameTime
 	c.ConfirmedID = p.ID
-	c.ConfirmedClass = p.Name
+	c.ConfirmedClass = p.DisplayName()
 	c.Kind = p.Kind
 	c.BestMatchID = p.ID
-	c.BestMatchName = p.Name
+	c.BestMatchName = p.DisplayName()
 	if c.Confidence < 0.90 {
 		c.Confidence = 0.90
 	}

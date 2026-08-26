@@ -6,17 +6,25 @@ Companion to [SKILL.md](SKILL.md). Schema: [`scenarios/schema.json`](../../scena
 
 | Field | Purpose |
 |-------|---------|
-| `format_version` | Schema semver; **major must be 2** |
+| `format_version` | Schema semver; **major must be 3** |
 | `version` | Content semver (patch = text/tweaks, minor = new missions/fields) |
 | `min_game_version` | Minimum game `VERSION` |
 | `id` | Stable id (`^[a-z][a-z0-9_]{0,63}$`) — saves / import |
-| `title` | UI title |
-| `backstory` | Scenario select markdown (mood only) |
+| `title` | UI title — **loc_string** `{"en","ru"}` |
+| `backstory` | Scenario select markdown (mood only) — **loc_string** |
 | `cover` | `{ mime, data_b64 }` image |
-| `postscript_success` / `postscript_failure` | End-of-campaign markdown |
+| `postscript_success` / `postscript_failure` | End-of-campaign markdown — **loc_string** |
 | `theaters` | Shared charts |
 | `missions` | Ordered campaign beats |
 | `events` | Optional scenario-level (prefer per-mission) |
+
+### loc_string
+
+```json
+{ "en": "English", "ru": "Русский" }
+```
+
+Required: `en`. Duplicate all player-facing prose for every language in `i18n.SupportedLangs`. Plain strings are **invalid** in format 3.
 
 ## Theater
 

@@ -13,10 +13,10 @@ func TestParseBundledDemoJSON(t *testing.T) {
 	if !sc.Compatible {
 		t.Fatalf("demo should be compatible: %s", sc.IncompatibleReason)
 	}
-	if sc.Version.String() != "1.2.7" {
+	if sc.Version.String() != "1.3.0" {
 		t.Fatalf("version %s", sc.Version)
 	}
-	if sc.FormatVersion.Major != 2 {
+	if sc.FormatVersion.Major != 3 {
 		t.Fatalf("format major %d", sc.FormatVersion.Major)
 	}
 	if len(sc.Missions) != 2 {
@@ -61,19 +61,22 @@ func TestImportRejectsIncompatible(t *testing.T) {
 
 func TestUseGameDefaultRejected(t *testing.T) {
 	raw := []byte(`{
-		"format_version": "1.0.0",
+		"format_version": "3.0.0",
 		"version": "1.0.0",
 		"min_game_version": "1.0.0",
 		"id": "no_default",
-		"title": "Bad",
-		"backstory": "x",
+		"title": {"en":"Bad","ru":"Bad"},
+		"backstory": {"en":"x","ru":"x"},
 		"theaters": [{"id": "t1", "bathy": {"use_game_default": true}}],
 		"missions": [{
-			"id": "m1", "title": "M", "description": "d", "theater_id": "t1",
+			"id": "m1",
+			"title": {"en":"M","ru":"M"},
+			"description": {"en":"d","ru":"d"},
+			"theater_id": "t1",
 			"routes": [],
-			"player": {"id":"player","name":"P","kind":"submarine","side":"player","signature_id":"los_angeles","spawn":"corner"},
+			"player": {"id":"player","name":{"en":"P","ru":"P"},"kind":"submarine","side":"player","signature_id":"los_angeles","spawn":"corner"},
 			"units": [],
-			"objectives": [{"id":"o1","description":"x","target_id":"player"}]
+			"objectives": [{"id":"o1","description":{"en":"x","ru":"x"},"target_id":"player"}]
 		}]
 	}`)
 	_, err := ParseScenarioJSON(raw, "test")

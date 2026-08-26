@@ -1,17 +1,21 @@
 package render
 
 import (
+	_ "embed"
 	"image"
 	"image/color"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
+
+//go:embed fonts/DejaVuSans.ttf
+var uiFontTTF []byte
 
 const (
 	ScreenW = 1600
@@ -30,7 +34,7 @@ var (
 
 func InitFonts() error {
 	once.Do(func() {
-		f, err := opentype.Parse(goregular.TTF)
+		f, err := opentype.Parse(uiFontTTF)
 		if err != nil {
 			fontErr = err
 			return
@@ -179,6 +183,18 @@ func FillRect(screen *ebiten.Image, x, y, w, h int, clr color.Color) {
 
 func DrawLine(screen *ebiten.Image, x1, y1, x2, y2 float64, clr color.Color) {
 	ebitenutil.DrawLine(screen, x1, y1, x2, y2, clr)
+}
+
+// FillTriangle draws a sharp (non-AA) filled triangle.
+func FillTriangle(screen *ebiten.Image, x0, y0, x1, y1, x2, y2 float64, clr color.Color) {
+	var path vector.Path
+	path.MoveTo(float32(x0), float32(y0))
+	path.LineTo(float32(x1), float32(y1))
+	path.LineTo(float32(x2), float32(y2))
+	path.Close()
+	var op vector.DrawPathOptions
+	op.ColorScale.ScaleWithColor(clr)
+	vector.FillPath(screen, &path, nil, &op)
 }
 
 var (

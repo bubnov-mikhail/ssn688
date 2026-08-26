@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -62,7 +63,7 @@ func RuntimeObjectives(templates []ObjectiveTemplate, vars map[string]string) []
 		}
 		out = append(out, world.Objective{
 			ID:           t.ID,
-			Description:  t.Description,
+			Description:  t.Description.TT(),
 			TargetID:     t.TargetID,
 			Primary:      t.Primary,
 			NeedIdentify: t.NeedIdentify,
@@ -133,11 +134,12 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, ctx BuildContext) *world.Sce
 	schedule := ApplyCommEvents(m.CommSchedule, events)
 	byID := entityMap(append([]*world.Entity{player}, ents...))
 	schedule = expandCommPlaceholders(schedule, byID, m.StartTimeSec)
-	briefing := ExpandPlaceholders(m.CommBriefing, byID, m.StartTimeSec, 0)
+	briefing := ExpandPlaceholdersTT(m.CommBriefing.TT(), byID, m.StartTimeSec, 0)
+	lang := i18n.CurrentLang()
 
 	return &world.Scenario{
-		Name:          m.Title,
-		Description:   m.Description,
+		Name:          m.Title.GetText(lang),
+		Description:   m.Description.GetText(lang),
 		Player:        player,
 		Entities:      ents,
 		Bathy:         bathy,
@@ -168,7 +170,19 @@ func expandCommPlaceholders(schedule []world.CommScheduledMessage, byID map[stri
 	for i, m := range schedule {
 		out[i] = m
 		// mission_time uses transmit AtSec so late mast pickup still shows HQ send clock.
-		out[i].Text = ExpandPlaceholders(m.Text, byID, startSec, m.AtSec)
+		out[i].Text = ExpandPlaceholdersTT(m.Text, byID, startSec, m.AtSec)
+	}
+	return out
+}
+
+// ExpandPlaceholdersTT expands placeholders in every language of a TranslatedText map.
+func ExpandPlaceholdersTT(text i18n.TranslatedText, byID map[string]*world.Entity, startSec, elapsedSec float64) i18n.TranslatedText {
+	if text == nil {
+		return nil
+	}
+	out := make(i18n.TranslatedText, len(text))
+	for lang, s := range text {
+		out[lang] = ExpandPlaceholders(s, byID, startSec, elapsedSec)
 	}
 	return out
 }
@@ -232,7 +246,7 @@ func ToWorldEvents(events []EventDef) []world.MissionEvent {
 		we := world.MissionEvent{ID: ev.ID, WhenType: ev.When.Type, ObjectiveID: ev.When.ObjectiveID, UnitID: ev.When.UnitID}
 		for _, act := range ev.Actions {
 			we.Actions = append(we.Actions, world.MissionEventAction{
-				Type: act.Type, ID: act.ID, Text: act.Text, AtSec: act.AtSec,
+				Type: act.Type, ID: act.ID, Text: act.Text.TT(), AtSec: act.AtSec,
 				UnitID: act.UnitID, Defcon: act.Defcon, AIState: act.AIState,
 				Var: act.Var, Value: act.Value, ObjectiveID: act.ObjectiveID,
 			})
@@ -271,7 +285,7 @@ func spawnEntity(rng *rand.Rand, spec UnitSpec) *world.Entity {
 	}
 	e := &world.Entity{
 		ID:           spec.ID,
-		Name:         spec.Name,
+		Name:         spec.Name.GetText(i18n.CurrentLang()),
 		Kind:         spec.Kind,
 		Side:         spec.Side,
 		Status:       world.StatusActive,

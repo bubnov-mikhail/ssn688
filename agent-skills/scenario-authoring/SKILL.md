@@ -28,7 +28,22 @@ description: >-
 
 Игрок импортирует файл через **IMPORT SCENARIO** в главном меню. Агент **не** кладёт сгенерированные сценарии в `scenarios/` без запроса.
 
-`format_version` major = `ScenarioFormatMajor` (**2**). При правках контента инкрементируй `version` по semver.
+`format_version` major = `ScenarioFormatMajor` (**3**). При правках контента инкрементируй `version` по semver.
+
+## Мультиязычность
+
+Все **player-facing** тексты сценария — объекты `loc_string`:
+
+```json
+{ "en": "English text", "ru": "Русский текст" }
+```
+
+Обязателен ключ `en`; для каждого языка из `i18n.SupportedLangs` (`en`, `ru`) нужен осмысленный перевод.  
+Поля: `title`, `backstory`, `postscript_*`, mission `title`/`description`/`comm_briefing`/`debrief_*`, `objectives[].description`, unit `name`, COMM/`events` `text`.
+
+Язык в игре задаётся в **SETTINGS** (`en` / `ru`); UI и тексты сценария берутся через `GetText(lang)`.
+
+Озвучка Kokoro сейчас **без русского** — WAV остаются EN; субтитры локализуются.
 
 ## Новый театр (карта)
 
@@ -119,6 +134,7 @@ Objective: `need_identify` / `need_destroy` / `primary` / `hidden` + var-фил�
 
 ## Чеклист качества
 
+- [ ] Все player-facing тексты — `loc_string` на **en** и **ru** (и будущие SupportedLangs)
 - [ ] Backstory без спойлеров миссий
 - [ ] Mission description = только стартовый intel
 - [ ] Эскалация сложности по арке
@@ -126,5 +142,5 @@ Objective: `need_identify` / `need_destroy` / `primary` / `hidden` + var-фил�
 - [ ] Маршруты в воде; ПЛ ниже термоклина (если не coastal-special)
 - [ ] Хотя бы несколько reactive COMM / events
 - [ ] Файл в `scenarios_generated/`, не в git
-- [ ] `format_version` 2.x.x, осмысленный `version`
+- [ ] `format_version` 3.x.x, осмысленный `version`
 - [ ] После финала: убраны temp-файлы этой работы из `tools/` (cover, bathy.bin, одноразовые gen_*)

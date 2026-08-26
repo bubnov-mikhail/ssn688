@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -64,7 +65,7 @@ func TestComposeMissionDebriefVariants(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ComposeMissionDebrief(m, tc.outcomes)
+			got := ComposeMissionDebrief(m, tc.outcomes, i18n.LangEN)
 			for _, s := range tc.want {
 				if !strings.Contains(got, s) {
 					t.Fatalf("missing %q in:\n%s", s, got)

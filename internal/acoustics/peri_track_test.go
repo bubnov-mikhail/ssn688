@@ -39,8 +39,8 @@ func TestUpdateContactsFromPeriscopeRefinesRange(t *testing.T) {
 	if c.UncRangeYd > 800 {
 		t.Fatalf("unc range still large: %.0f", c.UncRangeYd)
 	}
-	if c.Identified {
-		t.Fatal("900 yd should not visual-ID")
+	if !c.Identified {
+		t.Fatal("900 yd should visual-ID (max 3000 yd)")
 	}
 }
 

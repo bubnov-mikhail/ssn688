@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/ssn688/sim/internal/i18n"
 )
 
 // Settings holds user preferences persisted between sessions.
@@ -15,6 +17,7 @@ type Settings struct {
 	WindowWidth   int     `json:"window_width"`
 	WindowHeight  int     `json:"window_height"`
 	Debug         bool    `json:"debug"`
+	Language      string  `json:"language"`
 }
 
 func DefaultSettings() Settings {
@@ -26,6 +29,7 @@ func DefaultSettings() Settings {
 		WindowWidth:   1600,
 		WindowHeight:  900,
 		Debug:         true,
+		Language:      i18n.LangEN,
 	}
 }
 
@@ -58,6 +62,7 @@ func Load() (Settings, error) {
 		WindowWidth   int      `json:"window_width"`
 		WindowHeight  int      `json:"window_height"`
 		Debug         *bool    `json:"debug"`
+		Language      string   `json:"language"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return DefaultSettings(), err
@@ -75,6 +80,9 @@ func Load() (Settings, error) {
 	if raw.Debug != nil {
 		s.Debug = *raw.Debug
 	}
+	if raw.Language != "" {
+		s.Language = i18n.NormalizeLang(raw.Language)
+	}
 	return s, nil
 }
 
@@ -86,6 +94,7 @@ func Save(s Settings) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	s.Language = i18n.NormalizeLang(s.Language)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err

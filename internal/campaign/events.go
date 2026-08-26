@@ -1,6 +1,9 @@
 package campaign
 
-import "github.com/ssn688/sim/internal/world"
+import (
+	"github.com/ssn688/sim/internal/i18n"
+	"github.com/ssn688/sim/internal/world"
+)
 
 // EventWhen triggers an event (extensible for sim-time dispatch).
 type EventWhen struct {
@@ -62,7 +65,7 @@ type EventAction struct {
 	Type string `json:"type"` // comm_schedule, set_defcon, set_ai_state, set_var, reveal_objective
 
 	ID          string  `json:"id,omitempty"`
-	Text        string  `json:"text,omitempty"`
+	Text        LocText `json:"text,omitempty"`
 	AtSec       float64 `json:"at_sec,omitempty"`
 	UnitID      string  `json:"unit_id,omitempty"`
 	Defcon      int     `json:"defcon,omitempty"`
@@ -106,9 +109,14 @@ func ApplyCommEvents(schedule []world.CommScheduledMessage, events []EventDef) [
 			if act.AtSec > 0 {
 				t = act.AtSec
 			}
-			out = append(out, world.CommScheduledMessage{ID: id, AtSec: t, Text: act.Text})
+			out = append(out, world.CommScheduledMessage{ID: id, AtSec: t, Text: act.Text.TT()})
 			seen[id] = true
 		}
 	}
 	return out
+}
+
+// locTextEmpty reports whether English (fallback) text is blank.
+func locTextEmpty(t LocText) bool {
+	return i18n.TranslatedText(t).GetText(i18n.LangEN) == ""
 }

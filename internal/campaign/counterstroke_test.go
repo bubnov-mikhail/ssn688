@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -50,7 +51,7 @@ func TestCounterstrokeBranches(t *testing.T) {
 		}
 		txt := ""
 		for _, m := range rt.CommSchedule {
-			txt += m.Text
+			txt += m.Text.GetText(i18n.LangEN)
 		}
 		if !strings.Contains(strings.ToLower(txt), "identify") || !strings.Contains(strings.ToLower(txt), "tanker") {
 			t.Fatalf("tasking missing tanker ID:\n%s", txt)
@@ -88,7 +89,7 @@ func TestCounterstrokeBranches(t *testing.T) {
 		}
 		txt := ""
 		for _, m := range rt.CommSchedule {
-			txt += m.Text
+			txt += m.Text.GetText(i18n.LangEN)
 		}
 		if !strings.Contains(strings.ToLower(txt), "sink") || !strings.Contains(txt, "MT Horizon") {
 			t.Fatalf("want sink order:\n%s", txt)

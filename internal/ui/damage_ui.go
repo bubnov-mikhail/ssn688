@@ -3,10 +3,10 @@ package ui
 import (
 	"fmt"
 	"image/color"
-	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
 )
@@ -49,17 +49,17 @@ func (a *App) damageButtons() []uiButton {
 		if player.Kind != world.KindSubmarine && (sys == world.SysTowed || sys == world.SysDepth || sys == world.SysESM || sys == world.SysCOMM || sys == world.SysPeriscope) {
 			continue
 		}
-		label := "REPAIR"
-		tip := fmt.Sprintf("Begin repair of %s", world.SystemName(sys))
+		label := a.L(i18n.UIRepair)
+		tip := a.L(i18n.UITipRepair)
 		if d.Repairing == sys {
-			label = "REPAIRING"
-			tip = "Repair in progress"
+			label = a.L(i18n.UIRepairing)
+			tip = a.L(i18n.UITipRepairing)
 		} else if !d.Repairable(sys) {
 			if d.EffOf(sys) >= 100 {
-				label = "OK"
+				label = a.L(i18n.UIOK)
 				tip = "System nominal"
 			} else {
-				label = "N/A"
+				label = a.L(i18n.UINA)
 				tip = "Destroyed beyond repair"
 			}
 		}
@@ -89,7 +89,7 @@ func (a *App) handleDamageButton(id string) {
 		a.StatusMessage = reason
 		return
 	}
-	a.StatusMessage = fmt.Sprintf("Repairing %s…", world.SystemName(sys))
+	a.Statusf(i18n.StatusRepairing, i18n.LocalizeSystemName(world.SystemName(sys), a.Lang()))
 }
 
 func (a *App) drawDamage(screen *ebiten.Image) {
@@ -99,12 +99,13 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 	player := a.Engine.Scenario.Player
 	player.EnsureDamage()
 	d := &player.Damage
+	lang := a.Lang()
 
 	render.DrawConsolePanel(screen, dcPanelX, dcPanelY, dcPanelW, dcPanelH)
-	render.DrawScreenTitle(screen, "DAMAGE CONTROL", dcPanelX+20, dcPanelY+28)
-	render.DrawText(screen, "Repair one system at a time — ~45 min from 25% to 100%", dcPanelX+280, dcPanelY+26, render.ColorPlateLabel, true)
+	render.DrawScreenTitle(screen, a.L(i18n.UITitleDamage), dcPanelX+20, dcPanelY+28)
+	render.DrawText(screen, a.L(i18n.UIDamageHint), dcPanelX+280, dcPanelY+26, render.ColorPlateLabel, true)
 
-	headers := []string{"SYSTEM", "STATUS", "EFFICIENCY", ""}
+	headers := []string{a.L(i18n.UISystem), a.L(i18n.UIStatusCol), a.L(i18n.UIEfficiency), ""}
 	xs := []int{dcPanelX + 40, dcPanelX + 280, dcPanelX + 480, dcPanelX + dcPanelW - 160}
 	hy := dcPanelY + 60
 	for i, h := range headers {
@@ -121,7 +122,7 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 		y := tableY + row*dcRowH
 		row++
 		eff := d.EffOf(sys)
-		status := world.SystemStatusLabel(d, sys)
+		status := i18n.LocalizeSystemStatus(world.SystemStatusLabel(d, sys), lang)
 		clr := color.RGBA{0, 200, 120, 255}
 		switch {
 		case eff <= world.RepairThresholdPct:
@@ -130,14 +131,13 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 			clr = render.ColorAmber
 		}
 		if d.Repairing == sys {
-			status = "REPAIRING"
+			status = a.L(i18n.UIRepairing)
 			clr = render.ColorHighlight
 		}
-		render.DrawText(screen, world.SystemName(sys), xs[0], y+18, render.ColorPhosphor, true)
+		render.DrawText(screen, i18n.LocalizeSystemName(world.SystemName(sys), lang), xs[0], y+18, render.ColorPhosphor, true)
 		render.DrawText(screen, status, xs[1], y+18, clr, true)
 		render.DrawText(screen, fmt.Sprintf("%.0f%%", eff), xs[2], y+18, clr, true)
 
-		// Efficiency bar.
 		barX, barY, barW, barH := xs[2]+70, y+8, 200, 14
 		render.FillRect(screen, barX, barY, barW, barH, color.RGBA{20, 30, 28, 255})
 		fill := int(float64(barW) * eff / 100)
@@ -146,26 +146,24 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 		}
 	}
 
+	okLbl := a.L(i18n.UIOK)
+	naLbl := a.L(i18n.UINA)
+	repairingLbl := a.L(i18n.UIRepairing)
 	for _, b := range a.damageButtons() {
-		disabled := b.Label == "N/A" || b.Label == "OK" || b.Label == "REPAIRING"
+		disabled := b.Label == naLbl || b.Label == okLbl || b.Label == repairingLbl
 		hover := a.uiHoverID == b.ID && !disabled
 		pressed := a.uiPressedID == b.ID && !disabled
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
 	}
 
-	// Footnotes for critical effects.
 	fy := dcPanelY + dcPanelH - 70
 	if d.Destroyed(world.SysDepth) && d.DepthRunawayFPM != 0 {
-		dir := "DIVE"
-		if d.DepthRunawayFPM < 0 {
-			dir = "RISE"
-		}
-		render.DrawText(screen, fmt.Sprintf("DEPTH CONTROL LOST — uncontrolled %s %.0f fpm", dir, math.Abs(d.DepthRunawayFPM)),
+		render.DrawText(screen, a.L(i18n.UIDepthLost),
 			dcPanelX+40, fy, render.ColorDanger, true)
 		fy += 18
 	}
 	if d.SteeringJammed || d.Destroyed(world.SysSteering) {
-		render.DrawText(screen, fmt.Sprintf("RUDDER JAMMED at %.0f°", d.SteeringJamDeg),
+		render.DrawText(screen, a.L(i18n.UIRudderJam),
 			dcPanelX+40, fy, render.ColorDanger, true)
 	}
 

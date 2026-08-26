@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/assets"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
@@ -45,7 +46,7 @@ const (
 )
 
 var (
-	libraryRowsOnce sync.Once
+	libraryRowsOnce  sync.Once
 	libraryRowsCache []libraryTableRow
 
 	libraryPhotoOnce sync.Map // id -> *ebiten.Image or error sentinel
@@ -147,17 +148,17 @@ func (a *App) libraryDetailLines(e *libraryEntry) []detailLine {
 	addSection := func(title string, clr color.Color) {
 		out = append(out, detailLine{Text: title, Color: clr, Section: true})
 	}
-	addBody := func(lines []string, clr color.Color) {
+	addBody := func(lines []i18n.TranslatedText, clr color.Color) {
 		for _, para := range lines {
-			for _, ln := range wrapLibraryText(para, maxChars) {
+			for _, ln := range wrapLibraryText(a.L(para), maxChars) {
 				out = append(out, detailLine{Text: ln, Color: clr})
 			}
 			out = append(out, detailLine{Text: "", Color: clr})
 		}
 	}
-	addBullets := func(items []string, clr color.Color) {
+	addBullets := func(items []i18n.TranslatedText, clr color.Color) {
 		for _, it := range items {
-			wrapped := wrapLibraryText("• "+it, maxChars)
+			wrapped := wrapLibraryText("• "+a.L(it), maxChars)
 			for i, ln := range wrapped {
 				if i > 0 {
 					ln = "  " + ln
@@ -168,21 +169,21 @@ func (a *App) libraryDetailLines(e *libraryEntry) []detailLine {
 		out = append(out, detailLine{Text: "", Color: clr})
 	}
 
-	addSection("OVERVIEW", render.ColorAmber)
+	addSection(a.L(i18n.UIOverview), render.ColorAmber)
 	addBody(e.Summary, render.ColorPlateLabel)
-	addSection("CHARACTERISTICS", render.ColorAmber)
+	addSection(a.L(i18n.UICharacteristics), render.ColorAmber)
 	addBullets(e.Specs, render.ColorPlateLabel)
-	addSection("OFFENSIVE WEAPONS", render.ColorAmber)
+	addSection(a.L(i18n.UIOffensiveWeapons), render.ColorAmber)
 	addBullets(e.Offense, render.ColorPlateLabel)
-	addSection("DEFENSIVE SYSTEMS", render.ColorAmber)
+	addSection(a.L(i18n.UIDefensiveSystems), render.ColorAmber)
 	addBullets(e.Defense, render.ColorPlateLabel)
-	addSection("NEUTRALIZATION", render.ColorWarn)
+	addSection(a.L(i18n.UINeutralization), render.ColorWarn)
 	addBullets(e.Neutralize, render.ColorPlateLabel)
-	addSection("EVASION (OWN SHIP)", render.ColorWarn)
+	addSection(a.L(i18n.UIEvasion), render.ColorWarn)
 	addBullets(e.Evade, render.ColorPlateLabel)
-	if e.Credit != "" {
-		addSection("IMAGE CREDIT", render.ColorPlateLabel)
-		addBody([]string{e.Credit}, render.ColorDim)
+	if a.L(e.Credit) != "" {
+		addSection(a.L(i18n.UIImageCredit), render.ColorPlateLabel)
+		addBody([]i18n.TranslatedText{e.Credit}, render.ColorDim)
 	}
 	return out
 }
@@ -278,7 +279,12 @@ func classifiedLibraryID(c *acoustics.Contact) string {
 	}
 	for _, e := range libraryCatalog {
 		if p, ok := world.ProfileByID(e.ID); ok {
-			if p.Name == c.ConfirmedClass || p.Class == c.ConfirmedClass || e.Title == c.ConfirmedClass {
+			if p.MatchesLabel(c.ConfirmedClass) {
+				return e.ID
+			}
+		}
+		for _, lang := range i18n.SupportedLangs {
+			if e.Title.GetText(lang) == c.ConfirmedClass {
 				return e.ID
 			}
 		}
@@ -293,10 +299,10 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 	catVis := libCatH / libRowH
 
 	render.DrawConsolePanel(screen, libPanelX, libPanelY, libPanelW, libPanelH)
-	render.DrawScreenTitle(screen, "THREAT LIBRARY", layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
+	render.DrawScreenTitle(screen, a.L(i18n.UIThreatLibrary), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 
 	// —— Catalog table ——
-	render.DrawText(screen, "PLATFORM TYPES", libLeftX, libCatY-14, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UIPlatformTypes), libLeftX, libCatY-14, render.ColorPlateLabel, true)
 	render.FillRect(screen, libLeftX, libCatY, libLeftW, libCatH, render.ColorPanelInset)
 	a.libraryCatalogScroll = clampContactTableScroll(a.libraryCatalogScroll, len(rows), catVis)
 	start, end := contactTableWindow(len(rows), a.libraryCatalogScroll, catVis)
@@ -306,7 +312,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 		r := rows[i]
 		if r.Header {
 			render.FillRect(screen, libLeftX+1, y, libLeftW-2, libRowH, color.RGBA{36, 40, 48, 255})
-			render.DrawText(screen, "— "+r.Label+" —", libLeftX+8, y+14, render.ColorAmber, true)
+			render.DrawText(screen, "— "+a.L(r.Label)+" —", libLeftX+8, y+14, render.ColorAmber, true)
 		} else {
 			selected := r.EntryID == a.librarySelectedID
 			hover := mx >= libLeftX && mx < libLeftX+libLeftW && my >= y && my < y+libRowH
@@ -319,7 +325,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 			if selected {
 				clr = render.ColorAmber
 			}
-			label := r.Label
+			label := a.L(r.Label)
 			if len(label) > 48 {
 				label = label[:45] + "..."
 			}
@@ -330,11 +336,11 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 	drawContactTableScrollbar(screen, libLeftX+libLeftW+4, libCatY, libCatH, len(rows), catVis, a.libraryCatalogScroll)
 
 	// —— Contacts table ——
-	render.DrawText(screen, "CONTACTS", libLeftX, libConY-14, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UIContacts), libLeftX, libConY-14, render.ColorPlateLabel, true)
 	render.FillRect(screen, libLeftX, libConY, libLeftW, libConH, render.ColorPanelInset)
-	render.DrawText(screen, "ID", libLeftX+8, libConY+14, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG", libLeftX+56, libConY+14, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "CLASS", libLeftX+110, libConY+14, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColID), libLeftX+8, libConY+14, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColBRG), libLeftX+56, libConY+14, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColClass), libLeftX+110, libConY+14, render.ColorPhosphorDim, true)
 	a.contactTableScroll.library = clampContactTableScroll(a.contactTableScroll.library, len(sonar.Contacts), libConVis)
 	cStart, cEnd := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.library, libConVis)
 	y = libConY + libRowH
@@ -349,9 +355,8 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 		}
 		clr := render.ColorPlateLabel
 		class := contactClassLabel(c)
-		if c.ConfirmedClass != "" {
+		if c.ConfirmedClass != "" || c.ConfirmedID != "" {
 			clr = render.ColorAmber
-			class = c.ConfirmedClass
 		}
 		render.DrawText(screen, c.ID, libLeftX+8, y+14, clr, true)
 		render.DrawText(screen, contactBearingLabel(c), libLeftX+56, y+14, clr, true)
@@ -366,18 +371,18 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 	// —— Detail pane ——
 	a.drawLibraryDetail(screen)
 
-	render.DrawText(screen, "select platform or classified contact  |  scroll tables / detail", 40, 720, render.ColorDim, true)
+	render.DrawText(screen, a.L(i18n.UILibFooter), 40, 720, render.ColorDim, true)
 }
 
 func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 	e := libraryEntryByID(a.librarySelectedID)
 	render.FillRect(screen, libRightX, libRightY, libRightW, libRightH, render.ColorPanelInset)
 	if e == nil {
-		render.DrawText(screen, "Select a platform type", libRightX+16, libRightY+24, render.ColorDim, true)
+		render.DrawText(screen, a.L(i18n.UISelectPlatform), libRightX+16, libRightY+24, render.ColorDim, true)
 		return
 	}
 
-	render.DrawText(screen, e.Title, libRightX+12, libRightY+20, render.ColorAmber, false)
+	render.DrawText(screen, a.L(e.Title), libRightX+12, libRightY+20, render.ColorAmber, false)
 
 	photoY := libRightY + 32
 	photo := a.libraryPhoto(e.ID)
@@ -397,7 +402,7 @@ func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 			screen.DrawImage(photo, op)
 		}
 	} else {
-		render.DrawText(screen, "NO IMAGE", libRightX+libRightW/2-40, photoY+libPhotoH/2, render.ColorDim, true)
+		render.DrawText(screen, a.L(i18n.UINoImage), libRightX+libRightW/2-40, photoY+libPhotoH/2, render.ColorDim, true)
 	}
 
 	textTop := photoY + libPhotoH + 16

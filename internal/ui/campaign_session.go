@@ -5,6 +5,7 @@ import (
 
 	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/save"
 	"github.com/ssn688/sim/internal/sim"
 )
@@ -12,17 +13,17 @@ import (
 func (a *App) continueScenario() {
 	sc := a.selectedScenarioDef()
 	if sc == nil || !sc.Compatible {
-		a.StatusMessage = "Scenario is incompatible with this game version."
+		a.Status(i18n.StatusScenarioIncompat)
 		return
 	}
 	path, err := campaign.LatestSaveForScenario(sc.ID)
 	if err != nil {
-		a.StatusMessage = "No save found for this scenario."
+		a.Status(i18n.StatusNoSaveForScenario)
 		return
 	}
 	engine, err := save.LoadClean(path)
 	if err != nil {
-		a.StatusMessage = "Load failed: " + err.Error()
+		a.Statusf(i18n.StatusLoadFailed, err.Error())
 		return
 	}
 	if engine.Campaign.BetweenMissions {
@@ -49,7 +50,7 @@ func (a *App) restartScenarioConfirmed() {
 	a.briefMissionID = ""
 	a.Mode = ModeScenarioBrief
 	a.initScenarioBrief()
-	a.StatusMessage = "Scenario progress cleared."
+	a.Status(i18n.StatusProgressCleared)
 }
 
 func (a *App) startSelectedMission() {
@@ -66,13 +67,13 @@ func (a *App) startSelectedMission() {
 		m = prog.CurrentMission(sc)
 	}
 	if m == nil || prog.CompletedMissions[m.ID] || prog.ScenarioComplete(sc) {
-		a.StatusMessage = "Scenario already complete."
+		a.Status(i18n.StatusScenarioComplete)
 		return
 	}
 	ctx := campaign.BuildContextFromProgress(prog)
 	runtime := campaign.BuildMission(sc.ID, m.ID, ctx)
 	if runtime == nil {
-		a.StatusMessage = "Failed to build mission."
+		a.Status(i18n.StatusBuildMissionFail)
 		return
 	}
 	engine := sim.NewEngine(runtime)

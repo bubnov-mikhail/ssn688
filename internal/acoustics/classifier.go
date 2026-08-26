@@ -54,7 +54,7 @@ func Classify(signal Spectrum, peakSNR, rangeYd float64) Classification {
 			bestDist = dist
 			best = Classification{
 				ProfileID:   p.ID,
-				ProfileName: p.Name,
+				ProfileName: p.DisplayName(),
 				Confidence:  conf,
 				BladeMatch:  blade,
 			}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 )
 
@@ -84,7 +85,13 @@ func (a *App) executeConfirmYes() {
 }
 
 func (a *App) confirmButtonRects() (yesX, yesY, noX, noY, w, h int) {
-	w = render.ButtonWidth("CANCEL", 24)
+	w = render.ButtonWidth(a.L(i18n.UIYes), 24)
+	if nw := render.ButtonWidth(a.L(i18n.UINo), 24); nw > w {
+		w = nw
+	}
+	if cw := render.ButtonWidth(a.L(i18n.UICancel), 24); cw > w {
+		w = cw
+	}
 	h = 36
 	cx := render.ScreenW / 2
 	yesX = cx - w - 12
@@ -117,6 +124,6 @@ func (a *App) drawConfirmDialog(screen *ebiten.Image) {
 	noHover := mx >= noX && mx < noX+bw && my >= noY && my < noY+bh
 	yesPressed := a.uiPressedID == "confirm_yes" && time.Since(a.uiPressedAt) < 120*time.Millisecond
 	noPressed := a.uiPressedID == "confirm_no" && time.Since(a.uiPressedAt) < 120*time.Millisecond
-	render.DrawBevelButton(screen, yesX, yesY, bw, bh, "YES", yesHover, yesPressed)
-	render.DrawBevelButton(screen, noX, noY, bw, bh, "NO", noHover, noPressed)
+	render.DrawBevelButton(screen, yesX, yesY, bw, bh, a.L(i18n.UIYes), yesHover, yesPressed)
+	render.DrawBevelButton(screen, noX, noY, bw, bh, a.L(i18n.UINo), noHover, noPressed)
 }

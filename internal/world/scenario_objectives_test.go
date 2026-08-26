@@ -3,6 +3,8 @@ package world
 import (
 	"strings"
 	"testing"
+
+	"github.com/ssn688/sim/internal/i18n"
 )
 
 func testMissionScenario() *Scenario {
@@ -14,9 +16,9 @@ func testMissionScenario() *Scenario {
 		Player:   player,
 		Entities: []*Entity{fox, grisha, tanker},
 		Objectives: []Objective{
-			{ID: "obj_foxtrot", Primary: true, NeedDestroy: true, TargetID: "enemy_foxtrot", Description: "sink diesel"},
-			{ID: "obj_grisha", NeedIdentify: true, NeedDestroy: true, TargetID: "enemy_grisha", Description: "ID and sink surface"},
-			{ID: "obj_tanker", NeedIdentify: true, TargetID: "civ_tanker", Description: "ID tanker"},
+			{ID: "obj_foxtrot", Primary: true, NeedDestroy: true, TargetID: "enemy_foxtrot", Description: i18n.T("sink diesel", "sink diesel")},
+			{ID: "obj_grisha", NeedIdentify: true, NeedDestroy: true, TargetID: "enemy_grisha", Description: i18n.T("ID and sink surface", "ID and sink surface")},
+			{ID: "obj_tanker", NeedIdentify: true, TargetID: "civ_tanker", Description: i18n.T("ID tanker", "ID tanker")},
 		},
 	}
 }
@@ -107,7 +109,7 @@ func TestMissionStatusReportOmitsHiddenObjectives(t *testing.T) {
 	if sink == nil {
 		t.Fatal("missing tanker obj")
 	}
-	sink.Description = "SECRET SINK TANKER"
+	sink.Description = i18n.T("SECRET SINK TANKER", "SECRET SINK TANKER")
 	sink.NeedDestroy = true
 	sink.NeedIdentify = false
 	sink.Hidden = true

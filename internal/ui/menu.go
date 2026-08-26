@@ -7,6 +7,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/version"
 )
@@ -26,11 +27,11 @@ const (
 
 func (a *App) menuItems() []menuItem {
 	return []menuItem{
-		{Label: "SCENARIOS", Action: menuActionScenarios},
-		{Label: "IMPORT SCENARIO", Action: menuActionImportScenario},
-		{Label: "LOAD GAME", Action: menuActionLoad},
-		{Label: "SETTINGS", Action: menuActionSettings},
-		{Label: "QUIT", Action: menuActionQuit},
+		{Label: a.L(i18n.UIMenuNewGame), Action: menuActionScenarios},
+		{Label: a.L(i18n.UIMenuImportScenario), Action: menuActionImportScenario},
+		{Label: a.L(i18n.UIMenuLoadGame), Action: menuActionLoad},
+		{Label: a.L(i18n.UIMenuSettings), Action: menuActionSettings},
+		{Label: a.L(i18n.UIMenuQuit), Action: menuActionQuit},
 	}
 }
 

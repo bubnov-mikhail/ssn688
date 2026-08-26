@@ -4,6 +4,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/campaign"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 )
 
@@ -12,12 +13,12 @@ const (
 	scenarioPanelY = 60
 	scenarioPanelH = 740
 
-	scenarioListW       = 320
-	scenarioDetailW     = 480
-	scenarioDetailPad   = 16
-	scenarioCoverH      = 320 // 3:2 at 480px (demo cover 1536×1024)
-	scenarioColumnGap   = 24
-	scenarioTitleGap    = 40 // title + version block above cover
+	scenarioListW        = 320
+	scenarioDetailW      = 480
+	scenarioDetailPad    = 16
+	scenarioCoverH       = 320 // 3:2 at 480px (demo cover 1536×1024)
+	scenarioColumnGap    = 24
+	scenarioTitleGap     = 40 // title + version block above cover
 	scenarioCoverTextGap = 28 // clear font baselines into cover
 )
 
@@ -55,7 +56,7 @@ func drawWrappedTextBox(screen *ebiten.Image, text string, x, y, maxW, lineH, ma
 	render.DrawMarkdown(screen, text, x, y, maxW, maxY, small)
 }
 
-func drawScenarioCoverImage(screen *ebiten.Image, sc *campaign.ScenarioDef, m *campaign.MissionDef, x, y, w, h int) {
+func drawScenarioCoverImage(a *App, screen *ebiten.Image, sc *campaign.ScenarioDef, m *campaign.MissionDef, x, y, w, h int) {
 	if sc == nil {
 		return
 	}
@@ -64,7 +65,7 @@ func drawScenarioCoverImage(screen *ebiten.Image, sc *campaign.ScenarioDef, m *c
 		return
 	}
 	render.FillRect(screen, x, y, w, h, render.ColorPanelInset)
-	render.DrawText(screen, "NO ART", x+w/2-28, y+h/2, render.ColorDim, true)
+	render.DrawText(screen, a.L(i18n.UINoArt), x+w/2-28, y+h/2, render.ColorDim, true)
 }
 
 func scenarioVersionLine(sc *campaign.ScenarioDef) string {
@@ -154,7 +155,7 @@ func (a *App) updateScenarioList() error {
 
 	if sc := a.selectedScenarioDef(); sc != nil {
 		tx, ty, tw, th := scenarioListBackstoryRect()
-		body := sc.Backstory
+		body := sc.Backstory.GetText(a.Lang())
 		if !sc.Compatible {
 			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
 		}
@@ -182,8 +183,7 @@ func (a *App) updateScenarioList() error {
 	}
 	rx, ry, rw, rh := a.scenarioListRestartRect()
 	if a.selectedScenarioPlayable() && hitRect(mx, my, rx, ry, rw, rh) {
-		a.showConfirm(confirmRestartScenario, "RESTART SCENARIO",
-			"All save files for this scenario will be permanently deleted. Start the campaign from the first mission?")
+		a.showConfirm(confirmRestartScenario, a.L(i18n.UIConfirmRestartTitle), a.L(i18n.UIConfirmRestartBody))
 		return nil
 	}
 	sx, sy, sw, sh := a.scenarioListSelectRect()
@@ -219,9 +219,9 @@ func (a *App) updateScenarioBrief() error {
 			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
 		} else if a.briefDebrief && cur != nil {
 			prog := a.scenarioProgress(sc.ID)
-			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes)
+			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes, a.Lang())
 		} else if cur != nil {
-			body = cur.Description
+			body = cur.Description.GetText(a.Lang())
 		}
 		if body != "" {
 			small := aboveLoadout
@@ -277,7 +277,7 @@ func scenarioListRect() (x, y, w, rowH int) {
 }
 
 func (a *App) scenarioListContinueRect() (x, y, w, h int) {
-	w = render.ButtonWidth("CONTINUE SCENARIO", 20)
+	w = render.ButtonWidth(a.L(i18n.UIContinueScenario), 20)
 	h = 40
 	x = scenarioDetailX() + scenarioDetailW - w
 	y = scenarioPanelY + scenarioPanelH - h - 24
@@ -285,7 +285,7 @@ func (a *App) scenarioListContinueRect() (x, y, w, h int) {
 }
 
 func (a *App) scenarioListSelectRect() (x, y, w, h int) {
-	w = render.ButtonWidth("OPEN SCENARIO", 20)
+	w = render.ButtonWidth(a.L(i18n.UIOpenScenario), 20)
 	h = 40
 	x = scenarioDetailX()
 	y = scenarioPanelY + scenarioPanelH - h - 24
@@ -293,7 +293,7 @@ func (a *App) scenarioListSelectRect() (x, y, w, h int) {
 }
 
 func (a *App) scenarioListRestartRect() (x, y, w, h int) {
-	w = render.ButtonWidth("RESTART SCENARIO", 20)
+	w = render.ButtonWidth(a.L(i18n.UIRestartScenario), 20)
 	h = 40
 	ox, oy, ow, _ := a.scenarioListSelectRect()
 	x = ox + ow + 16
@@ -302,7 +302,7 @@ func (a *App) scenarioListRestartRect() (x, y, w, h int) {
 }
 
 func (a *App) scenarioListBackRect() (x, y, w, h int) {
-	w = render.ButtonWidth("BACK", 20)
+	w = render.ButtonWidth(a.L(i18n.UIBack), 20)
 	h = 40
 	x = scenarioPanelX + 16
 	_, y, _, _ = a.scenarioListSelectRect()
@@ -310,7 +310,7 @@ func (a *App) scenarioListBackRect() (x, y, w, h int) {
 }
 
 func (a *App) scenarioBriefBackRect() (x, y, w, h int) {
-	w = render.ButtonWidth("BACK", 20)
+	w = render.ButtonWidth(a.L(i18n.UIBack), 20)
 	h = 40
 	x = scenarioPanelX + 16
 	y = scenarioPanelY + scenarioPanelH - h - 24
@@ -327,13 +327,13 @@ func (a *App) scenarioBriefPrimaryRect() (x, y, w, h int) {
 
 func (a *App) scenarioBriefPrimaryLabel() string {
 	if a.briefDebrief {
-		return "NEXT MISSION"
+		return a.L(i18n.UINextMission)
 	}
 	sc := a.selectedScenarioDef()
 	if sc != nil && a.scenarioProgress(sc.ID).ScenarioComplete(sc) {
-		return "SCENARIO COMPLETE"
+		return a.L(i18n.UIScenarioComplete)
 	}
-	return "START MISSION"
+	return a.L(i18n.UIStartMission)
 }
 
 func (a *App) scenarioBriefHasNext() bool {
@@ -423,7 +423,7 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 	render.DrawMenuBackground(screen)
 	panelW := scenarioPanelW()
 	render.DrawConsolePanel(screen, scenarioPanelX, scenarioPanelY, panelW, scenarioPanelH)
-	render.DrawTextLarge(screen, "SELECT SCENARIO", scenarioPanelX+20, scenarioPanelY+28, render.ColorText)
+	render.DrawTextLarge(screen, a.L(i18n.UISelectScenario), scenarioPanelX+20, scenarioPanelY+28, render.ColorText)
 
 	defs := a.scenarioDefs()
 	a.ensureScenarioSelection()
@@ -441,9 +441,9 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 		} else if selected {
 			clr = render.ColorSonar
 		}
-		label := d.Title
+		label := d.Title.GetText(a.Lang())
 		if !d.Compatible {
-			label += "  — INCOMPATIBLE"
+			label += a.L(i18n.UIIncompatibleBadge)
 		}
 		render.DrawText(screen, label, listX+8, y+24, clr, false)
 	}
@@ -452,15 +452,15 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 		detailX := scenarioDetailX()
 		titleX := detailX
 		titleY := scenarioPanelY + 48
-		render.DrawTextLarge(screen, sc.Title, titleX, titleY, render.ColorText)
+		render.DrawTextLarge(screen, sc.Title.GetText(a.Lang()), titleX, titleY, render.ColorText)
 		render.DrawText(screen, scenarioVersionLine(sc), titleX, titleY+24, render.ColorPhosphorDim, true)
 		coverY := scenarioListCoverY()
-		drawScenarioCoverImage(screen, sc, nil, detailX, coverY, scenarioDetailW, scenarioCoverH)
+		drawScenarioCoverImage(a, screen, sc, nil, detailX, coverY, scenarioDetailW, scenarioCoverH)
 
 		tx, ty, tw, th := scenarioListBackstoryRect()
-		body := sc.Backstory
+		body := sc.Backstory.GetText(a.Lang())
 		if !sc.Compatible {
-			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
+			body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
 		}
 		lines := render.ParseMarkdown(body, tw, false)
 		vis := th / 18
@@ -481,27 +481,27 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 		hasSave = err == nil
 	}
 	if hasSave {
-		render.DrawBevelButton(screen, cx, cy, cw, ch, "CONTINUE SCENARIO", hitRect(mx, my, cx, cy, cw, ch), false)
+		render.DrawBevelButton(screen, cx, cy, cw, ch, a.L(i18n.UIContinueScenario), hitRect(mx, my, cx, cy, cw, ch), false)
 	} else {
-		render.DrawBevelButtonDisabled(screen, cx, cy, cw, ch, "CONTINUE SCENARIO")
+		render.DrawBevelButtonDisabled(screen, cx, cy, cw, ch, a.L(i18n.UIContinueScenario))
 	}
 	rx, ry, rw, rh := a.scenarioListRestartRect()
 	if sc != nil && sc.Compatible {
-		render.DrawBevelButton(screen, rx, ry, rw, rh, "RESTART SCENARIO", hitRect(mx, my, rx, ry, rw, rh), false)
+		render.DrawBevelButton(screen, rx, ry, rw, rh, a.L(i18n.UIRestartScenario), hitRect(mx, my, rx, ry, rw, rh), false)
 	} else {
-		render.DrawBevelButtonDisabled(screen, rx, ry, rw, rh, "RESTART SCENARIO")
+		render.DrawBevelButtonDisabled(screen, rx, ry, rw, rh, a.L(i18n.UIRestartScenario))
 	}
 	sx, sy, sw, sh := a.scenarioListSelectRect()
 	if sc != nil && sc.Compatible {
-		render.DrawBevelButton(screen, sx, sy, sw, sh, "OPEN SCENARIO", hitRect(mx, my, sx, sy, sw, sh), false)
+		render.DrawBevelButton(screen, sx, sy, sw, sh, a.L(i18n.UIOpenScenario), hitRect(mx, my, sx, sy, sw, sh), false)
 	} else {
-		render.DrawBevelButtonDisabled(screen, sx, sy, sw, sh, "OPEN SCENARIO")
+		render.DrawBevelButtonDisabled(screen, sx, sy, sw, sh, a.L(i18n.UIOpenScenario))
 	}
 	bx, by, bw, bh := a.scenarioListBackRect()
-	render.DrawBevelButton(screen, bx, by, bw, bh, "BACK", hitRect(mx, my, bx, by, bw, bh), false)
+	render.DrawBevelButton(screen, bx, by, bw, bh, a.L(i18n.UIBack), hitRect(mx, my, bx, by, bw, bh), false)
 
 	if a.StatusMessage != "" {
-		render.DrawText(screen, a.StatusMessage, scenarioPanelX+20, scenarioPanelY+scenarioPanelH+12, render.ColorWarn, false)
+		render.DrawText(screen, a.displayStatus(), scenarioPanelX+20, scenarioPanelY+scenarioPanelH+12, render.ColorWarn, false)
 	}
 	a.drawConfirmDialog(screen)
 }
@@ -517,7 +517,7 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 	prog := a.scenarioProgress(sc.ID)
 	complete := prog.ScenarioComplete(sc)
 	cur := a.briefDisplayedMission(sc)
-	render.DrawTextLarge(screen, sc.Title, scenarioPanelX+20, scenarioPanelY+28, render.ColorText)
+	render.DrawTextLarge(screen, sc.Title.GetText(a.Lang()), scenarioPanelX+20, scenarioPanelY+28, render.ColorText)
 	render.DrawText(screen, scenarioVersionLine(sc), scenarioPanelX+20, scenarioPanelY+52, render.ColorPhosphorDim, true)
 
 	listX := scenarioPanelX + 16
@@ -526,11 +526,9 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 		y := listY + i*32
 		done := prog.CompletedMissions[m.ID]
 		selected := cur != nil && m.ID == cur.ID
-		label := m.Title
+		label := m.Title.GetText(a.Lang())
 		if done {
-			label += "  — DONE"
-		} else if !complete && selected {
-			label += "  — CURRENT"
+			label += a.L(i18n.UIDoneBadge)
 		}
 		if selected {
 			render.FillRect(screen, listX, y, scenarioListW, 28, render.ColorPanel)
@@ -547,17 +545,17 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 	if cur != nil {
 		textX := scenarioDetailX()
 		descY := scenarioPanelY + 64
-		render.DrawTextLarge(screen, cur.Title, textX, descY, render.ColorText)
+		render.DrawTextLarge(screen, cur.Title.GetText(a.Lang()), textX, descY, render.ColorText)
 
 		aboveLoadout := sc.Compatible && !a.briefDebrief
 		tx, ty, tw, th := scenarioBriefDescRect(aboveLoadout)
-		body := cur.Description
+		body := cur.Description.GetText(a.Lang())
 		small := true
 		if !sc.Compatible {
-			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
+			body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
 			small = false
 		} else if a.briefDebrief {
-			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes)
+			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes, a.Lang())
 			small = false
 		}
 		lines := render.ParseMarkdown(body, tw, small)
@@ -581,18 +579,18 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 
 	mx, my := ebiten.CursorPosition()
 	bx, by, bw, bh := a.scenarioBriefBackRect()
-	render.DrawBevelButton(screen, bx, by, bw, bh, "BACK", hitRect(mx, my, bx, by, bw, bh), false)
+	render.DrawBevelButton(screen, bx, by, bw, bh, a.L(i18n.UIBack), hitRect(mx, my, bx, by, bw, bh), false)
 	stx, sty, stw, sth := a.scenarioBriefPrimaryRect()
 	if a.briefDebrief {
 		if a.scenarioBriefHasNext() {
-			render.DrawBevelButton(screen, stx, sty, stw, sth, "NEXT MISSION", hitRect(mx, my, stx, sty, stw, sth), false)
+			render.DrawBevelButton(screen, stx, sty, stw, sth, a.L(i18n.UINextMission), hitRect(mx, my, stx, sty, stw, sth), false)
 		}
 	} else if !complete && sc.Compatible {
-		render.DrawBevelButton(screen, stx, sty, stw, sth, "START MISSION", hitRect(mx, my, stx, sty, stw, sth), false)
+		render.DrawBevelButton(screen, stx, sty, stw, sth, a.L(i18n.UIStartMission), hitRect(mx, my, stx, sty, stw, sth), false)
 	} else if !sc.Compatible {
-		render.DrawBevelButtonDisabled(screen, stx, sty, stw, sth, "START MISSION")
+		render.DrawBevelButtonDisabled(screen, stx, sty, stw, sth, a.L(i18n.UIStartMission))
 	} else {
-		render.DrawBevelButtonDisabled(screen, stx, sty, stw, sth, "SCENARIO COMPLETE")
+		render.DrawBevelButtonDisabled(screen, stx, sty, stw, sth, a.L(i18n.UIScenarioComplete))
 	}
 	a.drawConfirmDialog(screen)
 }

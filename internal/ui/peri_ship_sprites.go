@@ -17,8 +17,8 @@ const (
 )
 
 type periShipSprite struct {
-	pix    []uint8
-	w, h   int
+	pix  []uint8
+	w, h int
 	// Content bbox inside the PNG (tight crop).
 	x0, y0, x1, y1 int
 }

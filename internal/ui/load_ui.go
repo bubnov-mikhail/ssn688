@@ -7,17 +7,18 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 )
 
 const (
-	loadListX     = 360
-	loadListY     = 200
-	loadRowH      = 36
+	loadListX      = 360
+	loadListY      = 200
+	loadRowH       = 36
 	loadMaxVisible = 12
-	loadBtnW      = 160
-	loadBtnH      = 48
-	loadBtnGap    = 16
+	loadBtnW       = 160
+	loadBtnH       = 48
+	loadBtnGap     = 16
 )
 
 func (a *App) loadActionButtonRects() (loadX, backX, y, w, h int) {
@@ -100,12 +101,12 @@ func (a *App) updateLoad() {
 func (a *App) drawLoad(screen *ebiten.Image) {
 	render.DrawMenuBackground(screen)
 
-	title := "LOAD GAME"
+	title := a.L(i18n.UILoadGameTitle)
 	titleW := len(title) * 14
 	render.DrawTextLarge(screen, title, (render.ScreenW-titleW)/2, 100, render.ColorText)
 
 	if len(a.LoadFiles) == 0 {
-		render.DrawText(screen, "No save files found.", loadListX, loadListY, render.ColorWarn, false)
+		render.DrawText(screen, a.L(i18n.UINoSavesFound), loadListX, loadListY, render.ColorWarn, false)
 	} else {
 		mx, my := ebiten.CursorPosition()
 		for i, f := range a.LoadFiles {
@@ -139,11 +140,11 @@ func (a *App) drawLoad(screen *ebiten.Image) {
 	backHover := a.headerHit(mx, my, backX, backY, btnW, btnH)
 	loadPressed := a.uiPressedID == "load_do" && time.Since(a.uiPressedAt) < 120*time.Millisecond
 	backPressed := a.uiPressedID == "load_back" && time.Since(a.uiPressedAt) < 120*time.Millisecond
-	render.DrawBevelButton(screen, loadX, btnY, btnW, btnH, "LOAD", loadHover, loadPressed)
-	render.DrawBevelButton(screen, backX, backY, btnW, btnH, "BACK", backHover, backPressed)
+	render.DrawBevelButton(screen, loadX, btnY, btnW, btnH, a.L(i18n.UILoad), loadHover, loadPressed)
+	render.DrawBevelButton(screen, backX, backY, btnW, btnH, a.L(i18n.UIBack), backHover, backPressed)
 
 	if a.StatusMessage != "" {
-		render.DrawText(screen, a.StatusMessage, loadListX, 700, render.ColorWarn, false)
+		render.DrawText(screen, a.displayStatus(), loadListX, 700, render.ColorWarn, false)
 	}
 
 	hint := "CLICK A SAVE, THEN LOAD  ·  ESC BACK"

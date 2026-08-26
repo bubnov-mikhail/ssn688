@@ -61,11 +61,12 @@ internal/
   weapons/              — Mk48/Type53, seeker, CM (decoy/jitter/Nixie)
   ai/                   — враг/гражданские, уклонение от торпед + CM
   ui/                   — экраны F1–F6, PLOT, ввод, алерты
+  i18n/                 — UI/status/voice строки (`T(en,ru)`), `SupportedLangs`, язык из Settings
   render/ + layout/     — отрисовка и координаты панелей
   audio/                — голоса офицеров (embed WAV) + FX
   save/                 — сериализация Engine/Sonar/торпед
   config/               — settings.json, пути saves
-scripts/                — macOS app, Kokoro TTS → voices
+scripts/                — macOS app, Kokoro EN + Silero RU TTS → voices
 tools/                  — пересборка батиметрии
 agent-skills/           — доменные навыки для ИИ-агентов (SKILL.md)
 ```
@@ -84,6 +85,7 @@ agent-skills/           — доменные навыки для ИИ-агент
 | Разгон судов | `world/entity.go` — `MaxSpeedAccelKtsPerSec` |
 | Подписи шума (LOFAR) | `world/signatures.go`, `acoustics/source.go` |
 | Голосовые клипы | `audio/clips.go`, `audio/voice.go`, `audio/voices/**` |
+| UI-строки / локализация | `internal/i18n/` (`strings_*.go`, `i18n.T`), отрисовка через `a.L(...)` / `a.Lf(...)` |
 | Кампания / состав миссии | `scenarios/*.json`, `agent-skills/scenario-authoring/SKILL.md`, `internal/campaign/instantiate.go`, `scenario_load.go`, `build.go` |
 | Новая карта / bathy / маршруты | `agent-skills/bathymetry-and-routes/SKILL.md`, `tools/gen_hormuz_bathy.py`, `internal/world/bathymetry*.go`, `diagonal_routes.go`, `coastal_routes.go`, `scenarios/*.json` |
 | Новый сценарий (импорт) | `agent-skills/scenario-authoring/SKILL.md` → `scenarios_generated/*.json` (не в git) |
@@ -113,13 +115,15 @@ agent-skills/           — доменные навыки для ИИ-агент
 
 - Экраны живут в `internal/ui`; геометрия панелей — `layout`, цвета/шрифты — `render`.
 - Сохранение сессии / reload: `ui/session.go`, `save/save.go` — при новых полях контакта/торпеды обновляй сериализацию **и** тесты `save`.
+- **Локализация UI:** при добавлении новых элементов с надписями (кнопки, заголовки, подсказки, статус-строки, меню) **не** хардкодь английский/русский в `ui`. Добавь `i18n.T("en", "ru")` в подходящий `internal/i18n/strings_*.go` и рисуй через `a.L(...)` / `a.Lf(...)`. Языки — `i18n.SupportedLangs` (сейчас **en**, **ru**); для каждого нового текста нужны переводы на **все** поддерживаемые языки.
 
 ### Сценарии (JSON) и версии
 
 - Сценарии — **JSON-файлы**, не Go-код. Демо: `scenarios/demo_catalina.json` (embed в бинарник). Пользовательские: `~/Library/Application Support/ssn688/scenarios/` (рядом с saves). Формат документирован в [`scenarios/schema.json`](scenarios/schema.json).
 - **Все бинарные ассеты** (обложка, bathy) — **inline base64** в том же JSON; `asset_ref` / `use_game_default` не поддерживаются.
 - Bathymetry живёт только в сценарии. При save/reload chart берётся из theater выбранного сценария (`campaign.ResolveMissionBathy`); глобального `DefaultBathy` / `assets/bathy.bin` нет.
-- Поля semver: `format_version` (major = схема JSON, см. `version.ScenarioFormatMajor`, сейчас **2**), `version` (версия сценария), `min_game_version` (минимальная версия игры).
+- Поля semver: `format_version` (major = схема JSON, см. `version.ScenarioFormatMajor`, сейчас **3**), `version` (версия сценария), `min_game_version` (минимальная версия игры).
+- Player-facing тексты сценария — объекты `{"en","ru",…}` (`loc_string`); язык UI — `Settings.Language`.
 - Маршруты: явные `waypoints` + `mode` (`open` | `pingpong` | `loop`); опционально `player_clearance` для расстановки ownship.
 - **При правке сценария** инкрементируй `version` по semver (patch — правки контента, minor — новые миссии/поля без ломки, major — несовместимые изменения).
 - **Версия игры** — файл `VERSION` в корне + копия `internal/version/VERSION` (embed). При **breaking change** в игре для сценариев: увеличь major в `VERSION`, обнули minor/patch; при смене JSON-схемы — увеличь `ScenarioFormatMajor` в `internal/version/version.go`.
@@ -154,7 +158,7 @@ world → (почти никого)
 ## Ассеты и голоса
 
 - WAV офицеров — `internal/audio/voices/{capt,sonar,weps,dive,nav}/`, регистрация в `clips.go`.
-- Перегенерация TTS (Apple Silicon, `mlx-audio`): см. README → `scripts/generate_voices_kokoro.py`.
+- Перегенерация TTS: EN — `scripts/generate_voices_kokoro.py` (mlx-audio); RU — `scripts/generate_voices_silero_ru.py` (Silero). См. README.
 - Батиметрия: только внутри `scenarios/*.json` (`theaters[].bathy.data_b64`). Пересборка сетки: `tools/gen_hormuz_bathy.py` → бинарник, затем inline в JSON (`tools/gen_demo_scenario_json.go`). Подробный пайплайн — [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md).
 
 ## Коммиты (когда попросили)

@@ -10,6 +10,7 @@ import (
 	"github.com/ssn688/sim/internal/audio"
 	"github.com/ssn688/sim/internal/campaign"
 	"github.com/ssn688/sim/internal/config"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/save"
 	"github.com/ssn688/sim/internal/sim"
@@ -140,16 +141,16 @@ func (a *App) StartNewGame() {
 
 func (a *App) loadSelectedSave() {
 	if len(a.LoadFiles) == 0 {
-		a.StatusMessage = "No save files found."
+		a.Status(i18n.StatusNoSaves)
 		return
 	}
 	if a.LoadIndex < 0 || a.LoadIndex >= len(a.LoadFiles) {
-		a.StatusMessage = "Select a save file first."
+		a.Status(i18n.StatusSelectSave)
 		return
 	}
 	engine, err := save.LoadClean(a.LoadFiles[a.LoadIndex])
 	if err != nil {
-		a.StatusMessage = "Load failed: " + err.Error()
+		a.Statusf(i18n.StatusLoadFailed, err.Error())
 		return
 	}
 	a.beginGameSession(engine)
@@ -161,16 +162,16 @@ func (a *App) quickSave() {
 	}
 	dir, err := config.SavesDir()
 	if err != nil {
-		a.StatusMessage = "Save failed: " + err.Error()
+		a.Statusf(i18n.StatusSaveFailed, err.Error())
 		return
 	}
 	name := fmt.Sprintf("quicksave_%03d.sav", int(a.Engine.Clock.GameTime)%1000)
 	path := filepath.Join(dir, name)
 	if err := save.Save(path, a.Engine); err != nil {
-		a.StatusMessage = "Save failed: " + err.Error()
+		a.Statusf(i18n.StatusSaveFailed, err.Error())
 		return
 	}
-	a.StatusMessage = "Game saved: " + name
+	a.Statusf(i18n.StatusGameSaved, name)
 	if a.Audio != nil {
 		a.Audio.PlayClip(audio.ClipCaptSaveComplete, "")
 	}
@@ -178,9 +179,9 @@ func (a *App) quickSave() {
 
 func (a *App) headerButtonRects() (saveX, endX, exitX, y, wSave, wEnd, wExit, h int) {
 	h = headerBtnH
-	wSave = render.ButtonWidth("SAVE", 20)
-	wEnd = render.ButtonWidth("END MISSION", 12)
-	wExit = render.ButtonWidth("EXIT", 20)
+	wSave = render.ButtonWidth(a.L(i18n.UISave), 20)
+	wEnd = render.ButtonWidth(a.L(i18n.UIEndMission), 12)
+	wExit = render.ButtonWidth(a.L(i18n.UIExit), 20)
 	y = (gameHeaderH - h) / 2
 	exitX = render.ScreenW - headerBtnPad - wExit
 	endX = exitX - headerBtnGap - wEnd
@@ -214,15 +215,13 @@ func (a *App) handleHeaderButtons() bool {
 		}
 		a.uiPressedID = "hdr_end"
 		a.uiPressedAt = time.Now()
-		a.showConfirm(confirmEndMission, "END MISSION",
-			"End the current mission? Progress will be saved automatically and you will return to the scenario briefing.")
+		a.showConfirm(confirmEndMission, a.L(i18n.UIConfirmEndTitle), a.L(i18n.UIConfirmEndBody))
 		return true
 	}
 	if a.headerHit(mx, my, exitX, y, wExit, h) {
 		a.uiPressedID = "hdr_exit"
 		a.uiPressedAt = time.Now()
-		a.showConfirm(confirmExitMenu, "EXIT TO MENU",
-			"Leave the current mission and return to the main menu? Unsaved progress since the last save will be lost.")
+		a.showConfirm(confirmExitMenu, a.L(i18n.UIConfirmExitTitle), a.L(i18n.UIConfirmExitBody))
 		return true
 	}
 	return false
@@ -237,11 +236,11 @@ func (a *App) drawHeaderButtons(screen *ebiten.Image) {
 	savePressed := a.uiPressedID == "hdr_save" && time.Since(a.uiPressedAt) < 120*time.Millisecond
 	endPressed := a.uiPressedID == "hdr_end" && time.Since(a.uiPressedAt) < 120*time.Millisecond
 	exitPressed := a.uiPressedID == "hdr_exit" && time.Since(a.uiPressedAt) < 120*time.Millisecond
-	render.DrawBevelButton(screen, saveX, y, wSave, h, "SAVE", saveHover, savePressed)
+	render.DrawBevelButton(screen, saveX, y, wSave, h, a.L(i18n.UISave), saveHover, savePressed)
 	if a.missionEndEligible() {
-		render.DrawBevelButton(screen, endX, y, wEnd, h, "END MISSION", endHover, endPressed)
+		render.DrawBevelButton(screen, endX, y, wEnd, h, a.L(i18n.UIEndMission), endHover, endPressed)
 	} else {
-		render.DrawBevelButtonDisabled(screen, endX, y, wEnd, h, "END MISSION")
+		render.DrawBevelButtonDisabled(screen, endX, y, wEnd, h, a.L(i18n.UIEndMission))
 	}
-	render.DrawBevelButton(screen, exitX, y, wExit, h, "EXIT", exitHover, exitPressed)
+	render.DrawBevelButton(screen, exitX, y, wExit, h, a.L(i18n.UIExit), exitHover, exitPressed)
 }

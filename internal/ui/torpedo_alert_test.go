@@ -50,7 +50,7 @@ func TestIncomingTorpedoAlertPlaysVoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := clips[audio.ClipWepsTorpedoHeadingOwnship]; !ok {
+	if _, ok := clips["weps/torpedo_heading_ownship"]; !ok {
 		t.Fatal("missing weps/torpedo_heading_ownship voice asset")
 	}
 
@@ -75,11 +75,11 @@ func TestIncomingTorpedoAlertPlaysVoice(t *testing.T) {
 	if !app.torpedoThreatActive["ETORP-1"] {
 		t.Fatal("expected threat to be marked active")
 	}
-	if !strings.Contains(app.StatusMessage, "Incomming torpedo") {
+	if !strings.Contains(app.StatusMessage, "Incoming torpedo") {
 		t.Fatalf("status=%q", app.StatusMessage)
 	}
 	sub, ok := mgr.Subtitle()
-	if !ok || !strings.Contains(sub, "Incomming torpedo") {
+	if !ok || !strings.Contains(sub, "Incoming torpedo") {
 		t.Fatalf("expected WEPS incoming subtitle, got %q ok=%v", sub, ok)
 	}
 }

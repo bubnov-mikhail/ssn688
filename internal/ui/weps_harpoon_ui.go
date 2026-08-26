@@ -10,6 +10,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -24,15 +25,15 @@ func contactTMAUsableForLead(c *acoustics.Contact) bool {
 	return c != nil && c.TMAAccuracy >= 0.5 && c.TMASpeedKts >= 0.5
 }
 
-func wepsTubeRowStatusExtra(t weapons.Tube, reloadRemainSec float64) string {
+func (a *App) wepsTubeRowStatusExtra(t weapons.Tube, reloadRemainSec float64) string {
 	switch t.State {
 	case weapons.TubeEmpty:
-		return "EMPTY"
+		return a.L(i18n.UIEmpty)
 	case weapons.TubeReloading:
 		if reloadRemainSec > 0 {
-			return fmt.Sprintf("RELOAD %ds", int(reloadRemainSec+0.5))
+			return a.Lf(i18n.UIReloadSecs, int(reloadRemainSec+0.5))
 		}
-		return "RELOADING"
+		return a.L(i18n.UIReloading)
 	case weapons.TubeFired:
 		if t.WireIntact {
 			return "wired"
@@ -70,7 +71,7 @@ func (a *App) wepsOrdnancePickButton(tube int, y int) sonarUIButton {
 	return sonarUIButton{
 		ID:      fmt.Sprintf("ordnance_%d", tube),
 		Label:   label,
-		Tooltip: "Select ordnance type to load",
+		Tooltip: a.L(i18n.UITipOrdnance),
 		X:       wepsOrdnanceBtnX,
 		Y:       btnY,
 		W:       w,
@@ -100,11 +101,11 @@ func (a *App) wepsOrdnanceMenuButtons(tube int, y int) []sonarUIButton {
 }
 
 func (a *App) wepsHarpoonCtrlButtons(fc *weapons.FireControl) []sonarUIButton {
-	spinY, spinH, btnW, g0, _, inner, _ := wepsCtrlSpinLayout()
+	spinY, spinH, btnW, g0, _, inner, _ := wepsCtrlSpinLayout(0)
 
-	beamLabel := "BEAM WIDE"
+	beamLabel := a.L(i18n.UIBeamWide)
 	if fc.HarpoonRadarBeam == weapons.HarpoonBeamNarrow {
-		beamLabel = "BEAM NARROW"
+		beamLabel = a.L(i18n.UIBeamNarrow)
 	}
 
 	gyroBtns := []sonarUIButton{
@@ -140,7 +141,7 @@ func (a *App) wepsOrdnanceAction(id string, fc *weapons.FireControl, gameTime fl
 		if err == nil && tube >= 1 && tube <= 4 {
 			a.wepsOrdnanceMenuTube = 0
 			if fc.RequestOrdnanceReload(tube, parts[1], gameTime) {
-				a.StatusMessage = fmt.Sprintf("Tube %d reloading %s.", tube, parts[1])
+				a.Statusf(i18n.StatusTubeReloading, tube, parts[1])
 			}
 			return true
 		}
@@ -151,7 +152,7 @@ func (a *App) wepsOrdnanceAction(id string, fc *weapons.FireControl, gameTime fl
 	}
 	t := fc.TubeByNumber(tube)
 	if t != nil && (t.State == weapons.TubeDoorOpen || t.State == weapons.TubeFired) {
-		a.StatusMessage = "Cannot change ordnance — tube door open or weapon away."
+		a.Status(i18n.StatusCannotChangeOrdnance)
 		return true
 	}
 	if a.wepsOrdnanceMenuTube == tube {
@@ -167,12 +168,12 @@ func (a *App) wepsFireTube(fc *weapons.FireControl, player *world.Entity, tube i
 	player.EnsureDamage()
 	sys := world.TubeSys(tube)
 	if sys != world.SysNone && !player.Damage.Operational(sys) {
-		a.StatusMessage = fmt.Sprintf("Tube %d damaged — cannot fire.", tube)
+		a.Statusf(i18n.StatusTubeDamagedNoFire, tube)
 		return
 	}
 	t := fc.TubeByNumber(tube)
 	if t == nil || t.State != weapons.TubeDoorOpen {
-		a.StatusMessage = "Cannot fire — open outer door first."
+		a.Status(i18n.StatusOpenDoorFirst)
 		return
 	}
 	ord := weapons.NormalizeOrdnance(t.TorpedoType)
@@ -182,7 +183,7 @@ func (a *App) wepsFireTube(fc *weapons.FireControl, player *world.Entity, tube i
 			if a.Audio != nil {
 				a.Audio.PlayTorpedoLaunch()
 				a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
-					fmt.Sprintf("Harpoon away, tube %d.", tube))
+					a.Lf(i18n.StatusVoiceHarpoonAway, tube))
 			}
 		}
 		return
@@ -190,13 +191,12 @@ func (a *App) wepsFireTube(fc *weapons.FireControl, player *world.Entity, tube i
 	if torp := fc.Shoot(player, tube); torp != nil {
 		a.markOwnTorpedo(torp.ID)
 		if a.Audio != nil {
-			// Launch FX on WEPS Fire (any screen context); voice callout follows.
 			a.Audio.PlayTorpedoLaunch()
 			a.Audio.PlayClip(audio.TubeClip("torpedo_away", tube),
-				fmt.Sprintf("Torpedo away, tube %d.", tube))
+				a.Lf(i18n.StatusVoiceTorpedoAway, tube))
 		}
 	} else {
-		a.StatusMessage = "Cannot fire — open outer door first."
+		a.Status(i18n.StatusOpenDoorFirst)
 	}
 }
 

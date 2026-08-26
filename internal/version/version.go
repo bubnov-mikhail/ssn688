@@ -9,7 +9,7 @@ import (
 var raw string
 
 // ScenarioFormatMajor is bumped when scenario JSON schema has breaking changes.
-const ScenarioFormatMajor = 2
+const ScenarioFormatMajor = 3
 
 // Title is the public game name (menu, window title, bundle metadata).
 const Title = "SSN-688 Modern Submarine Combat Simulator"

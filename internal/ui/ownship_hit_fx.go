@@ -15,7 +15,7 @@ const (
 	ownshipHitShakeDur    = 800 * time.Millisecond
 	ownshipHitShakeAmpPx  = 30.0 // vertical kick peak (up/down)
 	ownshipHitShakeKicks  = 9
-	ownshipHitVignetteMax = 72  // peak edge alpha (was too opaque)
+	ownshipHitVignetteMax = 72 // peak edge alpha (was too opaque)
 	dcTabBlinkPeriod      = 400 * time.Millisecond
 )
 

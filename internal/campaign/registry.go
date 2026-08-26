@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/ssn688/sim/internal/config"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/scenarios"
 )
 
@@ -91,10 +92,12 @@ func loadAllScenarios() []ScenarioDef {
 		out = append(out, sc)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Title == out[j].Title {
+		ti := out[i].Title.GetText(i18n.LangEN)
+		tj := out[j].Title.GetText(i18n.LangEN)
+		if ti == tj {
 			return out[i].ID < out[j].ID
 		}
-		return out[i].Title < out[j].Title
+		return ti < tj
 	})
 	return out
 }

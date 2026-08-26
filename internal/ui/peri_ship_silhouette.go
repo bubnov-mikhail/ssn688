@@ -608,4 +608,3 @@ func drawPeriShipBloom(pix []byte, w, h int, p acoustics.PeriShipProj, cols []pe
 		}
 	}
 }
-

@@ -1,5 +1,7 @@
 package world
 
+import "github.com/ssn688/sim/internal/i18n"
+
 type Side int
 
 const (
@@ -43,11 +45,34 @@ type TonalLine struct {
 // SignatureProfile is a library entry for classification.
 type SignatureProfile struct {
 	ID           string
-	Name         string
-	Class        string
+	Name         i18n.TranslatedText
+	Class        i18n.TranslatedText
 	Kind         EntityKind
 	Bands        []NoiseBand
 	Tonals       []TonalLine
 	BladeRateHz  float64
 	CavitationDB float64
+}
+
+// DisplayName is the profile name in the active UI language.
+func (p SignatureProfile) DisplayName() string {
+	return p.Name.GetText(i18n.CurrentLang())
+}
+
+// DisplayClass is the short class label in the active UI language.
+func (p SignatureProfile) DisplayClass() string {
+	return p.Class.GetText(i18n.CurrentLang())
+}
+
+// MatchesLabel reports whether s equals Name or Class in any supported language.
+func (p SignatureProfile) MatchesLabel(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, lang := range i18n.SupportedLangs {
+		if p.Name.GetText(lang) == s || p.Class.GetText(lang) == s {
+			return true
+		}
+	}
+	return false
 }

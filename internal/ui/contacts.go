@@ -8,8 +8,13 @@ import (
 )
 
 func contactClassLabel(c *acoustics.Contact) string {
-	if c.Identified && c.ConfirmedClass != "" {
-		return c.ConfirmedClass
+	if c == nil {
+		return "—"
+	}
+	if c.ConfirmedID != "" {
+		if p, ok := world.ProfileByID(c.ConfirmedID); ok {
+			return p.DisplayName()
+		}
 	}
 	if c.ConfirmedClass != "" {
 		return c.ConfirmedClass
@@ -58,8 +63,8 @@ func contactShortLabel(c *acoustics.Contact) string {
 }
 
 func contactLongLabel(c *acoustics.Contact) string {
-	if c.ConfirmedClass != "" {
-		return fmt.Sprintf("%s %s", c.ID, c.ConfirmedClass)
+	if class := contactClassLabel(c); class != "" && class != "—" {
+		return fmt.Sprintf("%s %s", c.ID, class)
 	}
 	return c.ID
 }

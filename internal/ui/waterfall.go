@@ -8,6 +8,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
@@ -365,7 +366,7 @@ func (a *App) drawBearingWaterfall(screen *ebiten.Image, sonar *acoustics.SonarS
 
 	totalMin := float64(plotH*waterfallRowH) * waterfallSampleSec / 60
 	midMin := totalMin * 0.5
-	render.DrawText(screen, "NOW", x+4, plotY+10, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UINow), x+4, plotY+10, render.ColorPhosphorDim, true)
 	render.DrawText(screen, fmt.Sprintf("T-%.1fm", totalMin*0.25), x+2, plotY+plotH/4+4, render.ColorPhosphorDim, true)
 	render.DrawText(screen, fmt.Sprintf("T-%.1fm", midMin), x+2, plotY+plotH/2+4, render.ColorPhosphorDim, true)
 	render.DrawText(screen, fmt.Sprintf("T-%.1fm", totalMin*0.75), x+2, plotY+3*plotH/4+4, render.ColorPhosphorDim, true)

@@ -97,7 +97,7 @@ func validateScenarioDoc(doc *scenarioFile) error {
 	if doc.ID == "" || !validID(doc.ID) {
 		return fmt.Errorf("invalid id %q", doc.ID)
 	}
-	if strings.TrimSpace(doc.Title) == "" {
+	if locTextEmpty(doc.Title) {
 		return fmt.Errorf("missing title")
 	}
 	if len(doc.Theaters) == 0 {
@@ -211,7 +211,7 @@ func convertMissionJSON(mj missionJSON) (MissionDef, error) {
 	}
 	for _, c := range mj.CommSchedule {
 		m.CommSchedule = append(m.CommSchedule, world.CommScheduledMessage{
-			ID: c.ID, AtSec: c.AtSec, Text: c.Text,
+			ID: c.ID, AtSec: c.AtSec, Text: c.Text.TT(),
 		})
 	}
 	// Time-based COMM from events is merged at Instantiate with campaign vars.

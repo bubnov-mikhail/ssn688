@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
@@ -47,9 +48,9 @@ func (a *App) drawTacticalMinimap(screen *ebiten.Image) {
 	render.DrawLine(screen, float64(mx+mw), float64(my+mh), float64(mx), float64(my+mh), border)
 	render.DrawLine(screen, float64(mx), float64(my+mh), float64(mx), float64(my), border)
 
-	title := "PLOT"
+	title := a.L(i18n.UINavPlot)
 	if a.Settings.Debug {
-		title = "PLOT · DEBUG"
+		title = a.L(i18n.UINavPlot) + " · DEBUG"
 	}
 	render.DrawText(screen, title, mx+10, my+20, render.ColorDim, true)
 
@@ -155,7 +156,7 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 		sx0, sy0 := view.worldToScreen(ax, ay)
 		sx1, sy1 := view.worldToScreen(rbu.X1, rbu.Y1)
 		render.DrawLine(screen, sx0, sy0, sx1, sy1, color.RGBA{255, 120, 50, 140})
-		render.DrawText(screen, "SPLASH", int(sx1)-12, int(sy1)-6, render.ColorAmber, true)
+		render.DrawText(screen, a.L(i18n.UISplash), int(sx1)-12, int(sy1)-6, render.ColorAmber, true)
 	}
 }
 
@@ -203,7 +204,7 @@ func (a *App) drawDebugRoutes(screen *ebiten.Image, view tacticalMapView) {
 
 func debugEntityClass(e *world.Entity) string {
 	if p, ok := world.ProfileByID(e.SignatureID); ok {
-		return p.Class
+		return p.DisplayClass()
 	}
 	if e.Name != "" {
 		return e.Name

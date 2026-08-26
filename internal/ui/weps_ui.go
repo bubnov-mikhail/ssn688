@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -57,19 +58,19 @@ const (
 func (a *App) wepsTubeButtons(tube int, y int) []sonarUIButton {
 	const btnH = 24
 	btnY := y + 4 - btnH/2
-	doorLabel := "OPEN"
-	doorTip := "Open outer door"
+	doorLabel := a.L(i18n.UIOpen)
+	doorTip := a.L(i18n.UITipOpenDoor)
 	fc := &a.Engine.FireControl
 	if tube >= 1 && tube <= 4 {
 		st := fc.Tubes[tube-1].State
 		if st == weapons.TubeDoorOpen || st == weapons.TubeFired {
-			doorLabel = "CLOSE"
-			doorTip = "Close outer door"
+			doorLabel = a.L(i18n.UIClose)
+			doorTip = a.L(i18n.UITipCloseDoor)
 		}
 	}
 	specs := []buttonSpec{
 		{fmt.Sprintf("tube_%d_door", tube), doorLabel, doorTip},
-		{fmt.Sprintf("tube_%d_fire", tube), "FIRE", "Launch (door must be open)"},
+		{fmt.Sprintf("tube_%d_fire", tube), a.L(i18n.UIFire), a.L(i18n.UITipFire)},
 	}
 	x := wepsTubeActionsX(specs, 4)
 	return layoutButtonRow(x, btnY, btnH, 4, specs)
@@ -92,7 +93,7 @@ func wepsTubeActionsX(specs []buttonSpec, gap int) int {
 func (a *App) wepsTubePickButton(tube int, y int) sonarUIButton {
 	return sonarUIButton{
 		ID:      fmt.Sprintf("tube_%d_pick", tube),
-		Label:   fmt.Sprintf("TUBE %d", tube),
+		Label:   a.Lf(i18n.UITubeN, tube),
 		Tooltip: "Select this tube",
 		X:       wepsLeftX,
 		Y:       y - 8,
@@ -131,14 +132,55 @@ func (a *App) wepsControlMode(fc *weapons.FireControl) (wepsCtrlMode, *weapons.T
 	return wepsCtrlInactive, nil
 }
 
-func wepsCtrlSpinLayout() (spinY, spinH, btnW, g0, d0, inner, toggleX int) {
+func wepsSpinLabelInner() int {
+	// Gap between −/+ must fit longest gyro/depth readout in both languages.
+	samples := []string{
+		fmt.Sprintf("%s %03.0f°", i18n.UIGyro.GetText(i18n.LangEN), 359.0),
+		fmt.Sprintf("%s %03.0f°", i18n.UIGyro.GetText(i18n.LangRU), 359.0),
+		fmt.Sprintf("%s %d", i18n.UIDep.GetText(i18n.LangEN), 1500),
+		fmt.Sprintf("%s %d", i18n.UIDep.GetText(i18n.LangRU), 1500),
+	}
+	maxW := 0
+	for _, s := range samples {
+		if w := render.SmallLabelWidth(s); w > maxW {
+			maxW = w
+		}
+	}
+	const pad = 6
+	inner := maxW + pad
+	if inner < 56 {
+		inner = 56
+	}
+	if inner > 80 {
+		inner = 80
+	}
+	return inner
+}
+
+// wepsCtrlSpinLayout places −/GYRO/+ and −/DEP/+ spins; toggleX is the start of
+// the LOW/HIGH/SEEK cluster (right-aligned via toggleBlockW).
+func wepsCtrlSpinLayout(toggleBlockW int) (spinY, spinH, btnW, g0, d0, inner, toggleX int) {
 	spinY = wepsCtrlY + 28
 	spinH = 24
 	btnW = 22
-	g0 = wepsLeftX + 8
-	d0 = wepsLeftX + 140
-	inner = 88
-	toggleX = d0 + btnW + inner + btnW + 8
+	panelRight := wepsLeftX - 6 + wepsLeftW
+	const padR = 8
+	toggleX = panelRight - padR - toggleBlockW
+	if toggleBlockW <= 0 {
+		// Spins-only callers (Harpoon prep): leave room after gyro/dep for their own row.
+		toggleX = wepsLeftX + wepsLeftW - 200
+	}
+
+	inner = wepsSpinLabelInner()
+	g0 = wepsLeftX + 6
+	const between = 4
+	pair := func() int { return btnW + inner + btnW }
+	d0 = g0 + pair() + between
+	// Keep spins clear of the toggle cluster.
+	for d0+pair()+4 > toggleX && inner > 52 {
+		inner -= 2
+		d0 = g0 + pair() + between
+	}
 	return
 }
 
@@ -152,7 +194,6 @@ func wepsFishSeekerLatched(fish *weapons.Torpedo) bool {
 
 func (a *App) wepsCtrlButtons(fc *weapons.FireControl) []sonarUIButton {
 	mode, fish := a.wepsControlMode(fc)
-	spinY, spinH, btnW, g0, d0, inner, toggleX := wepsCtrlSpinLayout()
 
 	seekOn := false
 	switch mode {
@@ -164,10 +205,17 @@ func (a *App) wepsCtrlButtons(fc *weapons.FireControl) []sonarUIButton {
 		seekOn = fc != nil && fc.SeekerEnabled
 	}
 
-	seekLabel := "SEEK OFF"
+	seekLabel := a.L(i18n.UISeekOff)
 	if seekOn {
-		seekLabel = "SEEK ON"
+		seekLabel = a.L(i18n.UISeekOn)
 	}
+
+	lowW := render.ButtonWidth(a.L(i18n.UISpeedLowBtn), 14)
+	highW := render.ButtonWidth(a.L(i18n.UISpeedHighBtn), 14)
+	seekW := render.ButtonWidth(seekLabel, 14)
+	toggleBlockW := lowW + 2 + highW + 6 + seekW
+
+	spinY, spinH, btnW, g0, d0, inner, toggleX := wepsCtrlSpinLayout(toggleBlockW)
 
 	btns := []sonarUIButton{
 		{ID: "gyro_m", Label: "-", Tooltip: "Decrease course 5°", X: g0, Y: spinY, W: btnW, H: spinH},
@@ -176,16 +224,15 @@ func (a *App) wepsCtrlButtons(fc *weapons.FireControl) []sonarUIButton {
 		{ID: "dep_p", Label: "+", Tooltip: "Deeper 50 ft", X: d0 + btnW + inner, Y: spinY, W: btnW, H: spinH},
 	}
 
-	lowW := render.ButtonWidth("LOW", 14)
-	highW := render.ButtonWidth("HIGH", 14)
 	btns = append(btns,
-		sonarUIButton{ID: "spd_low", Label: "LOW", Tooltip: "Run speed LOW (28 kts)", X: toggleX, Y: spinY, W: lowW, H: spinH},
-		sonarUIButton{ID: "spd_high", Label: "HIGH", Tooltip: "Run speed HIGH (55 kts)", X: toggleX + lowW + 2, Y: spinY, W: highW, H: spinH},
+		sonarUIButton{ID: "spd_low", Label: a.L(i18n.UISpeedLowBtn), Tooltip: "Run speed LOW (28 kts)", X: toggleX, Y: spinY, W: lowW, H: spinH},
+		sonarUIButton{ID: "spd_high", Label: a.L(i18n.UISpeedHighBtn), Tooltip: "Run speed HIGH (55 kts)", X: toggleX + lowW + 2, Y: spinY, W: highW, H: spinH},
 	)
 	seekX := toggleX + lowW + 2 + highW + 6
-	btns = append(btns, layoutButtonRow(seekX, spinY, spinH, 4, []buttonSpec{
-		{"seek", seekLabel, "Toggle seeker / course-hold"},
-	})...)
+	btns = append(btns, sonarUIButton{
+		ID: "seek", Label: seekLabel, Tooltip: "Toggle seeker / course-hold",
+		X: seekX, Y: spinY, W: seekW, H: spinH,
+	})
 
 	if mode == wepsCtrlWire {
 		btns = append(btns, a.wepsWireAuxButtons()...)
@@ -200,8 +247,8 @@ func (a *App) wepsWireAuxButtons() []sonarUIButton {
 		padR = 10
 	)
 	specs := []buttonSpec{
-		{"wire_cut", "CUT", "Cut guidance wire"},
-		{"wire_sd", "S/D", "Self-destruct while wire intact"},
+		{"wire_cut", a.L(i18n.UICutWire), a.L(i18n.UITipCutWire)},
+		{"wire_sd", a.L(i18n.UISD), a.L(i18n.UITipSelfDestr)},
 	}
 	totalW := 0
 	for i, s := range specs {
@@ -223,8 +270,8 @@ func (a *App) wepsCMButtons(decoyN, jitterN int) []sonarUIButton {
 		padR = 10
 	)
 	specs := []buttonSpec{
-		{"cm_decoy", fmt.Sprintf("DECOY %d", decoyN), "Launch acoustic decoy (ADC) toward threat"},
-		{"cm_jitter", fmt.Sprintf("JITTER %d", jitterN), "Launch broadband jammer toward threat"},
+		{"cm_decoy", fmt.Sprintf("%s %d", a.L(i18n.UIDecoy), decoyN), "Launch acoustic decoy (ADC) toward threat"},
+		{"cm_jitter", fmt.Sprintf("%s %d", a.L(i18n.UIJitter), jitterN), "Launch broadband jammer toward threat"},
 	}
 	totalW := 0
 	for i, s := range specs {
@@ -476,7 +523,7 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 					if a.Audio != nil {
 						a.Audio.PlayTubeDoorOpen()
 						a.Audio.PlayClip(audio.TubeClip("outer_door_open", tube),
-							fmt.Sprintf("Outer door open, tube %d.", tube))
+							a.Lf(i18n.StatusVoiceOuterOpen, tube))
 					}
 				}
 			}
@@ -486,7 +533,7 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 				if a.Audio != nil {
 					a.Audio.PlayTubeDoorOpen()
 					a.Audio.PlayClip(audio.TubeClip("outer_door_open", tube),
-						fmt.Sprintf("Outer door open, tube %d.", tube))
+						a.Lf(i18n.StatusVoiceOuterOpen, tube))
 				}
 			}
 		case "close":
@@ -538,10 +585,10 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 				fc.WireSteer(fish, 5, 0)
 			case "dep_m":
 				fc.WireSteer(fish, 0, -50)
-				a.Audio.PlayClip(audio.ClipWepsRunDepthSet, fmt.Sprintf("Torpedo run depth %d feet.", int(fish.RunDepthFt)))
+				a.Audio.PlayClip(audio.ClipWepsRunDepthSet, a.Lf(i18n.StatusVoiceRunDepth, int(fish.RunDepthFt)))
 			case "dep_p":
 				fc.WireSteer(fish, 0, 50)
-				a.Audio.PlayClip(audio.ClipWepsRunDepthSet, fmt.Sprintf("Torpedo run depth %d feet.", int(fish.RunDepthFt)))
+				a.Audio.PlayClip(audio.ClipWepsRunDepthSet, a.Lf(i18n.StatusVoiceRunDepth, int(fish.RunDepthFt)))
 			case "spd", "spd_low", "spd_high":
 				wantHigh := fish.CruiseKts < 40
 				if id == "spd_low" {
@@ -551,10 +598,10 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 				}
 				if wantHigh {
 					fish.CruiseKts = weapons.CruiseSpeedKts("HIGH")
-					a.Audio.PlayClip(audio.ClipWepsSpeedHigh, "Torpedo speed HIGH.")
+					a.Audio.PlayClip(audio.ClipWepsSpeedHigh, a.L(i18n.StatusVoiceSpeedHigh))
 				} else {
 					fish.CruiseKts = weapons.CruiseSpeedKts("LOW")
-					a.Audio.PlayClip(audio.ClipWepsSpeedLow, "Torpedo speed LOW.")
+					a.Audio.PlayClip(audio.ClipWepsSpeedLow, a.L(i18n.StatusVoiceSpeedLow))
 				}
 			case "seek":
 				wasSearch := wepsFishSeekerLatched(fish)
@@ -576,10 +623,10 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 			fc.GyroAngleDeg = normalizeGyroDeg(fc.GyroAngleDeg + 5)
 		case "dep_m":
 			fc.RunDepthFt = max(40, fc.RunDepthFt-50)
-			a.Audio.PlayClip(audio.ClipWepsRunDepthSet, fmt.Sprintf("Torpedo run depth %d feet.", int(fc.RunDepthFt)))
+			a.Audio.PlayClip(audio.ClipWepsRunDepthSet, a.Lf(i18n.StatusVoiceRunDepth, int(fc.RunDepthFt)))
 		case "dep_p":
 			fc.RunDepthFt += 50
-			a.Audio.PlayClip(audio.ClipWepsRunDepthSet, fmt.Sprintf("Torpedo run depth %d feet.", int(fc.RunDepthFt)))
+			a.Audio.PlayClip(audio.ClipWepsRunDepthSet, a.Lf(i18n.StatusVoiceRunDepth, int(fc.RunDepthFt)))
 		case "spd", "spd_low", "spd_high":
 			wantHigh := fc.SpeedSetting != "HIGH"
 			if id == "spd_low" {
@@ -589,10 +636,10 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 			}
 			if wantHigh {
 				fc.SpeedSetting = "HIGH"
-				a.Audio.PlayClip(audio.ClipWepsSpeedHigh, "Torpedo speed HIGH.")
+				a.Audio.PlayClip(audio.ClipWepsSpeedHigh, a.L(i18n.StatusVoiceSpeedHigh))
 			} else {
 				fc.SpeedSetting = "LOW"
-				a.Audio.PlayClip(audio.ClipWepsSpeedLow, "Torpedo speed LOW.")
+				a.Audio.PlayClip(audio.ClipWepsSpeedLow, a.L(i18n.StatusVoiceSpeedLow))
 			}
 			if c := a.selectedContact(&a.Engine.Sonar); c != nil {
 				a.wepsApplyContactToPrep(fc, player, c)
@@ -608,7 +655,7 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 	case id == "wire_cut", id == "wire_sd":
 		fish := fc.TorpedoForTube(fc.SelectedTube)
 		if fish == nil {
-			a.StatusMessage = "No wire-guided fish on selected tube."
+			a.Status(i18n.StatusNoWireFish)
 			return
 		}
 		switch id {
@@ -618,10 +665,10 @@ func (a *App) wepsButtonAction(id string, fc *weapons.FireControl, player *world
 		case "wire_sd":
 			if det := fc.SelfDestruct(fish); det != nil {
 				a.Engine.Events = append(a.Engine.Events, "Torpedo self-destructed")
-				a.Audio.PlayClip(audio.ClipWepsWireCut, "Torpedo self-destruct.")
-				a.StatusMessage = "Torpedo self-destructed (safe abort)."
+				a.Audio.PlayClip(audio.ClipWepsWireCut, a.L(i18n.StatusVoiceSelfDestruct))
+				a.Status(i18n.StatusTorpedoSelfDestruct)
 			} else if fish.WireCut {
-				a.StatusMessage = "Wire cut — cannot self-destruct."
+				a.Status(i18n.StatusWireCutNoDestruct)
 			}
 		}
 	case id == "cm_decoy":
@@ -638,8 +685,8 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	sonar := &a.Engine.Sonar
 	gt := a.Engine.Clock.GameTime
 	render.DrawConsolePanel(screen, wepsPanelX, wepsPanelY, wepsPanelW, wepsPanelH)
-	render.DrawScreenTitle(screen, "FIRE CONTROL — WEAPONS", wepsLeftX, 78)
-	render.DrawText(screen, fmt.Sprintf("MAGAZINE: %d Mk48  ·  %d Harpoon", fc.MagazineLeft, fc.HarpoonMagLeft), wepsLeftX, 100, render.ColorPlateLabel, true)
+	render.DrawScreenTitle(screen, a.L(i18n.UITitleWeps), wepsLeftX, 78)
+	render.DrawText(screen, a.Lf(i18n.UIMagazine, fc.MagazineLeft, fc.HarpoonMagLeft), wepsLeftX, 100, render.ColorPlateLabel, true)
 
 	mx, my := ebiten.CursorPosition()
 	for i := range fc.Tubes {
@@ -647,12 +694,12 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 		y := wepsTubeY0 + i*wepsTubeRowH
 		titleBtn := a.wepsTubePickButton(t.Number, y)
 		ordBtn := a.wepsOrdnancePickButton(t.Number, y)
-		statusExtra := wepsTubeRowStatusExtra(t, fc.ReloadRemaining(t, gt))
+		statusExtra := a.wepsTubeRowStatusExtra(t, fc.ReloadRemaining(t, gt))
 		if player := a.Engine.Scenario.Player; player != nil {
 			player.EnsureDamage()
 			sys := world.TubeSys(t.Number)
 			if sys != world.SysNone && !player.Damage.Operational(sys) {
-				statusExtra = fmt.Sprintf("DAMAGED (%.0f%%)", player.Damage.EffOf(sys))
+				statusExtra = a.Lf(i18n.UIDamagedPct, player.Damage.EffOf(sys))
 			}
 		}
 		if t.Number == fc.SelectedTube {
@@ -662,7 +709,10 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 		if titleBtn.contains(mx, my) || t.Number == fc.SelectedTube {
 			clr = render.ColorHighlight
 		}
-		render.DrawText(screen, titleBtn.Label, titleBtn.X, y+4, clr, true)
+		const tubeBtnH = 24
+		tubeBtnY := y + 4 - tubeBtnH/2
+		labelY := render.SmallLabelBaseline(tubeBtnY, tubeBtnH)
+		render.DrawText(screen, titleBtn.Label, titleBtn.X, labelY, clr, true)
 		a.drawWepsButton(screen, ordBtn, mx, my, fc)
 		line := statusExtra
 		if t.TargetContactID != "" {
@@ -673,7 +723,7 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 		}
 		if line != "" {
 			statusX := ordBtn.X + ordBtn.W + 8
-			render.DrawText(screen, line, statusX, y+4, render.ColorDim, true)
+			render.DrawText(screen, line, statusX, labelY, render.ColorDim, true)
 		}
 		for _, b := range a.wepsTubeButtons(t.Number, y) {
 			a.drawWepsButton(screen, b, mx, my, fc)
@@ -685,7 +735,7 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	fish := fc.TorpedoForTube(fc.SelectedTube)
 	harp := fc.HarpoonByTube(fc.SelectedTube)
 
-	a.drawWepsGroup(screen, wepsLeftX-6, wepsCMY, wepsLeftW, wepsCMH, "COUNTERMEASURES")
+	a.drawWepsGroup(screen, wepsLeftX-6, wepsCMY, wepsLeftW, wepsCMH, a.L(i18n.UICountermeas))
 	decoyN, jitterN := 0, 0
 	if player := a.Engine.Scenario.Player; player != nil {
 		decoyN = a.Engine.CM.DecoyLeft(player.ID)
@@ -713,12 +763,12 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 
 func (a *App) drawWepsControlPanel(screen *ebiten.Image, fc *weapons.FireControl, mx, my int) {
 	mode, fish := a.wepsControlMode(fc)
-	title := "NEXT SHOT PREP"
+	title := a.L(i18n.UINextShotPrep)
 	switch mode {
 	case wepsCtrlWire:
-		title = "WIRE GUIDE"
+		title = a.L(i18n.UIWireGuide)
 	case wepsCtrlHarpoonPrep:
-		title = "HARPOON PREP"
+		title = a.L(i18n.UIHarpoonPrep)
 	}
 	a.drawWepsGroup(screen, wepsLeftX-6, wepsCtrlY, wepsLeftW, wepsCtrlH, title)
 	a.drawWepsSpinLabels(screen, fc, mode, fish)
@@ -742,32 +792,41 @@ func (a *App) drawWepsControlPanel(screen *ebiten.Image, fc *weapons.FireControl
 }
 
 func (a *App) drawWepsSpinLabels(screen *ebiten.Image, fc *weapons.FireControl, mode wepsCtrlMode, fish *weapons.Torpedo) {
-	_, _, btnW, g0, d0, inner, _ := wepsCtrlSpinLayout()
-	spinY := wepsCtrlY + 28
+	// Match toggle block width used by wepsCtrlButtons so midpoints stay aligned.
+	lowW := render.ButtonWidth(a.L(i18n.UISpeedLowBtn), 14)
+	highW := render.ButtonWidth(a.L(i18n.UISpeedHighBtn), 14)
+	seekW := render.ButtonWidth(a.L(i18n.UISeekOff), 14)
+	if (mode == wepsCtrlPrep && fc != nil && fc.SeekerEnabled) ||
+		(mode == wepsCtrlWire && wepsFishSeekerLatched(fish)) {
+		seekW = render.ButtonWidth(a.L(i18n.UISeekOn), 14)
+	}
+	toggleBlockW := lowW + 2 + highW + 6 + seekW
+	spinY, spinH, btnW, g0, d0, inner, _ := wepsCtrlSpinLayout(toggleBlockW)
 	gyroMid := g0 + btnW + inner/2
 	depMid := d0 + btnW + inner/2
-	gyroTxt := "GYRO ---"
-	depTxt := "DEP ---"
+	gyroTxt := a.L(i18n.UIGyro) + " ---"
+	depTxt := a.L(i18n.UIDep) + " ---"
 	switch mode {
 	case wepsCtrlPrep:
-		gyroTxt = fmt.Sprintf("GYRO %03.0f°", fc.GyroAngleDeg)
-		depTxt = fmt.Sprintf("DEP %d", int(fc.RunDepthFt))
+		gyroTxt = fmt.Sprintf("%s %03.0f°", a.L(i18n.UIGyro), fc.GyroAngleDeg)
+		depTxt = fmt.Sprintf("%s %d", a.L(i18n.UIDep), int(fc.RunDepthFt))
 	case wepsCtrlHarpoonPrep:
-		gyroTxt = fmt.Sprintf("GYRO %03.0f°", fc.GyroAngleDeg)
+		gyroTxt = fmt.Sprintf("%s %03.0f°", a.L(i18n.UIGyro), fc.GyroAngleDeg)
 		depTxt = ""
 	case wepsCtrlWire:
 		if fish != nil {
-			gyroTxt = fmt.Sprintf("GYRO %03.0f°", fish.GyroCourseDeg)
-			depTxt = fmt.Sprintf("DEP %d", int(fish.RunDepthFt))
+			gyroTxt = fmt.Sprintf("%s %03.0f°", a.L(i18n.UIGyro), fish.GyroCourseDeg)
+			depTxt = fmt.Sprintf("%s %d", a.L(i18n.UIDep), int(fish.RunDepthFt))
 		}
 	}
 	clr := render.ColorAmber
 	if mode == wepsCtrlInactive {
 		clr = render.ColorDim
 	}
-	render.DrawText(screen, gyroTxt, gyroMid-len(gyroTxt)*3, spinY+16, clr, true)
+	labelY := render.SmallLabelBaseline(spinY, spinH)
+	render.DrawText(screen, gyroTxt, gyroMid-render.SmallLabelWidth(gyroTxt)/2, labelY, clr, true)
 	if depTxt != "" {
-		render.DrawText(screen, depTxt, depMid-len(depTxt)*3, spinY+16, clr, true)
+		render.DrawText(screen, depTxt, depMid-render.SmallLabelWidth(depTxt)/2, labelY, clr, true)
 	}
 }
 
@@ -782,12 +841,12 @@ func (a *App) drawWepsGroup(screen *ebiten.Image, x, y, w, h int, title string) 
 }
 
 func (a *App) drawWepsContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	a.drawWepsGroup(screen, wepsLeftX-6, wepsTargetsY, wepsLeftW, wepsTargetsH, "RECOGNIZED TARGETS")
+	a.drawWepsGroup(screen, wepsLeftX-6, wepsTargetsY, wepsLeftW, wepsTargetsH, a.L(i18n.UIRecognized))
 	hdrY := wepsTargetsY + 32
-	render.DrawText(screen, "ID", wepsLeftX+6, hdrY, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG°", wepsLeftX+86, hdrY, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RNG kyd", wepsLeftX+126, hdrY, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "CLASS", wepsLeftX+178, hdrY, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColID), wepsLeftX+6, hdrY, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColBRGDeg), wepsLeftX+86, hdrY, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColRNG), wepsLeftX+126, hdrY, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColClass), wepsLeftX+178, hdrY, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	rowY := wepsTargetsY + 40
@@ -979,7 +1038,7 @@ func contactConfirmedKind(c *acoustics.Contact) world.EntityKind {
 	}
 	if c.ConfirmedClass != "" {
 		for _, p := range world.SignatureLibrary {
-			if p.Name == c.ConfirmedClass || p.Class == c.ConfirmedClass {
+			if p.MatchesLabel(c.ConfirmedClass) {
 				return p.Kind
 			}
 		}
@@ -1036,7 +1095,7 @@ func (a *App) ensureWepsMapImg() *ebiten.Image {
 
 func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fish *weapons.Torpedo, harp *weapons.HarpoonMissile) {
 	fc := &a.Engine.FireControl
-	render.DrawText(screen, "TACTICAL MAP", wepsMapX, 86, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UITacticalMap), wepsMapX, 86, render.ColorPlateLabel, true)
 	render.DrawMonitor(screen, wepsMapX, wepsMapY, wepsMapW, wepsMapH)
 	mapBorder := color.RGBA{78, 78, 84, 255}
 	render.FillRect(screen, wepsMapX, wepsMapY, wepsMapW, 1, mapBorder)

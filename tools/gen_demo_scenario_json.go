@@ -15,6 +15,27 @@ import (
 	"github.com/ssn688/sim/internal/world"
 )
 
+var scenarioRU map[string]string
+
+func init() {
+	data, err := os.ReadFile(filepath.Join("tools", "i18n_scenario_translations.json"))
+	if err == nil {
+		_ = json.Unmarshal(data, &scenarioRU)
+	}
+	if scenarioRU == nil {
+		scenarioRU = map[string]string{}
+	}
+}
+
+func loc(en string) map[string]any {
+	ru := scenarioRU[en]
+	if ru == "" {
+		ru = en
+	}
+	return map[string]any{"en": en, "ru": ru}
+}
+
+
 func main() {
 	doc := demoDocument()
 	out, err := json.MarshalIndent(doc, "", "  ")
@@ -105,8 +126,8 @@ func encodeCoverAsset(path string) map[string]any {
 func demoDocument() map[string]any {
 	bathyAsset, bathy := bathyAssetAndChart()
 	return map[string]any{
-		"format_version":   "2.0.0",
-		"version":          "1.2.7",
+		"format_version":   "3.0.0",
+		"version":          "1.3.0",
 		"min_game_version": "1.0.0",
 		"id":               "demo_catalina",
 		"title":            "Shadows off Catalina",

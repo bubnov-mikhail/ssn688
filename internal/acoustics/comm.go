@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -98,18 +99,19 @@ func (c *COMMState) OrderLowerCOMM() string {
 }
 
 // SeedBriefing places the mission opening traffic in the inbox (no mast required).
-func (c *COMMState) SeedBriefing(text string) {
+func (c *COMMState) SeedBriefing(text i18n.TranslatedText) {
 	c.ensure()
-	if text == "" {
+	if text.GetText(i18n.LangEN) == "" {
 		return
 	}
 	if len(c.Inbox) > 0 {
 		return
 	}
-	c.Inbox = append(c.Inbox, world.CommInboxEntry{TimeSec: 0, Text: text})
+	c.Inbox = append(c.Inbox, world.CommInboxEntry{TimeSec: 0, Body: text})
 }
 
 // AppendLocalTraffic adds an ownship-generated line (e.g. REPORT) to the inbox.
+// Local REPORT lines stay English-only (or mirrored EN/RU via T(en,en)).
 func (c *COMMState) AppendLocalTraffic(gameTime float64, text string) {
 	c.ensure()
 	if text == "" {
@@ -118,7 +120,12 @@ func (c *COMMState) AppendLocalTraffic(gameTime float64, text string) {
 	if gameTime < 0 {
 		gameTime = 0
 	}
-	c.Inbox = append(c.Inbox, world.CommInboxEntry{TimeSec: gameTime, Text: text})
+	c.Inbox = append(c.Inbox, world.CommInboxEntry{TimeSec: gameTime, Body: i18n.T(text, text)})
+}
+
+// ttEmpty reports whether a TranslatedText has no English (fallback) content.
+func ttEmpty(t i18n.TranslatedText) bool {
+	return t.GetText(i18n.LangEN) == ""
 }
 
 // AdvanceMastMotion animates extension and enforces shear limits while exposed.
@@ -162,7 +169,7 @@ func CountDueUndelivered(comm *COMMState, scenario *world.Scenario, gameTime flo
 	n := 0
 	for i := range scenario.CommSchedule {
 		msg := &scenario.CommSchedule[i]
-		if msg.ID == "" || msg.Text == "" {
+		if msg.ID == "" || ttEmpty(msg.Text) {
 			continue
 		}
 		if gameTime < msg.AtSec {
@@ -217,7 +224,7 @@ func UpdateCOMM(comm *COMMState, scenario *world.Scenario, player *world.Entity,
 	deliveredNow := 0
 	for i := range scenario.CommSchedule {
 		msg := &scenario.CommSchedule[i]
-		if msg.ID == "" || msg.Text == "" {
+		if msg.ID == "" || ttEmpty(msg.Text) {
 			continue
 		}
 		if gameTime < msg.AtSec {
@@ -234,7 +241,7 @@ func UpdateCOMM(comm *COMMState, scenario *world.Scenario, player *world.Entity,
 		}
 		comm.Inbox = append(comm.Inbox, world.CommInboxEntry{
 			TimeSec: stamp,
-			Text:    msg.Text,
+			Body:    msg.Text,
 		})
 		deliveredNow++
 	}

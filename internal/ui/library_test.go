@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -17,7 +18,7 @@ func TestLibraryTableRowsGrouping(t *testing.T) {
 	sawSub := false
 	for _, r := range rows {
 		if r.Header {
-			switch r.Label {
+			switch r.Label.GetText(i18n.LangEN) {
 			case "HOSTILE":
 				sawHostile = true
 				lastAll = libHostile
@@ -28,7 +29,7 @@ func TestLibraryTableRowsGrouping(t *testing.T) {
 				sawFriendly = true
 				lastAll = libFriendly
 			default:
-				t.Fatalf("unexpected header %q", r.Label)
+				t.Fatalf("unexpected header %q", r.Label.GetText(i18n.LangEN))
 			}
 			sawSub = false
 			continue

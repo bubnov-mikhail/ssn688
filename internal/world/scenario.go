@@ -5,6 +5,8 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+
+	"github.com/ssn688/sim/internal/i18n"
 )
 
 // Scenario holds mission state.
@@ -20,7 +22,7 @@ type Scenario struct {
 	// RestrictedZones reserved for future missions (player entry → DEFCON 3).
 	RestrictedZones []RestrictedZone
 	// CommBriefing is shown in the COMM inbox at mission start (no mast required).
-	CommBriefing string
+	CommBriefing i18n.TranslatedText
 	// CommSchedule delivers traffic when COMM mast is raised at/after AtSec.
 	CommSchedule []CommScheduledMessage
 	// StartTimeSec is seconds from midnight for wall-clock UI/COMM (mission start_time).
@@ -46,7 +48,7 @@ type MissionEvent struct {
 type MissionEventAction struct {
 	Type        string
 	ID          string
-	Text        string
+	Text        i18n.TranslatedText
 	AtSec       float64
 	UnitID      string
 	Defcon      int
@@ -60,18 +62,23 @@ type MissionEventAction struct {
 type CommScheduledMessage struct {
 	ID    string
 	AtSec float64
-	Text  string
+	Text  i18n.TranslatedText
 }
 
 // CommInboxEntry is a received (or briefing) message in the COMM console.
 type CommInboxEntry struct {
 	TimeSec float64
-	Text    string
+	Body    i18n.TranslatedText
+}
+
+// DisplayText returns the message body for lang (falls back via TranslatedText).
+func (e CommInboxEntry) DisplayText(lang string) string {
+	return e.Body.GetText(lang)
 }
 
 type Objective struct {
 	ID           string
-	Description  string
+	Description  i18n.TranslatedText
 	Complete     bool
 	TargetID     string
 	Primary      bool // true = primary task
@@ -333,7 +340,7 @@ func (s *Scenario) MissionStatusReport() string {
 		if o.Complete {
 			mark = "DONE"
 		}
-		desc := o.Description
+		desc := o.Description.GetText(i18n.CurrentLang())
 		if desc == "" {
 			desc = o.ID
 		}

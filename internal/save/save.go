@@ -11,6 +11,7 @@ import (
 
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/campaign"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/sim"
 	"github.com/ssn688/sim/internal/weapons"
 	"github.com/ssn688/sim/internal/world"
@@ -64,7 +65,7 @@ func Save(path string, engine *sim.Engine) error {
 		fmt.Fprintf(w, "delivered=%s\n", id)
 	}
 	for _, msg := range engine.COMM.Inbox {
-		esc := strings.ReplaceAll(msg.Text, "\\", "\\\\")
+		esc := strings.ReplaceAll(msg.Body.GetText(i18n.LangEN), "\\", "\\\\")
 		esc = strings.ReplaceAll(esc, "\n", "\\n")
 		esc = strings.ReplaceAll(esc, "|", "/")
 		fmt.Fprintf(w, "inbox=%.3f|%s\n", msg.TimeSec, esc)
@@ -219,8 +220,9 @@ func Save(path string, engine *sim.Engine) error {
 
 	fmt.Fprintf(w, "\n[objectives]\n")
 	for _, o := range engine.Scenario.Objectives {
+		desc := strings.ReplaceAll(o.Description.GetText(i18n.LangEN), "|", "/")
 		fmt.Fprintf(w, "objective=%s|%s|%t|%s|%t|%t|%t|%t|%t\n",
-			o.ID, o.Description, o.Complete, o.TargetID,
+			o.ID, desc, o.Complete, o.TargetID,
 			o.Primary, o.NeedIdentify, o.NeedDestroy, o.Identified, o.Hidden)
 	}
 
@@ -500,7 +502,7 @@ func loadClean(path string) (*sim.Engine, error) {
 					tsec, _ := strconv.ParseFloat(parts[0], 64)
 					txt := strings.ReplaceAll(parts[1], "\\n", "\n")
 					txt = strings.ReplaceAll(txt, "\\\\", "\\")
-					engine.COMM.Inbox = append(engine.COMM.Inbox, world.CommInboxEntry{TimeSec: tsec, Text: txt})
+					engine.COMM.Inbox = append(engine.COMM.Inbox, world.CommInboxEntry{TimeSec: tsec, Body: i18n.T(txt, txt)})
 				}
 			}
 		case "peri":
@@ -1298,7 +1300,7 @@ func parseObjective(val string) (world.Objective, bool) {
 	}
 	done, _ := strconv.ParseBool(parts[2])
 	obj := world.Objective{
-		ID: parts[0], Description: parts[1], Complete: done, TargetID: parts[3],
+		ID: parts[0], Description: i18n.T(parts[1], parts[1]), Complete: done, TargetID: parts[3],
 	}
 	if len(parts) >= 8 {
 		obj.Primary, _ = strconv.ParseBool(parts[4])

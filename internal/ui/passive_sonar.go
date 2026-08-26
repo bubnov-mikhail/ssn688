@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
@@ -298,12 +299,12 @@ func aContactCenter(c *acoustics.Contact) (float64, float64) {
 }
 
 func (a *App) drawPassiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	render.DrawText(screen, "CONTACT LOG", layout.PassiveContactLabelX, layout.PassiveContactLabelY+12, render.ColorPlateLabel, true)
-	render.DrawText(screen, "ID", passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "BRG°", passiveListX+48, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "RNG kyd", passiveListX+92, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "SRC", passiveListX+152, passiveListY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, "CLASS", passiveListX+196, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIContactLog), layout.PassiveContactLabelX, layout.PassiveContactLabelY+12, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UIColID), passiveListX+8, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColBRGDeg), passiveListX+48, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColRNG), passiveListX+92, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColSRC), passiveListX+152, passiveListY+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColClass), passiveListX+196, passiveListY+16, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	player := a.Engine.Scenario.Player

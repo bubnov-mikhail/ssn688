@@ -10,6 +10,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/wav"
+	"github.com/ssn688/sim/internal/i18n"
 )
 
 const (
@@ -35,7 +36,7 @@ type Manager struct {
 	masterVol    float64
 	voiceVol     float64
 	fxVol        float64
-	clips        map[ClipID][]byte
+	clips        map[string][]byte
 	fxClips      map[FXID][]byte
 	mu           sync.Mutex
 	voicePlaying []*playerVoice // officer lines only
@@ -43,13 +44,13 @@ type Manager struct {
 	loops        map[FXID]*loopTrack
 	queue        []queuedVoice
 	pending      *pendingClip
-	activeClipID ClipID
+	activeClipID string
 	subtitle     string
 	subtitleAt   time.Time
 }
 
 type pendingClip struct {
-	id       ClipID
+	id       string  // clip path
 	pcm      []byte
 	volume   float64
 	subtitle string
@@ -57,7 +58,7 @@ type pendingClip struct {
 }
 
 type queuedVoice struct {
-	clipID     ClipID
+	clipID     string
 	pcm        []byte
 	volume     float64
 	subtitle   string
@@ -133,7 +134,16 @@ func (m *Manager) SetVolumes(master, voice, fx float64) {
 
 // PlayClip plays a pre-recorded officer voice line with subtitle overlay.
 func (m *Manager) PlayClip(id ClipID, subtitle string) {
-	pcm, ok := m.clips[id]
+	path := id.GetWav(i18n.CurrentLang())
+	if path == "" {
+		path = clipPath(id)
+	}
+	pcm, ok := m.clips[path]
+	if !ok {
+		// Fall back to English asset path if locale-specific WAV is missing.
+		path = clipPath(id)
+		pcm, ok = m.clips[path]
+	}
 	if !ok {
 		m.setSubtitle(clipCompartment(id), subtitle)
 		return
@@ -147,7 +157,7 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.coalesceClipLocked(id, fullSubtitle) {
+	if m.coalesceClipLocked(path, fullSubtitle) {
 		return
 	}
 
@@ -157,15 +167,15 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 	// Pending slot is the newest line. Displace a prior pending carefully:
 	// keep critical lines by promoting them into the voice queue; drop routine
 	// spam so HELM/WEPS button chatter cannot backlog for minutes.
-	if m.pending != nil && m.pending.id != id {
+	if m.pending != nil && m.pending.id != path {
 		old := m.pending
 		m.pending = nil
-		if isCriticalClip(old.id) || isCriticalClip(id) {
+		if isCriticalPath(old.id) || isCriticalPath(path) {
 			m.startVoiceLocked(old.id, old.pcm, old.volume, old.subtitle)
 		}
 	}
 	m.pending = &pendingClip{
-		id:       id,
+		id:       path,
 		pcm:      dup,
 		volume:   m.voiceVol * m.masterVol,
 		subtitle: fullSubtitle,
@@ -175,36 +185,62 @@ func (m *Manager) PlayClip(id ClipID, subtitle string) {
 	m.subtitleAt = time.Now()
 }
 
-func isCriticalClip(id ClipID) bool {
-	switch id {
-	case ClipWepsTorpedoInWater, ClipWepsTorpedoHeadingOwnship, ClipWepsImpactConfirmed,
-		ClipCaptHoldSimulation,
-		ClipCaptOwnshipHit, ClipCaptCriticalDamage, ClipCaptOwnshipLost, ClipCaptCommMessage,
-		ClipCaptCommTrafficWaiting:
+func isCriticalPath(path string) bool {
+	switch stripVoiceLangPrefix(path) {
+	case clipPath(ClipWepsTorpedoInWater), clipPath(ClipWepsTorpedoHeadingOwnship), clipPath(ClipWepsImpactConfirmed),
+		clipPath(ClipCaptHoldSimulation),
+		clipPath(ClipCaptOwnshipHit), clipPath(ClipCaptCriticalDamage), clipPath(ClipCaptOwnshipLost),
+		clipPath(ClipCaptCommMessage), clipPath(ClipCaptCommTrafficWaiting):
 		return true
 	default:
-		// Tube fire callouts are short and situational — treat as critical.
-		if strings.Contains(string(id), "torpedo_away") {
+		if strings.Contains(path, "torpedo_away") {
 			return true
 		}
 		return false
 	}
 }
 
-func (m *Manager) coalesceClipLocked(id ClipID, subtitle string) bool {
-	if m.pending != nil && m.pending.id == id {
+// stripVoiceLangPrefix maps "ru/capt/foo" → "capt/foo" for compartment / critical checks.
+func stripVoiceLangPrefix(path string) string {
+	if strings.HasPrefix(path, "ru/") {
+		return strings.TrimPrefix(path, "ru/")
+	}
+	return path
+}
+
+func pathCompartment(path string) Compartment {
+	p := strings.Split(stripVoiceLangPrefix(path), "/")
+	if len(p) == 0 {
+		return CompCaptain
+	}
+	switch p[0] {
+	case "sonar":
+		return CompSonar
+	case "weps":
+		return CompWeps
+	case "dive":
+		return CompDive
+	case "nav":
+		return CompNav
+	default:
+		return CompCaptain
+	}
+}
+
+func (m *Manager) coalesceClipLocked(path, subtitle string) bool {
+	if m.pending != nil && m.pending.id == path {
 		m.pending.subtitle = subtitle
 		m.subtitle = subtitle
 		m.subtitleAt = time.Now()
 		return true
 	}
-	if m.activeClipID == id && len(m.voicePlaying) > 0 {
+	if m.activeClipID == path && len(m.voicePlaying) > 0 {
 		m.subtitle = subtitle
 		m.subtitleAt = time.Now()
 		return true
 	}
 	for i := range m.queue {
-		if m.queue[i].clipID == id {
+		if m.queue[i].clipID == path {
 			m.queue[i].subtitle = subtitle
 			m.queue[i].enqueuedAt = time.Now()
 			m.subtitle = subtitle
@@ -215,27 +251,27 @@ func (m *Manager) coalesceClipLocked(id ClipID, subtitle string) bool {
 	return false
 }
 
-func (m *Manager) startVoiceLocked(id ClipID, pcm []byte, volume float64, subtitle string) {
+func (m *Manager) startVoiceLocked(path string, pcm []byte, volume float64, subtitle string) {
 	m.pruneStaleQueueLocked()
 	if len(m.voicePlaying) == 0 {
-		m.activeClipID = id
+		m.activeClipID = path
 		m.voicePlaying = append(m.voicePlaying[:0], &playerVoice{data: pcm, volume: volume})
 		return
 	}
 	// Replace last queued line from the same watch station (depth/heading spam).
-	comp := clipCompartment(id)
+	comp := pathCompartment(path)
 	for i := len(m.queue) - 1; i >= 0; i-- {
-		if clipCompartment(m.queue[i].clipID) == comp && !isCriticalClip(m.queue[i].clipID) {
-			m.queue[i] = queuedVoice{clipID: id, pcm: pcm, volume: volume, subtitle: subtitle, enqueuedAt: time.Now()}
+		if pathCompartment(m.queue[i].clipID) == comp && !isCriticalPath(m.queue[i].clipID) {
+			m.queue[i] = queuedVoice{clipID: path, pcm: pcm, volume: volume, subtitle: subtitle, enqueuedAt: time.Now()}
 			return
 		}
 	}
-	m.queue = append(m.queue, queuedVoice{clipID: id, pcm: pcm, volume: volume, subtitle: subtitle, enqueuedAt: time.Now()})
+	m.queue = append(m.queue, queuedVoice{clipID: path, pcm: pcm, volume: volume, subtitle: subtitle, enqueuedAt: time.Now()})
 	for len(m.queue) > maxVoiceQueue {
 		// Prefer dropping non-critical from the front.
 		dropped := false
 		for i := range m.queue {
-			if !isCriticalClip(m.queue[i].clipID) {
+			if !isCriticalPath(m.queue[i].clipID) {
 				m.queue = append(m.queue[:i], m.queue[i+1:]...)
 				dropped = true
 				break
@@ -254,7 +290,7 @@ func (m *Manager) pruneStaleQueueLocked() {
 	now := time.Now()
 	alive := m.queue[:0]
 	for _, q := range m.queue {
-		if now.Sub(q.enqueuedAt) <= maxVoiceQueueAge || isCriticalClip(q.clipID) {
+		if now.Sub(q.enqueuedAt) <= maxVoiceQueueAge || isCriticalPath(q.clipID) {
 			if now.Sub(q.enqueuedAt) <= maxVoiceQueueAge*2 {
 				alive = append(alive, q)
 			}
@@ -292,7 +328,7 @@ func (m *Manager) PlayPing() {
 func (m *Manager) PlayEnemyPing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if pcm, ok := m.clips[ClipSonarEnemyPing]; ok {
+	if pcm, ok := m.clips[clipPath(ClipSonarEnemyPing)]; ok {
 		dup := make([]byte, len(pcm))
 		copy(dup, pcm)
 		m.playFXLocked(dup, m.fxVol*m.masterVol*0.55)
@@ -483,79 +519,85 @@ func (s *streamPlayer) Read(buf []byte) (int, error) {
 func (s *streamPlayer) Close() error { return nil }
 
 func humanSubtitle(id ClipID) string {
-	switch id {
-	case ClipCaptHoldSimulation:
-		return "Hold simulation."
-	case ClipCaptSaveComplete:
-		return "Save complete."
-	case ClipCaptOwnshipHit:
-		return "Own ship hit. Systems damaged."
-	case ClipCaptCriticalDamage:
-		return "Critical damage. System casualty."
-	case ClipCaptOwnshipLost:
-		return "Own ship lost. We are sinking."
-	case ClipCaptCommMessage:
-		return "Flash traffic. Incoming message."
-	case ClipCaptCommTrafficWaiting:
-		return "Flash traffic waiting. Raise the communications mast."
-	case ClipSonarPassiveOn:
-		return "Passive sonar online."
-	case ClipSonarPassiveOff:
-		return "Passive sonar offline."
-	case ClipSonarActiveStandby:
-		return "Active sonar standby."
-	case ClipSonarActiveOnline:
-		return "Active sonar online."
-	case ClipSonarDeployTowed:
-		return "Deploying towed array."
-	case ClipSonarTowedHeld:
-		return "Towed array held."
-	case ClipSonarRetractTowed:
-		return "Retracting towed array."
-	case ClipSonarBTLaunch:
-		return "Launching bathythermograph."
-	case ClipSonarLayerSurveyComplete:
-		return "Layer survey complete."
-	case ClipSonarContactClassified:
-		return "Contact classified."
-	case ClipWepsImpactConfirmed:
-		return "Weapon impact confirmed."
-	case ClipWepsTorpedoInWater:
-		return "Torpedo in the water."
-	case ClipWepsTorpedoHeadingOwnship:
-		return "Incomming torpedo!"
-	case ClipWepsOuterDoorClosed:
-		return "Outer door closed."
-	case ClipWepsRunDepthSet:
-		return "Run depth set."
-	case ClipWepsSpeedHigh:
-		return "Torpedo speed HIGH."
-	case ClipWepsSpeedLow:
-		return "Torpedo speed LOW."
-	case ClipWepsSeekerOn:
-		return "Seeker on."
-	case ClipWepsSeekerOff:
-		return "Seeker off."
-	case ClipWepsWireCut:
-		return "Wire cut."
-	case ClipDiveComeLeft:
-		return "Come left."
-	case ClipDiveComeRight:
-		return "Come right."
-	case ClipDiveMakeDepth:
-		return "Make depth."
-	case ClipDiveHoldDepth:
-		return "Hold depth."
-	case ClipDiveUnableDeeper:
-		return "Unable to dive deeper."
-	case ClipNavSpeedDouble:
-		return "Time compression double."
-	case ClipNavSpeedQuad:
-		return "Time compression quadruple."
-	case ClipNavSpeedNormal:
-		return "Time compression normal."
+	lang := i18n.CurrentLang()
+	path := clipPath(id)
+	switch path {
+	case clipPath(ClipCaptHoldSimulation):
+		return i18n.VoiceHoldSimulation.GetText(lang)
+	case clipPath(ClipCaptSaveComplete):
+		return i18n.VoiceSaveComplete.GetText(lang)
+	case clipPath(ClipCaptOwnshipHit):
+		return i18n.VoiceOwnshipHit.GetText(lang)
+	case clipPath(ClipCaptCriticalDamage):
+		return i18n.VoiceCriticalDamage.GetText(lang)
+	case clipPath(ClipCaptOwnshipLost):
+		return i18n.VoiceOwnshipLost.GetText(lang)
+	case clipPath(ClipCaptCommMessage):
+		return i18n.VoiceCommMessage.GetText(lang)
+	case clipPath(ClipCaptCommTrafficWaiting):
+		return i18n.VoiceCommTrafficWaiting.GetText(lang)
+	case clipPath(ClipSonarPassiveOn):
+		return i18n.VoicePassiveOn.GetText(lang)
+	case clipPath(ClipSonarPassiveOff):
+		return i18n.VoicePassiveOff.GetText(lang)
+	case clipPath(ClipSonarActiveStandby):
+		return i18n.VoiceActiveStandby.GetText(lang)
+	case clipPath(ClipSonarActiveOnline):
+		return i18n.VoiceActiveOnline.GetText(lang)
+	case clipPath(ClipSonarDeployTowed):
+		return i18n.VoiceDeployTowed.GetText(lang)
+	case clipPath(ClipSonarTowedHeld):
+		return i18n.VoiceTowedHeld.GetText(lang)
+	case clipPath(ClipSonarRetractTowed):
+		return i18n.VoiceRetractTowed.GetText(lang)
+	case clipPath(ClipSonarBTLaunch):
+		return i18n.VoiceBTLaunch.GetText(lang)
+	case clipPath(ClipSonarLayerSurveyComplete):
+		return i18n.VoiceLayerSurveyComplete.GetText(lang)
+	case clipPath(ClipSonarContactClassified):
+		return i18n.VoiceContactClassified.GetText(lang)
+	case clipPath(ClipWepsImpactConfirmed):
+		return i18n.VoiceImpactConfirmed.GetText(lang)
+	case clipPath(ClipWepsTorpedoInWater):
+		return i18n.VoiceTorpedoInWater.GetText(lang)
+	case clipPath(ClipWepsTorpedoHeadingOwnship):
+		return i18n.VoiceIncomingTorpedo.GetText(lang)
+	case clipPath(ClipWepsOuterDoorClosed):
+		return i18n.VoiceOuterDoorClosed.GetText(lang)
+	case clipPath(ClipWepsRunDepthSet):
+		return i18n.VoiceRunDepthSet.GetText(lang)
+	case clipPath(ClipWepsSpeedHigh):
+		return i18n.VoiceSpeedHigh.GetText(lang)
+	case clipPath(ClipWepsSpeedLow):
+		return i18n.VoiceSpeedLow.GetText(lang)
+	case clipPath(ClipWepsSeekerOn):
+		return i18n.VoiceSeekerOn.GetText(lang)
+	case clipPath(ClipWepsSeekerOff):
+		return i18n.VoiceSeekerOff.GetText(lang)
+	case clipPath(ClipWepsWireCut):
+		return i18n.VoiceWireCut.GetText(lang)
+	case clipPath(ClipDiveComeLeft):
+		return i18n.VoiceComeLeft.GetText(lang)
+	case clipPath(ClipDiveComeRight):
+		return i18n.VoiceComeRight.GetText(lang)
+	case clipPath(ClipDiveMakeDepth):
+		return i18n.VoiceMakeDepth.GetText(lang)
+	case clipPath(ClipDiveHoldDepth):
+		return i18n.VoiceHoldDepth.GetText(lang)
+	case clipPath(ClipDiveUnableDeeper):
+		return i18n.VoiceUnableDeeper.GetText(lang)
+	case clipPath(ClipNavSpeedHalf):
+		return i18n.VoiceSpeedHalf.GetText(lang)
+	case clipPath(ClipNavSpeedNormal):
+		return i18n.VoiceSpeedNormal.GetText(lang)
+	case clipPath(ClipNavSpeedDouble):
+		return i18n.VoiceSpeedDouble.GetText(lang)
+	case clipPath(ClipNavSpeedQuad):
+		return i18n.VoiceSpeedQuad.GetText(lang)
+	case clipPath(ClipNavSpeedEight):
+		return i18n.VoiceSpeedEight.GetText(lang)
 	default:
-		return string(id)
+		return path
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/campaign"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/weapons"
 )
@@ -171,7 +172,7 @@ func (a *App) drawScenarioLoadoutGroup(screen *ebiten.Image, x, y, w, h int) {
 	render.FillRect(screen, x, y+h-1, w, 1, border)
 	render.FillRect(screen, x, y, 1, h, border)
 	render.FillRect(screen, x+w-1, y, 1, h, border)
-	render.DrawTextLarge(screen, "WEAPON LOADOUT", x+10, y+30, render.ColorPlateLabel)
+	render.DrawTextLarge(screen, a.L(i18n.UIWeaponLoadout), x+10, y+30, render.ColorPlateLabel)
 }
 
 func (a *App) drawScenarioLoadoutOrdnanceMenu(screen *ebiten.Image, mx, my int) {
@@ -207,16 +208,16 @@ func (a *App) drawScenarioLoadout(screen *ebiten.Image) {
 	mx, my := ebiten.CursorPosition()
 	for tube := 1; tube <= 4; tube++ {
 		rowY := a.scenarioLoadoutTubeY(tube)
-		render.DrawText(screen, fmt.Sprintf("TUBE %d", tube), padX, rowY+4, render.ColorText, true)
+		render.DrawText(screen, a.Lf(i18n.UITubeN, tube), padX, rowY+4, render.ColorText, true)
 		ordBtn := a.scenarioLoadoutOrdnanceBtn(tube, rowY)
 		hover := ordBtn.contains(mx, my)
 		pressed := a.uiPressedID == ordBtn.ID && time.Since(a.uiPressedAt) < 120*time.Millisecond
 		render.DrawBevelButton(screen, ordBtn.X, ordBtn.Y, ordBtn.W, ordBtn.H, ordBtn.Label, hover, pressed)
-		render.DrawText(screen, "LOADED", ordBtn.X+ordBtn.W+10, rowY+4, render.ColorDim, true)
+		render.DrawText(screen, a.L(i18n.UILoaded), ordBtn.X+ordBtn.W+10, rowY+4, render.ColorDim, true)
 	}
 
 	sx, sy, sw, sh := a.scenarioLoadoutSliderTrack()
-	render.DrawText(screen, fmt.Sprintf("MAGAZINE: %d Mk48  ·  %d Harpoon", fc.MagazineLeft, fc.HarpoonMagLeft),
+	render.DrawText(screen, a.Lf(i18n.UIMagazine, fc.MagazineLeft, fc.HarpoonMagLeft),
 		padX, sy-10, render.ColorPlateLabel, true)
 	render.DrawText(screen, "Mk48", padX, sy+12, render.ColorSonar, true)
 	render.DrawText(screen, "Harpoon", sx+sw+12, sy+12, render.ColorActive, true)

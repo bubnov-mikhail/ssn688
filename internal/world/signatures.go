@@ -1,12 +1,14 @@
 package world
 
+import "github.com/ssn688/sim/internal/i18n"
+
 // SignatureLibrary holds known acoustic profiles for classification.
 // Tonals are discrete LOFAR/DEMON peaks (machinery + blade-rate harmonics),
 // styled after Cold Waters signature fingerprints and typical DEMON/LOFAR
 // analysis (shaft/blade rate lines + distinctive machinery tonals).
 var SignatureLibrary = []SignatureProfile{
 	{
-		ID: "los_angeles", Name: "Los Angeles SSN", Class: "SSN-688", Kind: KindSubmarine,
+		ID: "los_angeles", Name: i18n.T("Los Angeles SSN", "ПЛА «Лос-Анджелес»"), Class: i18n.T("SSN-688", "SSN-688"), Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 50, LevelDB: 88},
 			{LowHz: 50, HighHz: 200, LevelDB: 98},
@@ -27,7 +29,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 4.2, CavitationDB: 75,
 	},
 	{
-		ID: "ssn688_decoy", Name: "Los Angeles SSN", Class: "SSN-688", Kind: KindSubmarine,
+		ID: "ssn688_decoy", Name: i18n.T("Los Angeles SSN", "ПЛА «Лос-Анджелес»"), Class: i18n.T("SSN-688", "SSN-688"), Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 50, LevelDB: 90},
 			{LowHz: 50, HighHz: 200, LevelDB: 99},
@@ -48,7 +50,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 4.15, CavitationDB: 77,
 	},
 	{
-		ID: "kilo", Name: "Kilo SS", Class: "SSK", Kind: KindSubmarine,
+		ID: "kilo", Name: i18n.T("Kilo SS", "ДЭПЛ «Кило»"), Class: i18n.T("SSK", "ДЭПЛ"), Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 40, LevelDB: 115},
 			{LowHz: 40, HighHz: 120, LevelDB: 118},
@@ -70,7 +72,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 3.1, CavitationDB: 90,
 	},
 	{
-		ID: "victor_iii", Name: "Victor III SSN", Class: "Pr.671RTM", Kind: KindSubmarine,
+		ID: "victor_iii", Name: i18n.T("Victor III SSN", "ПЛА «Виктор-III»"), Class: i18n.T("Pr.671RTM", "пр.671РТМ"), Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 45, LevelDB: 108},
 			{LowHz: 45, HighHz: 150, LevelDB: 112},
@@ -94,7 +96,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 3.6, CavitationDB: 95,
 	},
 	{
-		ID: "yasen_m", Name: "Yasen-M SSN", Class: "Pr.885M", Kind: KindSubmarine,
+		ID: "yasen_m", Name: i18n.T("Yasen-M SSN", "ПЛА «Ясень-М»"), Class: i18n.T("Pr.885M", "пр.885М"), Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 45, LevelDB: 96},
 			{LowHz: 45, HighHz: 150, LevelDB: 102},
@@ -118,7 +120,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 2.4, CavitationDB: 82,
 	},
 	{
-		ID: "foxtrot", Name: "Foxtrot SS", Class: "Pr.641", Kind: KindSubmarine,
+		ID: "foxtrot", Name: i18n.T("Foxtrot SS", "ДЭПЛ «Фокстрот»"), Class: i18n.T("Pr.641", "пр.641"), Kind: KindSubmarine,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 50, LevelDB: 122},
 			{LowHz: 50, HighHz: 140, LevelDB: 124},
@@ -140,7 +142,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 2.8, CavitationDB: 98,
 	},
 	{
-		ID: "udaloy", Name: "Udaloy DDG", Class: "Pr.1155", Kind: KindSurfaceShip,
+		ID: "udaloy", Name: i18n.T("Udaloy DDG", "ЭМ «Удалой»"), Class: i18n.T("Pr.1155", "пр.1155"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 20, HighHz: 85, LevelDB: 132},
 			{LowHz: 85, HighHz: 260, LevelDB: 124},
@@ -164,7 +166,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.65, CavitationDB: 112,
 	},
 	{
-		ID: "krivak", Name: "Krivak FF", Class: "Pr.1135", Kind: KindSurfaceShip,
+		ID: "krivak", Name: i18n.T("Krivak FF", "СКР «Кривак»"), Class: i18n.T("Pr.1135", "пр.1135"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 20, HighHz: 75, LevelDB: 122},
 			{LowHz: 75, HighHz: 230, LevelDB: 116},
@@ -188,7 +190,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 2.15, CavitationDB: 102,
 	},
 	{
-		ID: "gorshkov", Name: "Gorshkov FFG", Class: "Pr.22350", Kind: KindSurfaceShip,
+		ID: "gorshkov", Name: i18n.T("Gorshkov FFG", "Фрегат «Горшков»"), Class: i18n.T("Pr.22350", "пр.22350"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 20, HighHz: 80, LevelDB: 124},
 			{LowHz: 80, HighHz: 240, LevelDB: 116},
@@ -213,7 +215,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.9, CavitationDB: 104,
 	},
 	{
-		ID: "kresta2", Name: "Kresta II CG", Class: "Pr.1134A", Kind: KindSurfaceShip,
+		ID: "kresta2", Name: i18n.T("Kresta II CG", "КР «Креста-II»"), Class: i18n.T("Pr.1134A", "пр.1134А"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 20, HighHz: 90, LevelDB: 134},
 			{LowHz: 90, HighHz: 280, LevelDB: 126},
@@ -237,7 +239,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.45, CavitationDB: 115,
 	},
 	{
-		ID: "grisha", Name: "Grisha Corvette", Class: "Pr.1124", Kind: KindSurfaceShip,
+		ID: "grisha", Name: i18n.T("Grisha Corvette", "Корвет «Гриша»"), Class: i18n.T("Pr.1124", "пр.1124"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 25, HighHz: 90, LevelDB: 118},
 			{LowHz: 90, HighHz: 280, LevelDB: 112},
@@ -260,7 +262,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 2.6, CavitationDB: 105,
 	},
 	{
-		ID: "spruance", Name: "Spruance DDG", Class: "DD-963", Kind: KindSurfaceShip,
+		ID: "spruance", Name: i18n.T("Spruance DDG", "ЭМ «Спрюэнс»"), Class: i18n.T("DD-963", "DD-963"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 20, HighHz: 80, LevelDB: 128},
 			{LowHz: 80, HighHz: 250, LevelDB: 120},
@@ -285,7 +287,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.75, CavitationDB: 108,
 	},
 	{
-		ID: "merchant", Name: "Merchant Freighter", Class: "MV", Kind: KindSurfaceShip,
+		ID: "merchant", Name: i18n.T("Merchant Freighter", "Торговое судно"), Class: i18n.T("MV", "ТР"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 15, HighHz: 60, LevelDB: 118},
 			{LowHz: 60, HighHz: 200, LevelDB: 112},
@@ -305,7 +307,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.4, CavitationDB: 92,
 	},
 	{
-		ID: "tanker", Name: "Oil Tanker", Class: "VLCC", Kind: KindSurfaceShip,
+		ID: "tanker", Name: i18n.T("Oil Tanker", "Нефтетанкер"), Class: i18n.T("VLCC", "Танкер"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 50, LevelDB: 124},
 			{LowHz: 50, HighHz: 180, LevelDB: 118},
@@ -326,7 +328,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.1, CavitationDB: 98,
 	},
 	{
-		ID: "fishing", Name: "Fishing Trawler", Class: "FV", Kind: KindSurfaceShip,
+		ID: "fishing", Name: i18n.T("Fishing Trawler", "Рыболовный траулер"), Class: i18n.T("FV", "РТ"), Kind: KindSurfaceShip,
 		Bands: []NoiseBand{
 			{LowHz: 25, HighHz: 90, LevelDB: 110},
 			{LowHz: 90, HighHz: 280, LevelDB: 104},
@@ -346,7 +348,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 2.4, CavitationDB: 88,
 	},
 	{
-		ID: "mk48", Name: "Mk48 ADCAP", Class: "Torpedo", Kind: KindTorpedo,
+		ID: "mk48", Name: i18n.T("Mk48 ADCAP", "Mk48 ADCAP"), Class: i18n.T("Torpedo", "Торпеда"), Kind: KindTorpedo,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 200, LevelDB: 72},
 			{LowHz: 200, HighHz: 600, LevelDB: 88},
@@ -364,7 +366,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 22, CavitationDB: 95,
 	},
 	{
-		ID: "umgt1", Name: "UMGT-1 Orlan", Class: "Torpedo", Kind: KindTorpedo,
+		ID: "umgt1", Name: i18n.T("UMGT-1 Orlan", "УМГТ-1 «Орлан»"), Class: i18n.T("Torpedo", "Торпеда"), Kind: KindTorpedo,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 200, LevelDB: 66},
 			{LowHz: 200, HighHz: 560, LevelDB: 80},
@@ -382,7 +384,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 30, CavitationDB: 86,
 	},
 	{
-		ID: "set40", Name: "SET-40 Torpedo", Class: "Torpedo", Kind: KindTorpedo,
+		ID: "set40", Name: i18n.T("SET-40 Torpedo", "Торпеда СЭТ-40"), Class: i18n.T("Torpedo", "Торпеда"), Kind: KindTorpedo,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 220, LevelDB: 64},
 			{LowHz: 220, HighHz: 580, LevelDB: 78},
@@ -400,7 +402,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 26, CavitationDB: 84,
 	},
 	{
-		ID: "mk46", Name: "Mk46 Torpedo", Class: "Torpedo", Kind: KindTorpedo,
+		ID: "mk46", Name: i18n.T("Mk46 Torpedo", "Торпеда Mk46"), Class: i18n.T("Torpedo", "Торпеда"), Kind: KindTorpedo,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 200, LevelDB: 62},
 			{LowHz: 200, HighHz: 560, LevelDB: 76},
@@ -417,7 +419,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 28, CavitationDB: 84,
 	},
 	{
-		ID: "type53", Name: "53-65 Torpedo", Class: "Torpedo", Kind: KindTorpedo,
+		ID: "type53", Name: i18n.T("53-65 Torpedo", "Торпеда 53-65"), Class: i18n.T("Torpedo", "Торпеда"), Kind: KindTorpedo,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 200, LevelDB: 78},
 			{LowHz: 200, HighHz: 550, LevelDB: 92},
@@ -435,7 +437,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 18, CavitationDB: 100,
 	},
 	{
-		ID: "adc", Name: "Acoustic Decoy", Class: "CM", Kind: KindCountermeasure,
+		ID: "adc", Name: i18n.T("Acoustic Decoy", "Акустическая приманка"), Class: i18n.T("CM", "ПМ"), Kind: KindCountermeasure,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 80, LevelDB: 125},
 			{LowHz: 80, HighHz: 300, LevelDB: 132},
@@ -452,7 +454,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 0, CavitationDB: 70,
 	},
 	{
-		ID: "nixie", Name: "Towed Torpedo Decoy", Class: "CM", Kind: KindCountermeasure,
+		ID: "nixie", Name: i18n.T("Towed Torpedo Decoy", "Буксируемая ложная цель"), Class: i18n.T("CM", "ПМ"), Kind: KindCountermeasure,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 100, LevelDB: 128},
 			{LowHz: 100, HighHz: 350, LevelDB: 136},
@@ -469,7 +471,7 @@ var SignatureLibrary = []SignatureProfile{
 		BladeRateHz: 1.5, CavitationDB: 90,
 	},
 	{
-		ID: "jitter", Name: "Acoustic Jammer", Class: "CM", Kind: KindCountermeasure,
+		ID: "jitter", Name: i18n.T("Acoustic Jammer", "Акустический постановщик помех"), Class: i18n.T("CM", "ПМ"), Kind: KindCountermeasure,
 		Bands: []NoiseBand{
 			{LowHz: 10, HighHz: 80, LevelDB: 130},
 			{LowHz: 80, HighHz: 300, LevelDB: 138},
@@ -529,4 +531,3 @@ func SurfaceHullBeamRel(e *Entity) float64 {
 		return 0.50
 	}
 }
-

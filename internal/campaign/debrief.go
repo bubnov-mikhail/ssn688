@@ -3,6 +3,7 @@ package campaign
 import (
 	"strings"
 
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/world"
 )
 
@@ -33,20 +34,21 @@ func SnapshotObjectiveOutcomes(sc *world.Scenario) []ObjectiveOutcome {
 
 // ComposeMissionDebrief builds after-action text: lead paragraph plus
 // success/fail snippets for secondary and hidden tasks.
-func ComposeMissionDebrief(m MissionDef, outcomes []ObjectiveOutcome) string {
+func ComposeMissionDebrief(m MissionDef, outcomes []ObjectiveOutcome, lang string) string {
+	lang = i18n.NormalizeLang(lang)
 	byID := make(map[string]ObjectiveOutcome, len(outcomes))
 	for _, o := range outcomes {
 		byID[o.ID] = o
 	}
 	var parts []string
-	if strings.TrimSpace(m.DebriefLead) != "" {
-		parts = append(parts, strings.TrimSpace(m.DebriefLead))
+	if lead := strings.TrimSpace(m.DebriefLead.GetText(lang)); lead != "" {
+		parts = append(parts, lead)
 	}
 	for _, line := range m.DebriefLines {
 		oc := byID[line.ObjectiveID]
-		text := line.OnFail
+		text := line.OnFail.GetText(lang)
 		if oc.Complete {
-			text = line.OnSuccess
+			text = line.OnSuccess.GetText(lang)
 		}
 		text = strings.TrimSpace(text)
 		if text == "" {

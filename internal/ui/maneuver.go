@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/ssn688/sim/internal/acoustics"
 	"github.com/ssn688/sim/internal/audio"
+	"github.com/ssn688/sim/internal/i18n"
 	"github.com/ssn688/sim/internal/layout"
 	"github.com/ssn688/sim/internal/render"
 	"github.com/ssn688/sim/internal/world"
@@ -42,7 +43,7 @@ const (
 	helmCourseX = helmSpeedX + helmSpeedW + helmStationGap // 336
 	helmCourseW = 520
 	helmDepthX  = helmCourseX + helmCourseW + helmStationGap // 872
-	helmDepthW  = 1260 - helmDepthX                        // 388
+	helmDepthW  = 1260 - helmDepthX                          // 388
 
 	helmRailX = 40
 	helmRailY = 644
@@ -60,7 +61,7 @@ const (
 	depthPeriscopeFt = depthMinOrder // ~60 ft — periscope depth
 
 	compassCX = float64(helmCourseX + helmCourseW/2) // 596
-	compassCY = float64(helmStationY + 220)         // 338
+	compassCY = float64(helmStationY + 220)          // 338
 	compassR  = 132.0
 
 	eotBtnH   = 34
@@ -74,22 +75,43 @@ var (
 	depthBtnW   int
 )
 
-// Engine-order telegraph bells. Frac is a signed fraction of MaxSpeedKts
-// (negative = astern; clamped by MaxAsternKts in world.Entity.Advance).
 type eotBell struct {
-	ID, Label, Tooltip string
-	Frac               float64
+	ID   string
+	Frac float64
 }
 
 var eotBells = []eotBell{
-	{ID: "eot_flank", Label: "FLANK", Tooltip: "Flank ahead — maximum speed", Frac: 1.0},
-	{ID: "eot_full", Label: "FULL", Tooltip: "Full ahead", Frac: 0.75},
-	{ID: "eot_23", Label: "2/3", Tooltip: "Two-thirds ahead", Frac: 0.50},
-	{ID: "eot_13", Label: "1/3", Tooltip: "One-third ahead", Frac: 0.25},
-	{ID: "eot_stop", Label: "STOP", Tooltip: "All stop", Frac: 0},
-	{ID: "eot_13a", Label: "1/3 AST", Tooltip: "One-third astern", Frac: -0.25},
-	{ID: "eot_23a", Label: "2/3 AST", Tooltip: "Two-thirds astern", Frac: -0.40},
-	{ID: "eot_fulla", Label: "FULL AST", Tooltip: "Full astern", Frac: -0.55},
+	{ID: "eot_flank", Frac: 1.0},
+	{ID: "eot_full", Frac: 0.75},
+	{ID: "eot_23", Frac: 0.50},
+	{ID: "eot_13", Frac: 0.25},
+	{ID: "eot_stop", Frac: 0},
+	{ID: "eot_13a", Frac: -0.25},
+	{ID: "eot_23a", Frac: -0.40},
+	{ID: "eot_fulla", Frac: -0.55},
+}
+
+func (a *App) eotLabelTip(id string) (label, tip string) {
+	switch id {
+	case "eot_flank":
+		return a.L(i18n.UIFlank), a.L(i18n.UITipFlank)
+	case "eot_full":
+		return a.L(i18n.UIFull), a.L(i18n.UITipFull)
+	case "eot_23":
+		return a.L(i18n.UITwoThirds), a.L(i18n.UITip23)
+	case "eot_13":
+		return a.L(i18n.UIOneThird), a.L(i18n.UITip13)
+	case "eot_stop":
+		return a.L(i18n.UIStop), a.L(i18n.UITipEOTStop)
+	case "eot_13a":
+		return a.L(i18n.UIOneThirdAst), a.L(i18n.UITip13Ast)
+	case "eot_23a":
+		return a.L(i18n.UITwoThirdsAst), a.L(i18n.UITip23Ast)
+	case "eot_fulla":
+		return a.L(i18n.UIFullAst), a.L(i18n.UITipFullAst)
+	default:
+		return id, ""
+	}
 }
 
 func eotSpeedKts(player *world.Entity, frac float64) float64 {
@@ -113,6 +135,34 @@ func nearestEOTIndex(ordered float64, player *world.Entity) int {
 	return best
 }
 
+// matchingEOTID returns the telegraph bell ID when ordered speed matches that
+// bell within a small tolerance; otherwise "" (no latched highlight).
+func matchingEOTID(ordered float64, player *world.Entity) string {
+	const tolKts = 0.05
+	for _, b := range eotBells {
+		if math.Abs(ordered-eotSpeedKts(player, b.Frac)) <= tolKts {
+			return b.ID
+		}
+	}
+	return ""
+}
+
+// nudgeOrderedSpeed adjusts ordered speed by delta knots (clamped to hull limits).
+func (a *App) nudgeOrderedSpeed(player *world.Entity, delta float64) {
+	if player == nil {
+		return
+	}
+	player.OrderedSpeed += delta
+	maxSpd := player.MaxSpeedKts()
+	maxAstern := player.MaxAsternKts()
+	if player.OrderedSpeed > maxSpd {
+		player.OrderedSpeed = maxSpd
+	}
+	if player.OrderedSpeed < -maxAstern {
+		player.OrderedSpeed = -maxAstern
+	}
+}
+
 func layoutDepthStation(btnW int) {
 	contentW := depthMarkPad + depthGaugeW + depthGaugeGap + btnW
 	pad := (helmDepthW - contentW) / 2
@@ -125,99 +175,108 @@ func layoutDepthStation(btnW int) {
 }
 
 var cachedManeuverButtons struct {
-	once sync.Once
+	mu   sync.Mutex
+	lang string
 	btns []uiButton
 }
 
-func maneuverButtons() []uiButton {
-	cachedManeuverButtons.once.Do(func() {
-		depColW := render.ButtonWidth("PERISCOPE", 12)
-		for _, lab := range []string{"▲", "SURFACE", "HOLD", "▼"} {
-			if w := render.ButtonWidth(lab, 12); w > depColW {
-				depColW = w
-			}
-		}
-		layoutDepthStation(depColW)
+func (a *App) maneuverButtons() []uiButton {
+	lang := a.Lang()
+	cachedManeuverButtons.mu.Lock()
+	defer cachedManeuverButtons.mu.Unlock()
+	if cachedManeuverButtons.lang == lang && cachedManeuverButtons.btns != nil {
+		return cachedManeuverButtons.btns
+	}
 
-		eotW := helmSpeedW - 48
-		for _, b := range eotBells {
-			if w := render.ButtonWidth(b.Label, 12); w+8 > eotW {
-				eotW = w + 8
-			}
+	depColW := render.ButtonWidth(a.L(i18n.UIPeriscope), 12)
+	for _, lab := range []string{"▲", a.L(i18n.UISurface), a.L(i18n.UIHold), "▼"} {
+		if w := render.ButtonWidth(lab, 12); w > depColW {
+			depColW = w
 		}
-		eotX := helmSpeedX + (helmSpeedW-eotW)/2
-		eotTotalH := len(eotBells)*eotBtnH + (len(eotBells)-1)*eotBtnGap
-		eotTop := helmStationY + 56
-		if eotTop+eotTotalH > helmStationY+helmStationH-36 {
-			eotTop = helmStationY + helmStationH - 36 - eotTotalH
+	}
+	layoutDepthStation(depColW)
+
+	eotW := helmSpeedW - 48
+	for _, b := range eotBells {
+		label, _ := a.eotLabelTip(b.ID)
+		if w := render.ButtonWidth(label, 12); w+8 > eotW {
+			eotW = w + 8
 		}
+	}
+	eotX := helmSpeedX + (helmSpeedW-eotW)/2
+	eotTotalH := len(eotBells)*eotBtnH + (len(eotBells)-1)*eotBtnGap
+	eotTop := helmStationY + 56
+	if eotTop+eotTotalH > helmStationY+helmStationH-36 {
+		eotTop = helmStationY + helmStationH - 36 - eotTotalH
+	}
 
-		hdgBtnH := 40
-		hdgY := int(compassCY+compassR) + 36
+	hdgBtnH := 40
+	hdgY := int(compassCY+compassR) + 36
 
-		depTopH, depMidH, depBotH := 44, 30, 44
-		depShallowY := depthTop
-		depSurfaceY := depShallowY + depTopH + 8
-		depPeriscopeY := depSurfaceY + depMidH + 6
-		depDeepY := depthTop + depthH - depBotH
-		depHoldY := depPeriscopeY + depMidH + 20
-		if depHoldY+depTopH > depDeepY-12 {
-			depHoldY = depDeepY - depTopH - 12
+	depTopH, depMidH, depBotH := 44, 30, 44
+	depShallowY := depthTop
+	depSurfaceY := depShallowY + depTopH + 8
+	depPeriscopeY := depSurfaceY + depMidH + 6
+	depDeepY := depthTop + depthH - depBotH
+	depHoldY := depPeriscopeY + depMidH + 20
+	if depHoldY+depTopH > depDeepY-12 {
+		depHoldY = depDeepY - depTopH - 12
+	}
+
+	btW := render.ButtonWidth(a.L(i18n.UIBTCast), 12)
+	btX := helmRailX + helmRailW - btW - 20
+	btY := helmRailY + (helmRailH-36)/2
+
+	buttons := make([]uiButton, 0, len(eotBells)+10)
+	for i, bell := range eotBells {
+		label, tip := a.eotLabelTip(bell.ID)
+		buttons = append(buttons, uiButton{
+			ID: bell.ID, Label: label, Tooltip: tip,
+			X: eotX, Y: eotTop + i*(eotBtnH+eotBtnGap), W: eotW, H: eotBtnH,
+		})
+	}
+	buttons = append(buttons,
+		uiButton{ID: "hdg_port10", Label: "◄◄", Tooltip: a.L(i18n.UITipPort10), Y: hdgY, H: hdgBtnH},
+		uiButton{ID: "hdg_port", Label: a.L(i18n.UIPort), Tooltip: a.L(i18n.UITipPort5), Y: hdgY, H: hdgBtnH},
+		uiButton{ID: "hdg_stbd", Label: a.L(i18n.UIStbd), Tooltip: a.L(i18n.UITipStbd5), Y: hdgY, H: hdgBtnH},
+		uiButton{ID: "hdg_stbd10", Label: "►►", Tooltip: a.L(i18n.UITipStbd10), Y: hdgY, H: hdgBtnH},
+		uiButton{ID: "dep_shallow", Label: "▲", Tooltip: a.L(i18n.UITipShallow), X: depthBtnX, Y: depShallowY, H: depTopH},
+		uiButton{ID: "dep_surface", Label: a.L(i18n.UISurface), Tooltip: a.L(i18n.UITipSurface), X: depthBtnX, Y: depSurfaceY, H: depMidH},
+		uiButton{ID: "dep_periscope", Label: a.L(i18n.UIPeriscope), Tooltip: a.L(i18n.UITipPeriscope), X: depthBtnX, Y: depPeriscopeY, H: depMidH},
+		uiButton{ID: "dep_hold", Label: a.L(i18n.UIHold), Tooltip: a.L(i18n.UITipHoldDep), X: depthBtnX, Y: depHoldY, H: depTopH},
+		uiButton{ID: "dep_deep", Label: "▼", Tooltip: a.L(i18n.UITipDeep), X: depthBtnX, Y: depDeepY, H: depBotH},
+		uiButton{ID: "bt_cast", Label: a.L(i18n.UIBTCast), Tooltip: a.L(i18n.UITipBTCast), X: btX, Y: btY, H: 36},
+	)
+	for i := range buttons {
+		if buttons[i].W == 0 {
+			buttons[i].W = render.ButtonWidth(buttons[i].Label, 12)
 		}
+	}
 
-		btW := render.ButtonWidth("BT CAST", 12)
-		btX := helmRailX + helmRailW - btW - 20
-		btY := helmRailY + (helmRailH-36)/2
-
-		buttons := make([]uiButton, 0, len(eotBells)+10)
-		for i, bell := range eotBells {
-			buttons = append(buttons, uiButton{
-				ID: bell.ID, Label: bell.Label, Tooltip: bell.Tooltip,
-				X: eotX, Y: eotTop + i*(eotBtnH+eotBtnGap), W: eotW, H: eotBtnH,
-			})
-		}
-		buttons = append(buttons,
-			uiButton{ID: "hdg_port10", Label: "◄◄", Tooltip: "Come left 10 degrees", Y: hdgY, H: hdgBtnH},
-			uiButton{ID: "hdg_port", Label: "◄ PORT", Tooltip: "Come left 5 degrees", Y: hdgY, H: hdgBtnH},
-			uiButton{ID: "hdg_stbd", Label: "STBD ►", Tooltip: "Come right 5 degrees", Y: hdgY, H: hdgBtnH},
-			uiButton{ID: "hdg_stbd10", Label: "►►", Tooltip: "Come right 10 degrees", Y: hdgY, H: hdgBtnH},
-			uiButton{ID: "dep_shallow", Label: "▲", Tooltip: "Rise 20 feet (shallower)", X: depthBtnX, Y: depShallowY, H: depTopH},
-			uiButton{ID: "dep_surface", Label: "SURFACE", Tooltip: "Surface — order zero depth", X: depthBtnX, Y: depSurfaceY, H: depMidH},
-			uiButton{ID: "dep_periscope", Label: "PERISCOPE", Tooltip: "Periscope depth — order 60 feet", X: depthBtnX, Y: depPeriscopeY, H: depMidH},
-			uiButton{ID: "dep_hold", Label: "HOLD", Tooltip: "Hold present depth", X: depthBtnX, Y: depHoldY, H: depTopH},
-			uiButton{ID: "dep_deep", Label: "▼", Tooltip: "Dive 20 feet (deeper)", X: depthBtnX, Y: depDeepY, H: depBotH},
-			uiButton{ID: "bt_cast", Label: "BT CAST", Tooltip: "Launch SSXBT — survey thermocline (~15 s sim time)", X: btX, Y: btY, H: 36},
-		)
+	hdgIDs := []string{"hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10"}
+	hdgTotal := 0
+	for _, id := range hdgIDs {
 		for i := range buttons {
-			if buttons[i].W == 0 {
-				buttons[i].W = render.ButtonWidth(buttons[i].Label, 12)
+			if buttons[i].ID == id {
+				hdgTotal += buttons[i].W
+				break
 			}
 		}
-
-		hdgIDs := []string{"hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10"}
-		hdgTotal := 0
-		for _, id := range hdgIDs {
-			for i := range buttons {
-				if buttons[i].ID == id {
-					hdgTotal += buttons[i].W
-					break
-				}
-			}
+	}
+	hdgTotal += 6 * (len(hdgIDs) - 1)
+	x := helmCourseX + (helmCourseW-hdgTotal)/2
+	for i := range buttons {
+		switch buttons[i].ID {
+		case "hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10":
+			buttons[i].X = x
+			x += buttons[i].W + 6
+		case "dep_shallow", "dep_hold", "dep_deep", "dep_surface", "dep_periscope":
+			buttons[i].X = depthBtnX
+			buttons[i].W = depthBtnW
 		}
-		hdgTotal += 6 * (len(hdgIDs) - 1)
-		x := helmCourseX + (helmCourseW-hdgTotal)/2
-		for i := range buttons {
-			switch buttons[i].ID {
-			case "hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10":
-				buttons[i].X = x
-				x += buttons[i].W + 6
-			case "dep_shallow", "dep_hold", "dep_deep", "dep_surface", "dep_periscope":
-				buttons[i].X = depthBtnX
-				buttons[i].W = depthBtnW
-			}
-		}
-		cachedManeuverButtons.btns = buttons
-	})
+	}
+	cachedManeuverButtons.btns = buttons
+	cachedManeuverButtons.lang = lang
 	return cachedManeuverButtons.btns
 }
 
@@ -293,7 +352,7 @@ func (a *App) orderMakeDepth(player *world.Entity, want float64) {
 			fmt.Sprintf("Unable to dive deeper here — bottom %.0f ft, max safe depth %.0f ft.", bottomFt, depth))
 		return
 	}
-	a.Audio.PlayClip(audio.ClipDiveMakeDepth, fmt.Sprintf("Make depth %d feet.", int(depth)))
+	a.Audio.PlayClip(audio.ClipDiveMakeDepth, a.Lf(i18n.StatusVoiceMakeDepth, int(depth)))
 }
 
 func drawDashedHLine(screen *ebiten.Image, x1, x2, y float64, clr color.Color, dash, gap float64) {
@@ -322,9 +381,9 @@ func (a *App) playOrderedHeadingVoice(player *world.Entity) {
 	}
 	switch {
 	case diff < -0.5:
-		a.Audio.PlayClip(audio.ClipDiveComeLeft, fmt.Sprintf("Come left to %d.", head))
+		a.Audio.PlayClip(audio.ClipDiveComeLeft, a.Lf(i18n.StatusVoiceComeLeft, head))
 	case diff > 0.5:
-		a.Audio.PlayClip(audio.ClipDiveComeRight, fmt.Sprintf("Come right to %d.", head))
+		a.Audio.PlayClip(audio.ClipDiveComeRight, a.Lf(i18n.StatusVoiceComeRight, head))
 	}
 }
 
@@ -340,7 +399,7 @@ func (a *App) stepEOT(player *world.Entity, delta int) {
 }
 
 func (a *App) updateManeuverUI(player *world.Entity) {
-	buttons := maneuverButtons()
+	buttons := a.maneuverButtons()
 	mx, my := ebiten.CursorPosition()
 	a.updateButtonTooltips(buttons, mx, my)
 
@@ -417,42 +476,42 @@ func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 		if player.OrderedHead < 0 {
 			player.OrderedHead += 360
 		}
-		a.Audio.PlayClip(audio.ClipDiveComeLeft, fmt.Sprintf("Come left to %d.", int(player.OrderedHead)))
+		a.Audio.PlayClip(audio.ClipDiveComeLeft, a.Lf(i18n.StatusVoiceComeLeft, int(player.OrderedHead)))
 	case "hdg_stbd":
 		player.OrderedHead += 5
 		if player.OrderedHead >= 360 {
 			player.OrderedHead -= 360
 		}
-		a.Audio.PlayClip(audio.ClipDiveComeRight, fmt.Sprintf("Come right to %d.", int(player.OrderedHead)))
+		a.Audio.PlayClip(audio.ClipDiveComeRight, a.Lf(i18n.StatusVoiceComeRight, int(player.OrderedHead)))
 	case "hdg_port10":
 		player.OrderedHead -= 10
 		if player.OrderedHead < 0 {
 			player.OrderedHead += 360
 		}
-		a.Audio.PlayClip(audio.ClipDiveComeLeft, fmt.Sprintf("Come left to %d.", int(player.OrderedHead)))
+		a.Audio.PlayClip(audio.ClipDiveComeLeft, a.Lf(i18n.StatusVoiceComeLeft, int(player.OrderedHead)))
 	case "hdg_stbd10":
 		player.OrderedHead += 10
 		if player.OrderedHead >= 360 {
 			player.OrderedHead -= 360
 		}
-		a.Audio.PlayClip(audio.ClipDiveComeRight, fmt.Sprintf("Come right to %d.", int(player.OrderedHead)))
+		a.Audio.PlayClip(audio.ClipDiveComeRight, a.Lf(i18n.StatusVoiceComeRight, int(player.OrderedHead)))
 	case "dep_shallow":
 		a.orderMakeDepth(player, math.Max(depthMinOrder, player.OrderedDepth-20))
 	case "dep_deep":
 		a.orderMakeDepth(player, math.Min(depthMaxFt, player.OrderedDepth+20))
 	case "dep_hold":
 		player.OrderedDepth = player.DepthFt
-		a.Audio.PlayClip(audio.ClipDiveHoldDepth, fmt.Sprintf("Hold depth %d feet.", int(player.OrderedDepth)))
+		a.Audio.PlayClip(audio.ClipDiveHoldDepth, a.Lf(i18n.StatusVoiceHoldDepth, int(player.OrderedDepth)))
 	case "dep_surface":
 		player.OrderedDepth = depthSurfaceFt
-		a.Audio.PlayClip(audio.ClipDiveMakeDepth, "Surface the ship.")
+		a.Audio.PlayClip(audio.ClipDiveMakeDepth, a.L(i18n.StatusVoiceSurface))
 	case "dep_periscope":
 		a.orderMakeDepth(player, depthPeriscopeFt)
 	case "bt_cast":
 		env := &a.Engine.Acoustics.Env
 		gt := a.Engine.Clock.GameTime
 		if env.LayerSurveyActive(gt) {
-			a.StatusMessage = fmt.Sprintf("BT cast in progress — %.0fs remaining.", env.LayerSurveyRemainingSec(gt))
+			a.Statusf(i18n.StatusBTCastInProgress, env.LayerSurveyRemainingSec(gt))
 			return
 		}
 		wasKnown := env.LayerSurveyKnown
@@ -462,9 +521,9 @@ func (a *App) maneuverButtonAction(id string, player *world.Entity) {
 				msg = fmt.Sprintf("SSXBT re-cast — refreshing layer profile (~%.0fs).", acoustics.LayerSurveyDurationSec)
 			}
 			a.StatusMessage = msg
-			a.Audio.PlayClip(audio.ClipSonarBTLaunch, "Launching bathythermograph.")
+			a.Audio.PlayClip(audio.ClipSonarBTLaunch, a.L(i18n.VoiceBTLaunch))
 		} else {
-			a.StatusMessage = "Unable to start BT cast."
+			a.Status(i18n.StatusBTCastUnable)
 		}
 	}
 }
@@ -503,21 +562,24 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 	p := a.Engine.Scenario.Player
 	env := a.Engine.Acoustics.Env
 	gt := a.Engine.Clock.GameTime
-	_ = maneuverButtons() // ensure depth layout vars are initialized
+	_ = a.maneuverButtons() // ensure depth layout vars are initialized
 
 	render.DrawConsolePanel(screen, helmPanelX, helmPanelY, helmPanelW, helmPanelH)
-	render.DrawScreenTitle(screen, "MANEUVERING ROOM — HELM", layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
+	render.DrawScreenTitle(screen, a.L(i18n.UITitleHelm), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 
 	render.DrawMonitor(screen, helmSpeedX, helmStationY, helmSpeedW, helmStationH)
 	render.DrawMonitor(screen, helmCourseX, helmStationY, helmCourseW, helmStationH)
 	render.DrawMonitor(screen, helmDepthX, helmStationY, helmDepthW, helmStationH)
 	render.DrawMonitor(screen, helmRailX, helmRailY, helmRailW, helmRailH)
 
-	drawHelmStationHeader(screen, helmSpeedX, helmStationY, helmSpeedW, "SPEED", "ENGINE ORDER")
-	drawHelmStationHeader(screen, helmCourseX, helmStationY, helmCourseW, "COURSE", "CLICK OR DRAG")
-	render.DrawText(screen, fmt.Sprintf("ACT %.0f°", p.HeadingDeg), helmCourseX+16, helmStationY+56, render.ColorPhosphor, true)
-	render.DrawText(screen, fmt.Sprintf("ORD %.0f°", p.OrderedHead), helmCourseX+16, helmStationY+74, render.ColorAmber, true)
-	drawHelmStationHeader(screen, helmDepthX, helmStationY, helmDepthW, "DEPTH", "CLICK SCALE")
+	actLbl := a.L(i18n.UIAct)
+	ordLbl := a.L(i18n.UIOrd)
+	astLbl := a.L(i18n.UIAST)
+	drawHelmStationHeader(screen, helmSpeedX, helmStationY, helmSpeedW, a.L(i18n.UISpeed), a.L(i18n.UIEngineOrder))
+	drawHelmStationHeader(screen, helmCourseX, helmStationY, helmCourseW, a.L(i18n.UICourse), a.L(i18n.UIClickCompass))
+	render.DrawText(screen, fmt.Sprintf("%s %.0f°", actLbl, p.HeadingDeg), helmCourseX+16, helmStationY+56, render.ColorPhosphor, true)
+	render.DrawText(screen, fmt.Sprintf("%s %.0f°", ordLbl, p.OrderedHead), helmCourseX+16, helmStationY+74, render.ColorAmber, true)
+	drawHelmStationHeader(screen, helmDepthX, helmStationY, helmDepthW, a.L(i18n.UIDepth), a.L(i18n.UIClickScale))
 
 	mx, my := ebiten.CursorPosition()
 
@@ -552,61 +614,61 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 		render.DrawLine(screen, float64(depthGaugeX+4), hy, float64(depthGaugeX+depthGaugeW-4), hy, color.RGBA{255, 255, 100, 120})
 	}
 	depthReadY := depthTop + depthH + 28
-	render.DrawText(screen, fmt.Sprintf("%.0f FT", p.DepthFt), depthGaugeX, depthReadY, render.ColorPhosphor, false)
-	render.DrawText(screen, fmt.Sprintf("ORD %.0f", p.OrderedDepth), depthGaugeX, depthReadY+18, render.ColorAmber, true)
+	render.DrawText(screen, fmt.Sprintf("%.0f %s", p.DepthFt, a.L(i18n.UIFt)), depthGaugeX, depthReadY, render.ColorPhosphor, false)
+	render.DrawText(screen, fmt.Sprintf("%s %.0f", ordLbl, p.OrderedDepth), depthGaugeX, depthReadY+18, render.ColorAmber, true)
 	clearance := env.KeelClearanceFt(p.DepthFt)
-	render.DrawText(screen, fmt.Sprintf("KEEL %.0f FT", clearance), depthGaugeX, depthReadY+36, render.ColorPhosphorDim, true)
+	render.DrawText(screen, fmt.Sprintf("%s %.0f %s", a.L(i18n.UIKeel), clearance, a.L(i18n.UIFt)), depthGaugeX, depthReadY+36, render.ColorPhosphorDim, true)
 
-	buttons := maneuverButtons()
-	activeBell := eotBells[nearestEOTIndex(p.OrderedSpeed, p)].ID
+	buttons := a.maneuverButtons()
+	activeBell := matchingEOTID(p.OrderedSpeed, p)
 	for _, b := range buttons {
 		hover := b.contains(mx, my)
-		pressed := a.uiPressedID == b.ID || b.ID == activeBell
+		pressed := a.uiPressedID == b.ID || (activeBell != "" && b.ID == activeBell)
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
 	}
 
 	// ACT / ORD under the telegraph dial.
 	actY := helmStationY + helmStationH - 18
-	actLbl := fmt.Sprintf("ACT %.1f", p.SpeedKts)
+	actSpdLbl := fmt.Sprintf("%s %.1f", actLbl, p.SpeedKts)
 	if p.SpeedKts < -0.05 {
-		actLbl = fmt.Sprintf("ACT %.1f AST", -p.SpeedKts)
+		actSpdLbl = fmt.Sprintf("%s %.1f %s", actLbl, -p.SpeedKts, astLbl)
 	}
-	ordLbl := fmt.Sprintf("ORD %.0f", p.OrderedSpeed)
+	ordSpdLbl := fmt.Sprintf("%s %.0f", ordLbl, p.OrderedSpeed)
 	if p.OrderedSpeed < -0.05 {
-		ordLbl = fmt.Sprintf("ORD %.0f AST", -p.OrderedSpeed)
+		ordSpdLbl = fmt.Sprintf("%s %.0f %s", ordLbl, -p.OrderedSpeed, astLbl)
 	}
-	render.DrawText(screen, actLbl, helmSpeedX+16, actY, render.ColorPhosphor, true)
-	render.DrawText(screen, ordLbl, helmSpeedX+16+render.ButtonLabelWidth(actLbl)+16, actY, render.ColorAmber, true)
+	render.DrawText(screen, actSpdLbl, helmSpeedX+16, actY, render.ColorPhosphor, true)
+	render.DrawText(screen, ordSpdLbl, helmSpeedX+16+render.ButtonLabelWidth(actSpdLbl)+16, actY, render.ColorAmber, true)
 
 	// --- Status rail ---
 	railTextX := helmRailX + 16
 	railTextY := helmRailY + 22
-	layer := env.LayerNameKnown(p.DepthFt)
-	render.DrawText(screen, "WATER LAYER: "+layer, railTextX, railTextY, render.ColorPhosphorDim, false)
+	layer := i18n.LocalizeLayerName(env.LayerNameKnown(p.DepthFt), a.Lang())
+	render.DrawText(screen, a.L(i18n.UIWaterLayer)+" "+layer, railTextX, railTextY, render.ColorPhosphorDim, false)
 	if env.LayerSurveyActive(gt) {
-		render.DrawText(screen, fmt.Sprintf("BT CAST: %.0fs remaining", env.LayerSurveyRemainingSec(gt)), railTextX, railTextY+18, render.ColorAmber, true)
+		render.DrawText(screen, a.Lf(i18n.UIBTCastRemain, env.LayerSurveyRemainingSec(gt)), railTextX, railTextY+18, render.ColorAmber, true)
 	} else if env.LayerSurveyKnown {
-		render.DrawText(screen, "LAYER PROFILE: ON FILE", railTextX, railTextY+18, render.ColorPhosphorDim, true)
+		render.DrawText(screen, a.L(i18n.UILayerOnFile), railTextX, railTextY+18, render.ColorPhosphorDim, true)
 	} else {
-		render.DrawText(screen, "LAYER PROFILE: UNKNOWN — launch BT CAST", railTextX, railTextY+18, render.ColorWarn, true)
+		render.DrawText(screen, a.L(i18n.UILayerUnknown), railTextX, railTextY+18, render.ColorWarn, true)
 	}
 	cav := acoustics.CavitationSeverity(p.DepthFt, p.SpeedKts)
 	warnY := railTextY + 36
 	if cav > 0.15 {
-		render.DrawText(screen, fmt.Sprintf("CAVITATION RISK %.0f%%", cav*100), railTextX, warnY, render.ColorWarn, false)
+		render.DrawText(screen, a.Lf(i18n.UICavitationRisk, cav*100), railTextX, warnY, render.ColorWarn, false)
 		warnY += 16
 	}
 	p.EnsureDamage()
 	if p.Damage.Destroyed(world.SysSteering) {
-		render.DrawText(screen, "STEERING DAMAGED — RUDDER JAMMED", railTextX+280, railTextY, render.ColorDanger, true)
+		render.DrawText(screen, a.L(i18n.UIRudderJam), railTextX+280, railTextY, render.ColorDanger, true)
 	}
 	if p.Damage.Destroyed(world.SysDepth) {
-		render.DrawText(screen, "DEPTH CONTROL DAMAGED — UNCONTROLLED TRIM", railTextX+280, railTextY+16, render.ColorDanger, true)
+		render.DrawText(screen, a.L(i18n.UIDepthLost), railTextX+280, railTextY+16, render.ColorDanger, true)
 	}
 	if p.Damage.Destroyed(world.SysPropulsion) {
-		render.DrawText(screen, "PROPULSION DESTROYED — NO THRUST", railTextX+280, railTextY+32, render.ColorDanger, true)
+		render.DrawText(screen, a.L(i18n.UIPropDestroyed), railTextX+280, railTextY+32, render.ColorDanger, true)
 	} else if !p.Damage.Operational(world.SysPropulsion) {
-		render.DrawText(screen, fmt.Sprintf("PROPULSION DEGRADED — MAX %.0f KTS", p.MaxSpeedKts()), railTextX+280, railTextY+32, render.ColorWarn, true)
+		render.DrawText(screen, a.Lf(i18n.UIPropDegraded, p.MaxSpeedKts()), railTextX+280, railTextY+32, render.ColorWarn, true)
 	}
 	_ = warnY
 
@@ -618,7 +680,7 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 }
 
 func (a *App) drawBTProgress(screen *ebiten.Image, env acoustics.Environment, gt float64) {
-	btW := render.ButtonWidth("BT CAST", 12)
+	btW := render.ButtonWidth(a.L(i18n.UIBTCast), 12)
 	btX := helmRailX + helmRailW - btW - 20
 	const (
 		barW = 160
@@ -628,11 +690,11 @@ func (a *App) drawBTProgress(screen *ebiten.Image, env acoustics.Environment, gt
 	barY := helmRailY + (helmRailH-barH)/2
 
 	if !env.LayerSurveyActive(gt) {
-		render.DrawText(screen, fmt.Sprintf("BOTTOM %.0f FT", env.BottomDepthFt), barX, barY+barH/2+4, render.ColorPhosphorDim, true)
+		render.DrawText(screen, a.Lf(i18n.UIBottomFt, env.BottomDepthFt), barX, barY+barH/2+4, render.ColorPhosphorDim, true)
 		return
 	}
 	prog := env.LayerSurveyProgress(gt)
-	render.DrawText(screen, "BT / LAYERS", barX, barY-2, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIBTLayers), barX, barY-2, render.ColorPhosphorDim, true)
 	render.FillRect(screen, barX, barY+2, barW, barH, render.ColorPanelInset)
 	fill := int(float64(barW-4) * prog)
 	if fill > 0 {
