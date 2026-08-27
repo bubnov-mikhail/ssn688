@@ -260,7 +260,8 @@ func (a *App) playMastHydraulicFX() {
 	}
 }
 
-// playMastRaiseDenied picks a voice line matching the raise refusal (not generic depth audio).
+// playMastRaiseDenied picks a voice line matching the raise refusal.
+// "Too deep" has no dedicated clip — status text alone (unable_deeper would be wrong).
 func (a *App) playMastRaiseDenied(reason string) {
 	if a.Audio == nil || reason == "" {
 		return
@@ -269,7 +270,8 @@ func (a *App) playMastRaiseDenied(reason string) {
 	case strings.Contains(reason, "Too fast"):
 		a.Audio.PlayClip(audio.ClipDiveHoldDepth, i18n.LocalizeRuntimeMessage(reason, a.Lang()))
 	case strings.Contains(reason, "Too deep"):
-		a.Audio.PlayClip(audio.ClipDiveUnableDeeper, i18n.LocalizeRuntimeMessage(reason, a.Lang()))
+		// No matching dive clip; avoid playing "unable deeper / bottom limit".
+		return
 	case strings.Contains(reason, "destroyed"):
 		a.Audio.PlayClip(audio.ClipCaptCriticalDamage, i18n.LocalizeRuntimeMessage(reason, a.Lang()))
 	}

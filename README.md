@@ -152,16 +152,16 @@ tools/        — пересборка батиметрии
 ## Голоса офицеров
 
 ~40 WAV на язык встроены в бинарник (`internal/audio/voices/`, RU — `voices/ru/…`).
-EN — Kokoro (`mlx-audio` на Apple Silicon); RU — Silero TTS (`v5_ru`).
+EN — Kokoro (`mlx-audio` на Apple Silicon); RU — Microsoft Edge neural TTS (`edge-tts`).
 `sonar/enemy_ping.wav` — FX-пинг (не TTS; при RU UI играет EN-файл).
 
-| Отсек | Kokoro (EN) | Silero (RU) | Примеры |
-|-------|-------------|-------------|---------|
-| CAPT | `bm_george` | `aidar` | «Hold simulation» / «Пауза симуляции» |
-| SONAR | `af_bella` | `xenia` | «Passive sonar online» |
-| WEPS | `am_michael` | `eugene` | «Torpedo away, tube 3» |
-| DIVE | `am_fenrir` | `aidar` | «Make depth, aye» |
-| NAV | `bf_emma` | `kseniya` | «Time acceleration double» |
+| Отсек | Kokoro (EN) | Edge (RU) | Примеры |
+|-------|-------------|-----------|---------|
+| CAPT | `bm_george` | `ru-RU-DmitryNeural` | «Hold simulation» / «Пауза симуляции» |
+| SONAR | `af_bella` | `ru-RU-SvetlanaNeural` | «Passive sonar online» |
+| WEPS | `am_michael` | `ru-RU-DmitryNeural` | «Torpedo away, tube 3» |
+| DIVE | `am_fenrir` | `ru-RU-DmitryNeural` | «Make depth, aye» |
+| NAV | `bf_emma` | `ru-RU-SvetlanaNeural` | «Time acceleration double» |
 
 Субтитры подставляют точные значения (курс, глубина), когда в аудио — общая фраза.
 
@@ -176,13 +176,15 @@ python scripts/generate_voices_kokoro.py
 python scripts/generate_voices_kokoro.py unable_deeper.wav deploy_towed.wav
 ```
 
-Перегенерация RU (Silero; те же stems, выход в `voices/ru/`):
+Перегенерация RU (edge-tts; те же stems, выход в `voices/ru/`; нужен `ffmpeg`):
 
 ```bash
 source .venv-tts/bin/activate
-pip install torch torchaudio soundfile scipy omegaconf
-python scripts/generate_voices_silero_ru.py
-python scripts/generate_voices_silero_ru.py unable_deeper.wav
+pip install edge-tts soundfile scipy
+python scripts/generate_voices_edge_ru.py
+python scripts/generate_voices_edge_ru.py unable_deeper.wav
+# handcrafted ElevenLabs clips are skipped unless:
+python scripts/generate_voices_edge_ru.py --force ownship_hit.wav
 ```
 
 ## Credits / атрибуция

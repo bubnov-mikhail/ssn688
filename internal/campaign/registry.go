@@ -129,6 +129,43 @@ func ScenarioByIDCompatible(id ScenarioID) *ScenarioDef {
 	return sc
 }
 
+// HasUserScenarioFile reports whether an imported JSON exists for id
+// under the user scenarios directory (bundled-only scenarios return false).
+func HasUserScenarioFile(id ScenarioID) bool {
+	_, ok := userScenarioPath(id)
+	return ok
+}
+
+func userScenarioPath(id ScenarioID) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+	userDir, err := config.ScenariosDir()
+	if err != nil {
+		return "", false
+	}
+	path := filepath.Join(userDir, string(id)+".json")
+	if _, err := os.Stat(path); err != nil {
+		return "", false
+	}
+	return path, true
+}
+
+// DeleteUserScenario removes an imported scenario JSON and its saves.
+// Bundled scenarios cannot be deleted; returns an error if no user file exists.
+func DeleteUserScenario(id ScenarioID) error {
+	path, ok := userScenarioPath(id)
+	if !ok {
+		return fmt.Errorf("scenario %s is not an imported file", id)
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	_ = DeleteScenarioSaves(id)
+	ReloadScenarios()
+	return nil
+}
+
 // ImportScenarioJSON validates and installs a user scenario file.
 func ImportScenarioJSON(srcPath string) (ScenarioDef, error) {
 	data, err := os.ReadFile(srcPath)

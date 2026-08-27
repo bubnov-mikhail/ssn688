@@ -66,7 +66,7 @@ internal/
   audio/                — голоса офицеров (embed WAV) + FX
   save/                 — сериализация Engine/Sonar/торпед
   config/               — settings.json, пути saves
-scripts/                — macOS app, Kokoro EN + Silero RU TTS → voices
+scripts/                — macOS app, Kokoro EN + edge-tts RU → voices
 tools/                  — пересборка батиметрии
 agent-skills/           — доменные навыки для ИИ-агентов (SKILL.md)
 ```
@@ -158,7 +158,7 @@ world → (почти никого)
 ## Ассеты и голоса
 
 - WAV офицеров — `internal/audio/voices/{capt,sonar,weps,dive,nav}/`, регистрация в `clips.go`.
-- Перегенерация TTS: EN — `scripts/generate_voices_kokoro.py` (mlx-audio); RU — `scripts/generate_voices_silero_ru.py` (Silero). См. README.
+- Перегенерация TTS: EN — `scripts/generate_voices_kokoro.py` (mlx-audio); RU — `scripts/generate_voices_edge_ru.py` (edge-tts). См. README.
 - Батиметрия: только внутри `scenarios/*.json` (`theaters[].bathy.data_b64`). Пересборка сетки: `tools/gen_hormuz_bathy.py` → бинарник, затем inline в JSON (`tools/gen_demo_scenario_json.go`). Подробный пайплайн — [`agent-skills/bathymetry-and-routes/SKILL.md`](agent-skills/bathymetry-and-routes/SKILL.md).
 
 ## Коммиты (когда попросили)

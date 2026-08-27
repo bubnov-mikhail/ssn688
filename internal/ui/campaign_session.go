@@ -53,6 +53,25 @@ func (a *App) restartScenarioConfirmed() {
 	a.Status(i18n.StatusProgressCleared)
 }
 
+func (a *App) deleteScenarioConfirmed() {
+	sc := a.selectedScenarioDef()
+	if sc == nil || !campaign.HasUserScenarioFile(sc.ID) {
+		return
+	}
+	title := sc.Title.GetText(a.Lang())
+	id := sc.ID
+	if err := campaign.DeleteUserScenario(id); err != nil {
+		a.Statusf(i18n.StatusDeleteFailed, err.Error())
+		return
+	}
+	a.resetScenarioLoadout()
+	a.briefDebrief = false
+	a.briefMissionID = ""
+	a.SelectedScenarioID = ""
+	a.ensureScenarioSelection()
+	a.Statusf(i18n.StatusScenarioDeleted, title)
+}
+
 func (a *App) startSelectedMission() {
 	if a.briefDebrief || !a.selectedScenarioPlayable() {
 		return

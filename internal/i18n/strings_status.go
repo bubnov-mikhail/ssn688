@@ -100,6 +100,8 @@ var (
 	StatusGameSaved        = T("Game saved: %s", "Игра сохранена: %s")
 	StatusImportFailed     = T("Import failed: %s", "Ошибка импорта: %s")
 	StatusImported         = T("Imported %s v%s", "Импортирован %s v%s")
+	StatusScenarioDeleted  = T("Deleted scenario %s.", "Сценарий %s удалён.")
+	StatusDeleteFailed     = T("Delete failed: %s", "Ошибка удаления: %s")
 	StatusScenarioIncompat = T(
 		"Scenario is incompatible with this game version.",
 		"Сценарий несовместим с этой версией игры.",

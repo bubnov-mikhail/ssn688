@@ -17,6 +17,7 @@ const (
 	confirmExitMenu
 	confirmEndMission
 	confirmRestartScenario
+	confirmDeleteScenario
 )
 
 type confirmDialog struct {
@@ -81,6 +82,8 @@ func (a *App) executeConfirmYes() {
 		a.endMissionConfirmed()
 	case confirmRestartScenario:
 		a.restartScenarioConfirmed()
+	case confirmDeleteScenario:
+		a.deleteScenarioConfirmed()
 	}
 }
 

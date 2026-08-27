@@ -144,15 +144,6 @@ func (a *App) updateScenarioList() error {
 		a.ensureScenarioSelection()
 	}
 
-	listX, listY, listW, rowH := scenarioListRect()
-	for i := range defs {
-		y := listY + i*rowH
-		if mx >= listX && mx < listX+listW && my >= y && my < y+rowH {
-			a.ScenarioListIndex = i
-			a.ensureScenarioSelection()
-		}
-	}
-
 	if sc := a.selectedScenarioDef(); sc != nil {
 		tx, ty, tw, th := scenarioListBackstoryRect()
 		body := sc.Backstory.GetText(a.Lang())
@@ -171,6 +162,16 @@ func (a *App) updateScenarioList() error {
 		return nil
 	}
 
+	listX, listY, listW, rowH := scenarioListRect()
+	for i := range defs {
+		y := listY + i*rowH
+		if hitRect(mx, my, listX, y, listW, rowH) {
+			a.ScenarioListIndex = i
+			a.ensureScenarioSelection()
+			return nil
+		}
+	}
+
 	bx, by, bw, bh := a.scenarioListBackRect()
 	if hitRect(mx, my, bx, by, bw, bh) {
 		a.Mode = ModeMenu
@@ -184,6 +185,11 @@ func (a *App) updateScenarioList() error {
 	rx, ry, rw, rh := a.scenarioListRestartRect()
 	if a.selectedScenarioPlayable() && hitRect(mx, my, rx, ry, rw, rh) {
 		a.showConfirm(confirmRestartScenario, a.L(i18n.UIConfirmRestartTitle), a.L(i18n.UIConfirmRestartBody))
+		return nil
+	}
+	dx, dy, dw, dh := a.scenarioListDeleteRect()
+	if a.selectedScenarioImported() && hitRect(mx, my, dx, dy, dw, dh) {
+		a.showConfirm(confirmDeleteScenario, a.L(i18n.UIConfirmDeleteTitle), a.L(i18n.UIConfirmDeleteBody))
 		return nil
 	}
 	sx, sy, sw, sh := a.scenarioListSelectRect()
@@ -299,6 +305,20 @@ func (a *App) scenarioListRestartRect() (x, y, w, h int) {
 	x = ox + ow + 16
 	y = oy
 	return x, y, w, h
+}
+
+func (a *App) scenarioListDeleteRect() (x, y, w, h int) {
+	w = render.ButtonWidth(a.L(i18n.UIDeleteScenario), 20)
+	h = 40
+	ox, oy, ow, _ := a.scenarioListRestartRect()
+	x = ox + ow + 16
+	y = oy
+	return x, y, w, h
+}
+
+func (a *App) selectedScenarioImported() bool {
+	sc := a.selectedScenarioDef()
+	return sc != nil && campaign.HasUserScenarioFile(sc.ID)
 }
 
 func (a *App) scenarioListBackRect() (x, y, w, h int) {
@@ -490,6 +510,10 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 		render.DrawBevelButton(screen, rx, ry, rw, rh, a.L(i18n.UIRestartScenario), hitRect(mx, my, rx, ry, rw, rh), false)
 	} else {
 		render.DrawBevelButtonDisabled(screen, rx, ry, rw, rh, a.L(i18n.UIRestartScenario))
+	}
+	dx, dy, dw, dh := a.scenarioListDeleteRect()
+	if a.selectedScenarioImported() {
+		render.DrawBevelButton(screen, dx, dy, dw, dh, a.L(i18n.UIDeleteScenario), hitRect(mx, my, dx, dy, dw, dh), false)
 	}
 	sx, sy, sw, sh := a.scenarioListSelectRect()
 	if sc != nil && sc.Compatible {

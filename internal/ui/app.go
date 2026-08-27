@@ -417,6 +417,8 @@ func (a *App) updateGame() {
 // on PASSIVE. Ambient sea noise always plays on that screen; contact propeller
 // / bow wash / torpedo run layer on top when a moving contact is selected.
 // Contact track loudness tracks sonar SNR (waterfall brightness).
+// On HELM, a dedicated ownship propulsion loop (sub+combatant mix) plays with
+// gain ramping 0→50% from 0.1→8 kn; stretch peaks at HelmPropellerRefSpeedKts.
 func (a *App) updateContactPropellerAudio() {
 	if a.Audio == nil {
 		return
@@ -429,11 +431,14 @@ func (a *App) updateContactPropellerAudio() {
 	subProp := 0.0
 	bowGain := 0.0
 	torpRun := 0.0
+	helmProp := 0.0
 	propSpeed := 1.0
 	bowSpeed := 1.0
 	torpSpeed := 1.0
-	onPassive := a.Mode == ModeGame && a.Engine != nil && !a.Engine.Clock.Paused &&
-		a.CurrentScreen == ScreenPassive && a.Engine.Scenario != nil
+	helmSpeed := 1.0
+	live := a.Mode == ModeGame && a.Engine != nil && !a.Engine.Clock.Paused && a.Engine.Scenario != nil
+	onPassive := live && a.CurrentScreen == ScreenPassive
+	onHelm := live && a.CurrentScreen == ScreenManeuver
 	if onPassive {
 		ambient = 0.32 // under contact tracks; present with no selection
 		c := a.selectedContact(&a.Engine.Sonar)
@@ -481,12 +486,22 @@ func (a *App) updateContactPropellerAudio() {
 			}
 		}
 	}
+	if onHelm {
+		if p := a.Engine.Scenario.Player; p != nil {
+			spd := math.Abs(p.SpeedKts)
+			helmProp = audio.HelmPropellerGain(spd)
+			if helmProp > 0 {
+				helmSpeed = audio.HelmPropellerListenSpeed(spd)
+			}
+		}
+	}
 	a.Audio.SetLoopingFX(audio.FXPassiveAmbient, ambient, 1)
 	a.Audio.SetLoopingFX(audio.FXPropellerHydrophone, gCombatant, propSpeed)
 	a.Audio.SetLoopingFX(audio.FXPropellerFishing, gFishing, propSpeed)
 	a.Audio.SetLoopingFX(audio.FXPropellerMerchant, gMerchant, propSpeed)
 	a.Audio.SetLoopingFX(audio.FXPropellerTanker, gTanker, propSpeed)
 	a.Audio.SetLoopingFX(audio.FXPropellerSubmarine, subProp, propSpeed)
+	a.Audio.SetLoopingFX(audio.FXPropellerHelm, helmProp, helmSpeed)
 	a.Audio.SetLoopingFX(audio.FXBowWash, bowGain, bowSpeed)
 	a.Audio.SetLoopingFX(audio.FXTorpedoRun, torpRun, torpSpeed)
 }

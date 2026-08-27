@@ -16,6 +16,7 @@ var (
 	UIContinueScenario     = T("CONTINUE SCENARIO", "ПРОДОЛЖИТЬ")
 	UIRestartScenario      = T("RESTART SCENARIO", "СБРОС")
 	UIOpenScenario         = T("OPEN SCENARIO", "ОТКРЫТЬ")
+	UIDeleteScenario       = T("DELETE", "УДАЛИТЬ")
 	UINextMission          = T("NEXT MISSION", "СЛЕД. МИССИЯ")
 	UIStartMission         = T("START MISSION", "СТАРТ МИССИИ")
 	UIScenarioComplete     = T("SCENARIO COMPLETE", "СЦЕНАРИЙ ПРОЙДЕН")
@@ -29,6 +30,11 @@ var (
 	UIConfirmRestartBody  = T(
 		"Delete all saves for this scenario and start the campaign from the first mission?",
 		"Удалить все сейвы сценария и начать кампанию с первой миссии?",
+	)
+	UIConfirmDeleteTitle = T("DELETE SCENARIO", "УДАЛИТЬ СЦЕНАРИЙ")
+	UIConfirmDeleteBody  = T(
+		"Remove this imported scenario and all of its saves? Bundled scenarios cannot be deleted.",
+		"Удалить импортированный сценарий и все его сохранения? Встроенные сценарии удалить нельзя.",
 	)
 
 	// --- Load game ---

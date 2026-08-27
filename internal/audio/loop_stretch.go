@@ -12,8 +12,20 @@ const (
 	loopSpeedMax     = 1.2
 )
 
-// PropellerMinSpeedKts — below this, propeller/bow-wash loops are silent.
+// PropellerMinSpeedKts — below this, propeller/bow-wash loops are silent (PASSIVE contacts).
 const PropellerMinSpeedKts = 2.0
+
+// HelmPropellerMinSpeedKts — ownship HELM propulsion loop starts here (gain near 0).
+const HelmPropellerMinSpeedKts = 0.1
+
+// HelmPropellerFullGainSpeedKts — HELM loop reaches max gain (0.5) at this speed.
+const HelmPropellerFullGainSpeedKts = 8.0
+
+// HelmPropellerRefSpeedKts — playback rate 1.0 (former LA ~12 kt "nominal") at this speed.
+const HelmPropellerRefSpeedKts = 32.0
+
+// HelmPropellerMaxGain is peak loudness for the HELM ownship propulsion loop.
+const HelmPropellerMaxGain = 0.5
 
 // loopTrack is one ambient FX loop mixed under voices (propeller, bow wash, …).
 type loopTrack struct {
@@ -137,6 +149,43 @@ func PropellerListenSpeed(speedKts float64, signatureID string) float64 {
 	ref := propellerRefSpeedKts(signatureID)
 	rate := 1 + 0.4*(speedKts/ref-1)
 	return clampLoopSpeed(rate)
+}
+
+// HelmPropellerListenSpeed maps ownship speed for the HELM propulsion loop.
+// Rate 1.0 (the old ~12 kt LA nominal) is the ceiling, reached at HelmPropellerRefSpeedKts.
+func HelmPropellerListenSpeed(speedKts float64) float64 {
+	if speedKts < HelmPropellerMinSpeedKts {
+		return 1
+	}
+	spd := speedKts
+	if spd > HelmPropellerRefSpeedKts {
+		spd = HelmPropellerRefSpeedKts
+	}
+	rate := 1 + 0.4*(spd/HelmPropellerRefSpeedKts-1)
+	if rate > 1 {
+		rate = 1
+	}
+	return clampLoopSpeed(rate)
+}
+
+// HelmPropellerGain ramps loudness from 0 at HelmPropellerMinSpeedKts to
+// HelmPropellerMaxGain at HelmPropellerFullGainSpeedKts (and above).
+func HelmPropellerGain(speedKts float64) float64 {
+	if speedKts < HelmPropellerMinSpeedKts {
+		return 0
+	}
+	span := HelmPropellerFullGainSpeedKts - HelmPropellerMinSpeedKts
+	if span <= 0 {
+		return HelmPropellerMaxGain
+	}
+	t := (speedKts - HelmPropellerMinSpeedKts) / span
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	return HelmPropellerMaxGain * t
 }
 
 func propellerRefSpeedKts(signatureID string) float64 {

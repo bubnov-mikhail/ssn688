@@ -133,3 +133,48 @@ func TestPropellerListenSpeed(t *testing.T) {
 		t.Fatalf("2 kts merchant rate %.2f outside [%.2f, %.2f]", s, loopSpeedMin, loopSpeedMax)
 	}
 }
+
+func TestHelmPropellerListenSpeed(t *testing.T) {
+	if s := HelmPropellerListenSpeed(0.05); s != 1 {
+		t.Fatalf("below helm min want unused 1, got %.2f", s)
+	}
+	at01 := HelmPropellerListenSpeed(0.1)
+	at12 := HelmPropellerListenSpeed(12)
+	at32 := HelmPropellerListenSpeed(32)
+	at40 := HelmPropellerListenSpeed(40)
+	if at01 < loopSpeedMin-0.001 || at01 > loopSpeedMin+0.05 {
+		t.Fatalf("0.1 kt should sit near min rate, got %.2f", at01)
+	}
+	if at32 < 0.99 || at32 > 1.01 {
+		t.Fatalf("32 kt should be nominal 1.0, got %.2f", at32)
+	}
+	if at40 > at32+0.001 {
+		t.Fatalf("above 32 kt must not exceed peak (got %.2f > %.2f)", at40, at32)
+	}
+	if at12 >= at32 {
+		t.Fatalf("12 kt (%.2f) should be slower than 32 kt (%.2f)", at12, at32)
+	}
+}
+
+func TestHelmPropellerGain(t *testing.T) {
+	if g := HelmPropellerGain(0); g != 0 {
+		t.Fatalf("0 kt want 0, got %.3f", g)
+	}
+	if g := HelmPropellerGain(0.05); g != 0 {
+		t.Fatalf("below min want 0, got %.3f", g)
+	}
+	g1 := HelmPropellerGain(0.1)
+	if g1 > 0.01 {
+		t.Fatalf("at min speed gain should be ~0, got %.3f", g1)
+	}
+	mid := HelmPropellerGain(4.05) // midpoint of 0.1..8
+	if mid < 0.20 || mid > 0.30 {
+		t.Fatalf("mid ramp want ~0.25, got %.3f", mid)
+	}
+	if g := HelmPropellerGain(8); math.Abs(g-HelmPropellerMaxGain) > 1e-9 {
+		t.Fatalf("8 kt want max %.2f, got %.3f", HelmPropellerMaxGain, g)
+	}
+	if g := HelmPropellerGain(20); math.Abs(g-HelmPropellerMaxGain) > 1e-9 {
+		t.Fatalf("above full-gain speed want max %.2f, got %.3f", HelmPropellerMaxGain, g)
+	}
+}

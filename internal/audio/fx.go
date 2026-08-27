@@ -16,6 +16,7 @@ type FXID string
 const (
 	FXPropellerHydrophone FXID = "propeller_hydrophone" // surface combatants / default
 	FXPropellerSubmarine  FXID = "propeller_submarine"
+	FXPropellerHelm       FXID = "propeller_helm" // ownship feel on HELM (sub+combatant mix)
 	FXPropellerFishing    FXID = "propeller_fishing"
 	FXPropellerMerchant   FXID = "propeller_merchant"
 	FXPropellerTanker     FXID = "propeller_tanker"
