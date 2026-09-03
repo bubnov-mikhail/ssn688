@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/version"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/version"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // ScenarioID identifies a multi-mission campaign.
@@ -119,6 +119,7 @@ type UnitSpec struct {
 	Combatant      bool
 	Spawn          SpawnMode
 	Corner         string  // SW/SE/… for SpawnChartCorner
+	CornerInsetYd  float64 // yards inward from chart corner (0 = default margin)
 	MinRouteYd     float64 // player: stay this far from transit lanes
 	MaxRouteYd     float64
 	RouteID        string
@@ -129,6 +130,7 @@ type UnitSpec struct {
 	RequireVar     string // spawn only when campaign var is "true"
 	UnlessVar      string // skip when campaign var is "true"
 	AllyIgnore     bool   // allied AI must not attack this unit
+	ExerciseTarget bool   // practice hulk — signal torpedoes only
 	Payload        *UnitPayload
 }
 
@@ -140,6 +142,8 @@ type MissionDef struct {
 	CoverFile     string // optional; falls back to scenario cover
 	CoverData     []byte
 	CoverCacheKey string
+	BriefMapData     []byte
+	BriefMapCacheKey string
 	TheaterID     TheaterID
 	Routes        []RouteSpec
 	Player        UnitSpec
@@ -154,6 +158,7 @@ type MissionDef struct {
 	Outputs      []OutputRule
 	DebriefLead  LocText
 	DebriefLines []DebriefLine
+	EndAfterEvent string // mission event id required before COMM report / end
 }
 
 // ScenarioDef is a campaign: linked missions with narrative framing.

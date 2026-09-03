@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const saveFormat = 15
@@ -65,10 +65,12 @@ func Save(path string, engine *sim.Engine) error {
 		fmt.Fprintf(w, "delivered=%s\n", id)
 	}
 	for _, msg := range engine.COMM.Inbox {
-		esc := strings.ReplaceAll(msg.Body.GetText(i18n.LangEN), "\\", "\\\\")
-		esc = strings.ReplaceAll(esc, "\n", "\\n")
-		esc = strings.ReplaceAll(esc, "|", "/")
-		fmt.Fprintf(w, "inbox=%.3f|%s\n", msg.TimeSec, esc)
+		en := msg.Body[i18n.LangEN]
+		if en == "" {
+			en = msg.Body.GetText(i18n.LangEN)
+		}
+		ru := msg.Body[i18n.LangRU]
+		fmt.Fprintf(w, "inbox=%.3f|%s|%s|%s\n", msg.TimeSec, msg.SourceID, escapeCommField(en), escapeCommField(ru))
 	}
 
 	fmt.Fprintf(w, "\n[peri]\n")
@@ -99,6 +101,7 @@ func Save(path string, engine *sim.Engine) error {
 	fmt.Fprintf(w, "last_blast_range=%.3f\n", engine.Sonar.LastBlastRangeYd)
 	fmt.Fprintf(w, "last_blast_flash=%.3f\n", engine.Sonar.LastBlastFlashSec)
 	fmt.Fprintf(w, "last_blast_entity=%s\n", engine.Sonar.LastBlastEntityID)
+	fmt.Fprintf(w, "contact_seq=%d\n", engine.Sonar.ContactSeq())
 	for _, c := range engine.Sonar.Contacts {
 		fmt.Fprintf(w, "contact=%s|%.3f|%.3f|%.3f|%s|%s|%.3f|%s|%s|%d|%s|%s|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%s|%.3f|%.3f|%.3f\n",
 			c.ID, c.BearingDeg, c.EstimatedRangeYd, c.SNR,
@@ -126,11 +129,20 @@ func Save(path string, engine *sim.Engine) error {
 	for id, n := range engine.FireControl.EnemyMagazine {
 		fmt.Fprintf(w, "enemy_mag=%s|%d\n", id, n)
 	}
+	for id, n := range engine.FireControl.AllyHarpoonMag {
+		fmt.Fprintf(w, "ally_harpoon=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemyASCMMag {
+		fmt.Fprintf(w, "enemy_ascm=%s|%d\n", id, n)
+	}
 	for id, n := range engine.FireControl.EnemyRastrub {
 		fmt.Fprintf(w, "enemy_rastrub=%s|%d\n", id, n)
 	}
 	for id, n := range engine.FireControl.EnemyShipTube {
 		fmt.Fprintf(w, "enemy_ship_tube=%s|%d\n", id, n)
+	}
+	for id, n := range engine.FireControl.EnemyExerciseTube {
+		fmt.Fprintf(w, "enemy_exercise_tube=%s|%d\n", id, n)
 	}
 	for id, n := range engine.FireControl.EnemyRBU {
 		fmt.Fprintf(w, "enemy_rbu=%s|%d\n", id, n)
@@ -182,11 +194,11 @@ func Save(path string, engine *sim.Engine) error {
 		if h == nil || (!h.Alive && !h.VisibleOnWEPS) {
 			continue
 		}
-		fmt.Fprintf(w, "harpoon=%s|%s|%s|%d|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%t|%t|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%.3f\n",
+		fmt.Fprintf(w, "harpoon=%s|%s|%s|%d|%d|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%t|%t|%.3f|%.3f|%.3f|%.3f|%.3f|%t|%.3f|%.3f|%d\n",
 			h.ID, h.ParentSubID, h.TargetContactID, h.Side, h.TubeNumber,
 			h.LaunchX, h.LaunchY, h.X, h.Y, h.HeadingDeg, h.SpeedKts, h.DistanceYd, int(h.Phase),
 			h.RadarOn, h.Alive, h.BeamHalfDeg, h.RadarRangeYd, h.DestructRangeYd,
-			h.UnderwaterLeft, h.Age, h.VisibleOnWEPS, h.ProgrammedHead, h.AssumedDistanceYd)
+			h.UnderwaterLeft, h.Age, h.VisibleOnWEPS, h.ProgrammedHead, h.AssumedDistanceYd, int(h.Variant))
 	}
 
 	fmt.Fprintf(w, "\n[cm]\n")
@@ -334,6 +346,197 @@ func parseTrailingInt(id string) int {
 	return n
 }
 
+// parseContactSeqNum extracts the numeric suffix from sonar IDs like C03 / E12.
+func parseContactSeqNum(id string) int {
+	i := 0
+	for i < len(id) && (id[i] < '0' || id[i] > '9') {
+		i++
+	}
+	if i >= len(id) {
+		return 0
+	}
+	n, err := strconv.Atoi(id[i:])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func escapeCommField(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	return s
+}
+
+func unescapeCommField(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	esc := false
+	for _, r := range s {
+		if esc {
+			switch r {
+			case 'n':
+				b.WriteByte('\n')
+			case '|', '\\':
+				b.WriteRune(r)
+			default:
+				b.WriteRune(r)
+			}
+			esc = false
+			continue
+		}
+		if r == '\\' {
+			esc = true
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if esc {
+		b.WriteByte('\\')
+	}
+	return b.String()
+}
+
+// splitCommInboxFields splits on unescaped '|'.
+func splitCommInboxFields(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	esc := false
+	for _, r := range s {
+		if esc {
+			cur.WriteByte('\\')
+			cur.WriteRune(r)
+			esc = false
+			continue
+		}
+		if r == '\\' {
+			esc = true
+			continue
+		}
+		if r == '|' {
+			parts = append(parts, cur.String())
+			cur.Reset()
+			continue
+		}
+		cur.WriteRune(r)
+	}
+	if esc {
+		cur.WriteByte('\\')
+	}
+	parts = append(parts, cur.String())
+	return parts
+}
+
+func parseCommInboxLine(val string) (world.CommInboxEntry, bool) {
+	parts := splitCommInboxFields(val)
+	if len(parts) < 2 {
+		return world.CommInboxEntry{}, false
+	}
+	tsec, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return world.CommInboxEntry{}, false
+	}
+	// Legacy: time|body (EN only, mirrored to RU)
+	if len(parts) == 2 {
+		txt := unescapeCommField(parts[1])
+		// Old saves replaced '|' with '/' — leave as-is.
+		return world.CommInboxEntry{TimeSec: tsec, Body: i18n.T(txt, txt)}, true
+	}
+	// Current: time|sourceID|en|ru
+	if len(parts) >= 4 {
+		en := unescapeCommField(parts[2])
+		ru := unescapeCommField(parts[3])
+		if ru == "" {
+			ru = en
+		}
+		return world.CommInboxEntry{
+			TimeSec:  tsec,
+			SourceID: parts[1],
+			Body:     i18n.T(en, ru),
+		}, true
+	}
+	// time|sourceID|en
+	en := unescapeCommField(parts[2])
+	return world.CommInboxEntry{
+		TimeSec:  tsec,
+		SourceID: parts[1],
+		Body:     i18n.T(en, en),
+	}, true
+}
+
+func restoreMissionComm(engine *sim.Engine, m *campaign.MissionDef) {
+	if engine == nil || engine.Scenario == nil || m == nil {
+		return
+	}
+	briefing, schedule := campaign.RuntimeComm(m, engine.Scenario.Player, engine.Scenario.Entities, engine.Campaign.Vars)
+	if engine.Scenario.CommBriefing == nil || engine.Scenario.CommBriefing.GetText(i18n.LangEN) == "" {
+		engine.Scenario.CommBriefing = briefing
+	}
+	if len(engine.Scenario.CommSchedule) == 0 {
+		schedule = campaign.AppendFiredEventComm(
+			schedule, engine.Scenario.MissionEvents, engine.Scenario.FiredEventIDs,
+			engine.Scenario.Player, engine.Scenario.Entities, engine.Scenario.StartTimeSec,
+		)
+		engine.Scenario.CommSchedule = schedule
+	}
+}
+
+// rehydrateCommInboxLocales replaces EN-only inbox bodies with mission TT when
+// the source (or time+EN match) is known — fixes old saves that stored English only.
+func rehydrateCommInboxLocales(engine *sim.Engine) {
+	if engine == nil || engine.Scenario == nil {
+		return
+	}
+	bySrc := map[string]i18n.TranslatedText{}
+	if engine.Scenario.CommBriefing.GetText(i18n.LangEN) != "" {
+		bySrc["briefing"] = engine.Scenario.CommBriefing
+	}
+	for _, m := range engine.Scenario.CommSchedule {
+		if m.ID != "" {
+			bySrc[m.ID] = m.Text
+		}
+	}
+	for i := range engine.COMM.Inbox {
+		e := &engine.COMM.Inbox[i]
+		if e.SourceID != "" {
+			if tt, ok := bySrc[e.SourceID]; ok && tt.GetText(i18n.LangRU) != "" {
+				e.Body = tt
+				continue
+			}
+		}
+		en := e.Body.GetText(i18n.LangEN)
+		ru := e.Body[i18n.LangRU]
+		if ru != "" && ru != en {
+			continue // already bilingual
+		}
+		if e.TimeSec == 0 {
+			if tt := bySrc["briefing"]; tt != nil && tt.GetText(i18n.LangEN) == en {
+				e.Body = tt
+				e.SourceID = "briefing"
+				continue
+			}
+		}
+		for _, m := range engine.Scenario.CommSchedule {
+			if absFloat(m.AtSec-e.TimeSec) > 0.05 {
+				continue
+			}
+			if m.Text.GetText(i18n.LangEN) == en && m.Text.GetText(i18n.LangRU) != "" {
+				e.Body = m.Text
+				e.SourceID = m.ID
+				break
+			}
+		}
+	}
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func writeEntity(w *bufio.Writer, e *world.Entity) {
 	fmt.Fprintf(w, "[entity:%s]\n", e.ID)
 	fmt.Fprintf(w, "name=%s\n", e.Name)
@@ -409,8 +612,11 @@ func loadClean(path string) (*sim.Engine, error) {
 	engine.FireControl.ActiveRastrub = nil
 	engine.FireControl.ActiveRBU = nil
 	engine.FireControl.EnemyMagazine = map[string]int{}
+	engine.FireControl.EnemyASCMMag = map[string]int{}
+	engine.FireControl.AllyHarpoonMag = map[string]int{}
 	engine.FireControl.EnemyRastrub = map[string]int{}
 	engine.FireControl.EnemyShipTube = map[string]int{}
+	engine.FireControl.EnemyExerciseTube = map[string]int{}
 	engine.FireControl.EnemyRBU = map[string]int{}
 	engine.FireControl.EnemySAM = map[string]int{}
 	engine.FireControl.EnemyCIWS = map[string]int{}
@@ -497,12 +703,8 @@ func loadClean(path string) (*sim.Engine, error) {
 				}
 				engine.COMM.DeliveredIDs[val] = true
 			case "inbox":
-				parts := strings.SplitN(val, "|", 2)
-				if len(parts) == 2 {
-					tsec, _ := strconv.ParseFloat(parts[0], 64)
-					txt := strings.ReplaceAll(parts[1], "\\n", "\n")
-					txt = strings.ReplaceAll(txt, "\\\\", "\\")
-					engine.COMM.Inbox = append(engine.COMM.Inbox, world.CommInboxEntry{TimeSec: tsec, Body: i18n.T(txt, txt)})
+				if entry, ok := parseCommInboxLine(val); ok {
+					engine.COMM.Inbox = append(engine.COMM.Inbox, entry)
 				}
 			}
 		case "peri":
@@ -570,6 +772,9 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.Sonar.LastBlastFlashSec, _ = strconv.ParseFloat(val, 64)
 			case "last_blast_entity":
 				engine.Sonar.LastBlastEntityID = val
+			case "contact_seq":
+				n, _ := strconv.Atoi(val)
+				engine.Sonar.SetContactSeq(n)
 			case "contact":
 				parseContact(&engine.Sonar, val)
 			}
@@ -600,10 +805,16 @@ func loadClean(path string) (*sim.Engine, error) {
 				engine.FireControl.SetTorpedoSeq(n)
 			case "enemy_mag":
 				parseEnemyMag(&engine.FireControl, val)
+			case "ally_harpoon":
+				parseAllyHarpoon(&engine.FireControl, val)
+			case "enemy_ascm":
+				parseEnemyASCM(&engine.FireControl, val)
 			case "enemy_rastrub", "enemy_asroc": // enemy_asroc: legacy
 				parseEnemyRastrub(&engine.FireControl, val)
 			case "enemy_ship_tube", "enemy_mk32": // enemy_mk32: legacy
 				parseEnemyShipTube(&engine.FireControl, val)
+			case "enemy_exercise_tube":
+				parseEnemyExerciseTube(&engine.FireControl, val)
 			case "enemy_rbu":
 				parseEnemyRBU(&engine.FireControl, val)
 			case "enemy_sam":
@@ -685,6 +896,7 @@ func loadClean(path string) (*sim.Engine, error) {
 	}
 	if bathy := campaign.ResolveMissionBathy(engine.Campaign.ScenarioID, engine.Campaign.MissionID); bathy != nil && bathy.Valid() {
 		engine.Scenario.Bathy = bathy
+		engine.Acoustics.Bathy = bathy
 	} else {
 		return nil, fmt.Errorf(
 			"save requires bathymetry from scenario %q mission %q (missing or incompatible)",
@@ -700,6 +912,12 @@ func loadClean(path string) (*sim.Engine, error) {
 			events := campaign.FilterEvents(m.Events, engine.Campaign.Vars)
 			engine.Scenario.MissionEvents = campaign.ToWorldEvents(events)
 		}
+		// Route geometry is not written to .sav; rebuild from the mission def
+		// so debug overlays and AI FollowRoute keep working after load.
+		if len(engine.Scenario.Routes) == 0 {
+			engine.Scenario.Routes, _ = campaign.RuntimeRoutes(m.Routes)
+		}
+		restoreMissionComm(engine, m)
 	} else if m := campaign.MissionByID(campaign.DemoScenarioID, campaign.DemoMissionTraining); m != nil {
 		if engine.Scenario.StartTimeSec == 0 {
 			engine.Scenario.StartTimeSec = m.StartTimeSec
@@ -707,6 +925,10 @@ func loadClean(path string) (*sim.Engine, error) {
 		if len(engine.Scenario.Objectives) == 0 {
 			engine.Scenario.Objectives = campaign.RuntimeObjectives(m.Objectives, engine.Campaign.Vars)
 		}
+		if len(engine.Scenario.Routes) == 0 {
+			engine.Scenario.Routes, _ = campaign.RuntimeRoutes(m.Routes)
+		}
+		restoreMissionComm(engine, m)
 	}
 	if engine.Scenario.FiredEventIDs == nil {
 		engine.Scenario.FiredEventIDs = map[string]bool{}
@@ -716,6 +938,7 @@ func loadClean(path string) (*sim.Engine, error) {
 			engine.Scenario.FiredEventIDs["tanker_id_reveal_sink"] = true
 		}
 	}
+	rehydrateCommInboxLocales(engine)
 	if len(engine.COMM.Inbox) == 0 {
 		engine.COMM.SeedBriefing(engine.Scenario.CommBriefing)
 	}
@@ -752,6 +975,11 @@ func finalizeLoadedEntities(engine *sim.Engine) {
 		if !t.GyroEnabled() && t.TubeCleared() {
 			t.MarkGyroEnabled(true)
 		}
+	}
+	for _, c := range engine.Sonar.Contacts {
+		// Old saves omit contact_seq — raise from C01/E02-style IDs so new
+		// detections do not reuse numbers already on the board.
+		engine.Sonar.SetContactSeq(parseContactSeqNum(c.ID))
 	}
 	for _, a := range engine.FireControl.ActiveRastrub {
 		if a == nil {
@@ -1041,6 +1269,30 @@ func parseEnemyMag(fc *weapons.FireControl, val string) {
 	fc.EnemyMagazine[parts[0]] = n
 }
 
+func parseAllyHarpoon(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.AllyHarpoonMag == nil {
+		fc.AllyHarpoonMag = map[string]int{}
+	}
+	fc.AllyHarpoonMag[parts[0]] = n
+}
+
+func parseEnemyASCM(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyASCMMag == nil {
+		fc.EnemyASCMMag = map[string]int{}
+	}
+	fc.EnemyASCMMag[parts[0]] = n
+}
+
 func parseEnemyRastrub(fc *weapons.FireControl, val string) {
 	parts := strings.Split(val, "|")
 	if len(parts) < 2 {
@@ -1063,6 +1315,18 @@ func parseEnemyShipTube(fc *weapons.FireControl, val string) {
 		fc.EnemyShipTube = map[string]int{}
 	}
 	fc.EnemyShipTube[parts[0]] = n
+}
+
+func parseEnemyExerciseTube(fc *weapons.FireControl, val string) {
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 {
+		return
+	}
+	n, _ := strconv.Atoi(parts[1])
+	if fc.EnemyExerciseTube == nil {
+		fc.EnemyExerciseTube = map[string]int{}
+	}
+	fc.EnemyExerciseTube[parts[0]] = n
 }
 
 func parseEnemyRBU(fc *weapons.FireControl, val string) {
@@ -1289,6 +1553,11 @@ func parseHarpoon(fc *weapons.FireControl, val string) {
 		h.ProgrammedHead = h.HeadingDeg
 		h.AssumedDistanceYd = h.DistanceYd
 	}
+	if len(parts) > 23 {
+		v, _ := strconv.Atoi(parts[23])
+		h.Variant = weapons.ASCMVariant(v)
+	}
+	h.CruiseKts = weapons.ASCMCruiseKts(h.Variant)
 	fc.ActiveHarpoons = append(fc.ActiveHarpoons, h)
 	fc.SetTorpedoSeq(parseTrailingInt(h.ID))
 }

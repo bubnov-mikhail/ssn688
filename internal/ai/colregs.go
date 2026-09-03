@@ -3,7 +3,7 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -27,6 +27,15 @@ func applyColregsTraffic(ship *world.Entity, all []*world.Entity) {
 	}
 	head, speed, avoid := colregsManeuver(ship, all)
 	if !avoid {
+		return
+	}
+	// Neutrals keep following scripted routes — steer around traffic without
+	// marking RouteNeedResume (that caused loops near busy waypoints).
+	if ship.Side == world.SideNeutral {
+		ship.OrderedHead = head
+		if speed > 0 {
+			ship.OrderedSpeed = speed
+		}
 		return
 	}
 	if ship.AIState != "AVOID" {

@@ -46,6 +46,8 @@ type Entity struct {
 	CrewSkill float64
 	// AllyIgnore: friendly AI must never select this unit as quarry (e.g. tasked tanker).
 	AllyIgnore bool
+	// ExerciseTarget: scripted exercise hulk — may fire signal torpedoes only.
+	ExerciseTarget bool
 	// Track is the crew's estimated player solution (enemies only).
 	Track AITrack
 	// Surface ASW sticky prosecute — avoid detect↔patrol thrashing.

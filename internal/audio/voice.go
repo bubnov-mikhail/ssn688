@@ -10,13 +10,14 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/wav"
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 const (
-	voicePlayDelay    = 250 * time.Millisecond
-	maxVoiceQueue     = 2
-	maxVoiceQueueAge  = 5 * time.Second
+	voicePlayDelay   = 250 * time.Millisecond
+	maxVoiceQueue    = 2
+	maxVoiceQueueAge = 5 * time.Second
+	maxFXPlaying     = 8 // concurrent one-shots; drop oldest when over
 )
 
 // Compartment identifies which watch station speaks.
@@ -316,6 +317,13 @@ func (m *Manager) setSubtitle(comp Compartment, text string) {
 }
 
 func (m *Manager) playFXLocked(pcm []byte, volume float64) {
+	if len(pcm) < 4 {
+		return
+	}
+	// Share clip buffers — mix applies volume; each playerVoice has its own pos.
+	for len(m.fxPlaying) >= maxFXPlaying {
+		m.fxPlaying = m.fxPlaying[1:]
+	}
 	m.fxPlaying = append(m.fxPlaying, &playerVoice{data: pcm, volume: volume})
 }
 
@@ -329,9 +337,7 @@ func (m *Manager) PlayEnemyPing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if pcm, ok := m.clips[clipPath(ClipSonarEnemyPing)]; ok {
-		dup := make([]byte, len(pcm))
-		copy(dup, pcm)
-		m.playFXLocked(dup, m.fxVol*m.masterVol*0.55)
+		m.playFXLocked(pcm, m.fxVol*m.masterVol*0.55)
 		return
 	}
 	m.playFXLocked(generateEnemyPingWAV(m.sampleRate), m.fxVol*m.masterVol*0.55)
@@ -341,9 +347,7 @@ func (m *Manager) PlayTorpedoLaunch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if pcm, ok := m.fxClips[FXTorpedoLaunch]; ok && len(pcm) >= 4 {
-		dup := make([]byte, len(pcm))
-		copy(dup, pcm)
-		m.playFXLocked(dup, m.fxVol*m.masterVol*1.0)
+		m.playFXLocked(pcm, m.fxVol*m.masterVol*1.0)
 		return
 	}
 	m.playFXLocked(generateSweepWAV(m.sampleRate, 200, 80, 0.5), m.fxVol*m.masterVol)
@@ -363,9 +367,7 @@ func (m *Manager) PlayUnderwaterExplosion(gain float64) {
 	if !ok || len(pcm) < 4 {
 		return
 	}
-	dup := make([]byte, len(pcm))
-	copy(dup, pcm)
-	m.playFXLocked(dup, m.fxVol*m.masterVol*gain)
+	m.playFXLocked(pcm, m.fxVol*m.masterVol*gain)
 }
 
 // PlayTubeDoorOpen plays the hydraulic outer-door open FX (WEPS).
@@ -396,9 +398,7 @@ func (m *Manager) playOneShotFX(id FXID, gain float64) {
 	if !ok || len(pcm) < 4 {
 		return
 	}
-	dup := make([]byte, len(pcm))
-	copy(dup, pcm)
-	m.playFXLocked(dup, m.fxVol*m.masterVol*gain)
+	m.playFXLocked(pcm, m.fxVol*m.masterVol*gain)
 }
 
 // PlayESMHit is a short RWR-style chirp when a search radar main beam paints the mast.

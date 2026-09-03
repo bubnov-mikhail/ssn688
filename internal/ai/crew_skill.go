@@ -3,8 +3,8 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // UpdateCrewTrack refreshes hunter.Track from truth when the player is sensed.
@@ -161,6 +161,34 @@ func WireGuideNoiseDeg(skill01 float64) float64 {
 func WireHandoffAgeSec(skill01 float64) float64 {
 	// Green cut early (lost solution) or hold poorly; veterans wire-guide longer.
 	return 28 + 40*clamp01(skill01)
+}
+
+// TrackedHostileID returns the hostile entity ID best matching hunter's crew track.
+func TrackedHostileID(hunter *world.Entity, entities []*world.Entity, player *world.Entity) string {
+	if hunter == nil || !hunter.Track.Valid || !TrackClassified(hunter) {
+		return ""
+	}
+	s := hunter.CrewSkill01()
+	tol := 2200*(1-s) + 450*s
+	if tol < 350 {
+		tol = 350
+	}
+	var best *world.Entity
+	bestD := tol
+	for _, e := range entities {
+		if e == nil || !e.Alive() || !world.IsHostile(e) {
+			continue
+		}
+		d := math.Hypot(e.X-hunter.Track.X, e.Y-hunter.Track.Y)
+		if d <= bestD {
+			bestD = d
+			best = e
+		}
+	}
+	if best != nil {
+		return best.ID
+	}
+	return ""
 }
 
 func PeakSNRForAI(model acoustics.Model, hunter, player *world.Entity, active bool) float64 {

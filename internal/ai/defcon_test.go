@@ -3,9 +3,9 @@ package ai
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestRaiseDefconMonotonic(t *testing.T) {
@@ -69,6 +69,41 @@ func TestSubmergedTorpedoAlertsSurfaceAndSubs(t *testing.T) {
 	}
 	if ss.Defcon < world.DefconWeaponsFree {
 		t.Fatalf("hostile sub should be weapons free: %d", ss.Defcon)
+	}
+}
+
+func TestExerciseTorpedoLaunchSkipsDefcon(t *testing.T) {
+	spr := &world.Entity{
+		ID: "spr", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, X: -495, Y: 166,
+	}
+	hulk := &world.Entity{
+		ID: "hulk", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 1105, Y: 166,
+	}
+	shadow := &world.Entity{
+		ID: "shadow", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, X: -3995, Y: -2234, Defcon: world.DefconHostile,
+	}
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: -295, Y: 816, DepthFt: 60,
+	}
+	fc := weapons.NewFireControl()
+	torp := fc.LaunchExerciseShipTube(spr, hulk)
+	if torp == nil {
+		t.Fatal("exercise launch failed")
+	}
+	torp.Age = 0.05
+	UpdateDefcon(DefconContext{
+		Entities: []*world.Entity{shadow, hulk},
+		Player:   player,
+		Torps:    fc.ActiveTorpedoes,
+		GameTime: 180,
+		Dt:       0.1,
+	})
+	if shadow.Defcon >= world.DefconWeaponsFree {
+		t.Fatalf("exercise fish must not raise enemy to weapons free: %d", shadow.Defcon)
 	}
 }
 

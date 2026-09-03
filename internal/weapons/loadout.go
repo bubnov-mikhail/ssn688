@@ -6,6 +6,8 @@ func SurfaceHasRastrub(signatureID string) bool {
 	switch signatureID {
 	case "grisha":
 		return false // RBU + tubes only
+	case "exercise_hulk":
+		return false // practice target — no standoff ASW
 	case "udaloy", "krivak", "kresta2":
 		return true // Metel / Rastrub
 	case "gorshkov":
@@ -59,6 +61,8 @@ func ShipTubeMagazineFor(signatureID string) int {
 		return 8 // Paket-NK MTT cells
 	case "spruance":
 		return 6 // Mk32 SVTT / Nulka-era tubes stand-in
+	case "exercise_hulk":
+		return 0
 	default:
 		return ShipTubeMagazineDefault
 	}
@@ -100,6 +104,19 @@ func CIWSMagazineFor(signatureID string) int {
 		return 12 // Phalanx bursts
 	default:
 		return CIWSBurstDefault
+	}
+}
+
+// AllySubHarpoonMagazine is the standard Sub-Harpoon load for Los Angeles-class allies.
+const AllySubHarpoonMagazine = 8
+
+// AllyHarpoonMagazineFor returns default Sub-Harpoon stowage by signature.
+func AllyHarpoonMagazineFor(signatureID string) int {
+	switch signatureID {
+	case "los_angeles":
+		return AllySubHarpoonMagazine
+	default:
+		return 0
 	}
 }
 

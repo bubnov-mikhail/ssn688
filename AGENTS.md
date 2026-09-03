@@ -1,6 +1,6 @@
 # AGENTS.md — гайд для ИИ-агентов и разработчиков
 
-Симулятор ПЛ **SSN-688 Modern Submarine Combat Simulator**: Go + [Ebiten v2](https://ebitengine.org/), модуль `github.com/ssn688/sim`.  
+Симулятор ПЛ **SSN-688 Modern Submarine Combat Simulator**: Go + [Ebiten v2](https://ebitengine.org/), модуль `github.com/bubnov-mikhail/ssn688`.  
 Подробности для игроков — в [README.md](README.md). Здесь — то, что нужно агенту, чтобы не ломать архитектуру и быстро находить код.
 
 ## Обязательные привычки агента
@@ -9,6 +9,10 @@
    ```bash
    cp VERSION internal/version/VERSION
    go build -o ssn688 .
+   ```
+   После правок **sim player** (`tools/sim_player/`, `internal/simreplay/`, `internal/theaterpreview/`) — **всегда** пересобирай плеер (не только если файла нет):
+   ```bash
+   go build -o ssn688-player ./tools/sim_player/
    ```
 2. **Перед сдачей фичи** прогоняй тесты затронутых пакетов (минимум):
    ```bash

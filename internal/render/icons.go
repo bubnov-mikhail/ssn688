@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/ssn688/sim/internal/render/navicon"
+	"github.com/bubnov-mikhail/ssn688/internal/render/navicon"
 )
 
 const (

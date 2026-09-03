@@ -3,7 +3,7 @@ package campaign
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
 )
 
 // TubeLoadout is the ordnance type loaded in each of four tubes at mission start.

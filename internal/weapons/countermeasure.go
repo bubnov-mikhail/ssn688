@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // CMKind identifies soft-kill countermeasure types.

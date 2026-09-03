@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/ssn688/sim/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
 const (

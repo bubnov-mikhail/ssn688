@@ -7,9 +7,10 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/scenarios"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/scenarios"
 )
 
 var (
@@ -22,6 +23,7 @@ func ReloadScenarios() {
 	scenarioMu.Lock()
 	scenarioCache = nil
 	scenarioMu.Unlock()
+	render.ClearScenarioCoverCache()
 }
 
 // AllScenarios returns bundled + user scenarios sorted by title.
@@ -36,11 +38,14 @@ func AllScenarios() []ScenarioDef {
 
 	scenarioMu.Lock()
 	defer scenarioMu.Unlock()
-	if scenarioCache != nil {
-		return append([]ScenarioDef(nil), scenarioCache...)
-	}
-	scenarioCache = loadAllScenarios()
+	ensureScenarioCacheLocked()
 	return append([]ScenarioDef(nil), scenarioCache...)
+}
+
+func ensureScenarioCacheLocked() {
+	if scenarioCache == nil {
+		scenarioCache = loadAllScenarios()
+	}
 }
 
 func loadAllScenarios() []ScenarioDef {
@@ -111,10 +116,12 @@ func mergeScenario(byID map[ScenarioID]ScenarioDef, sc ScenarioDef) {
 
 // ScenarioByID finds a loaded campaign definition.
 func ScenarioByID(id ScenarioID) *ScenarioDef {
-	for _, sc := range AllScenarios() {
-		if sc.ID == id {
-			s := sc
-			return &s
+	scenarioMu.RLock()
+	defer scenarioMu.RUnlock()
+	ensureScenarioCacheLocked()
+	for i := range scenarioCache {
+		if scenarioCache[i].ID == id {
+			return &scenarioCache[i]
 		}
 	}
 	return nil

@@ -3,7 +3,7 @@ package campaign
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
 )
 
 func TestApplyPlayerLoadoutExtremes(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -137,6 +137,11 @@ func validateScenarioDoc(doc *scenarioFile) error {
 				return fmt.Errorf("mission %q cover: %w", mj.ID, err)
 			}
 		}
+		if mj.BriefMap != nil {
+			if err := validateAssetBlob(mj.BriefMap, maxCoverBytes, false); err != nil {
+				return fmt.Errorf("mission %q brief_map: %w", mj.ID, err)
+			}
+		}
 	}
 	return nil
 }
@@ -150,6 +155,7 @@ func convertMissionJSON(mj missionJSON) (MissionDef, error) {
 		CommBriefing: mj.CommBriefing,
 		DebriefLead:  mj.DebriefLead,
 		Events:       mj.Events,
+		EndAfterEvent: mj.EndAfterEvent,
 	}
 	startSec, err := world.ParseStartTimeHHMM(mj.StartTime)
 	if err != nil {
@@ -161,6 +167,12 @@ func convertMissionJSON(mj missionJSON) (MissionDef, error) {
 	} else if len(cover) > 0 {
 		m.CoverData = cover
 		m.CoverCacheKey = key
+	}
+	if briefMap, key, err := resolveCover(mj.BriefMap, "brief_map:"+mj.ID); err != nil {
+		return MissionDef{}, err
+	} else if len(briefMap) > 0 {
+		m.BriefMapData = briefMap
+		m.BriefMapCacheKey = key
 	}
 	for _, r := range mj.Routes {
 		mode, err := parseRouteMode(r.Mode)
@@ -236,10 +248,11 @@ func convertUnitJSON(u unitJSON) (UnitSpec, error) {
 		LengthFt: u.LengthFt, SpeedKts: u.SpeedKts, DepthFt: u.DepthFt, DepthJitter: u.DepthJitter,
 		HeadingDeg: u.HeadingDeg, AIState: u.AIState, Defcon: u.Defcon,
 		CrewSkill: u.CrewSkill, CrewJitter: u.CrewJitter, Combatant: u.Combatant,
-		Spawn: spawn, Corner: u.Corner, MinRouteYd: u.MinRouteYd, MaxRouteYd: u.MaxRouteYd,
+		Spawn: spawn, Corner: u.Corner, CornerInsetYd: u.CornerInsetYd,
+		MinRouteYd: u.MinRouteYd, MaxRouteYd: u.MaxRouteYd,
 		RouteID: u.RouteID, RouteFrac: u.RouteFrac,
 		FallbackCorner: u.FallbackCorner, FallbackMinYd: u.FallbackMinYd, FallbackMaxYd: u.FallbackMaxYd,
-		RequireVar: u.RequireVar, UnlessVar: u.UnlessVar, AllyIgnore: u.AllyIgnore,
+		RequireVar: u.RequireVar, UnlessVar: u.UnlessVar, AllyIgnore: u.AllyIgnore, ExerciseTarget: u.ExerciseTarget,
 		Payload: convertPayloadJSON(u.Payload),
 	}, nil
 }
@@ -249,7 +262,8 @@ func convertPayloadJSON(p *unitPayloadJSON) *UnitPayload {
 		return nil
 	}
 	return &UnitPayload{
-		Torpedoes: p.Torpedoes, ASWRockets: p.ASWRockets, ShipTubes: p.ShipTubes,
+		Torpedoes: p.Torpedoes, Harpoons: p.Harpoons, CruiseMissiles: p.CruiseMissiles,
+		ASWRockets: p.ASWRockets, ShipTubes: p.ShipTubes, ExerciseTorpedoes: p.ExerciseTorpedoes,
 		RBU: p.RBU, SAM: p.SAM, CIWS: p.CIWS,
 	}
 }

@@ -3,8 +3,8 @@ package acoustics_test
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestRadarScanPeriodsByClass(t *testing.T) {
@@ -94,7 +94,7 @@ func TestMerchantESMDetectableNear(t *testing.T) {
 	hit := false
 	for step := 0; step < 80; step++ {
 		gt := float64(step) * 0.1
-		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.1)
+		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.1, nil)
 		if esm.HasRecentRF(mv.ID, gt) {
 			hit = true
 			break
@@ -126,7 +126,7 @@ func TestESMBearingFrozenBetweenPaints(t *testing.T) {
 	got := false
 	for step := 0; step < 100; step++ {
 		gt := float64(step) * 0.05
-		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.1)
+		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.1, nil)
 		if esm.HasRecentRF(mv.ID, gt) {
 			firstBrg = esm.FrozenRFBearing(mv.ID, -1)
 			firstAt = gt
@@ -148,7 +148,7 @@ func TestESMBearingFrozenBetweenPaints(t *testing.T) {
 		if world.RadarBeamPassed(mv, gt, 0.05, mv.BearingDegTo(player)) {
 			continue
 		}
-		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.05)
+		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.05, nil)
 		brg := esm.FrozenRFBearing(mv.ID, -1)
 		if brg != firstBrg {
 			t.Fatalf("bearing moved between paints: %.1f → %.1f", firstBrg, brg)
@@ -175,7 +175,7 @@ func TestESMRFClassIsEquipmentNotHull(t *testing.T) {
 	locked := false
 	for step := 0; step < 200; step++ {
 		gt := float64(step) * 0.1
-		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.1)
+		acoustics.UpdateESM(sonar, &esm, player, []*world.Entity{mv}, world.WeatherLight, gt, 0.1, nil)
 		if esm.RFEquipmentClass(mv.ID) != "" {
 			locked = true
 			break
@@ -216,7 +216,7 @@ func TestEnemyRadarDetectsSurface(t *testing.T) {
 	hit := false
 	for step := 0; step < 80; step++ {
 		gt := float64(step) * 0.1
-		if acoustics.EnemyRadarDetectsSurface(ship, tgt, gt, 0.1) {
+		if acoustics.EnemyRadarDetectsSurface(ship, tgt, gt, 0.1, nil) {
 			hit = true
 			break
 		}
@@ -228,7 +228,53 @@ func TestEnemyRadarDetectsSurface(t *testing.T) {
 		ID: "ss", Kind: world.KindSubmarine, Side: world.SideEnemy,
 		Status: world.StatusActive, X: 0, Y: 2000, DepthFt: 180,
 	}
-	if acoustics.EnemyRadarDetectsSurface(ship, sub, 10, 0.1) {
+	if acoustics.EnemyRadarDetectsSurface(ship, sub, 10, 0.1, nil) {
 		t.Fatal("surface radar must not paint submerged contacts")
+	}
+}
+
+func TestRadarAndESMBlockedThroughLand(t *testing.T) {
+	const w, h = 30, 10
+	depths := make([]float32, w*h)
+	for j := 0; j < h; j++ {
+		for i := 0; i < w; i++ {
+			if i >= 10 && i <= 18 {
+				depths[j*w+i] = -10
+			} else {
+				depths[j*w+i] = 200
+			}
+		}
+	}
+	bathy := world.Bathymetry{
+		Width: w, Height: h,
+		OriginX: 0, OriginY: 0,
+		CellSize: 100,
+		Depths:   depths,
+	}
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, SignatureID: "los_angeles",
+		X: 500, Y: 500, DepthFt: 60,
+	}
+	ship := &world.Entity{
+		ID: "grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha",
+		X: 2500, Y: 500, HeadingDeg: 180,
+	}
+	var esm acoustics.ESMState
+	esm.Order = acoustics.ESMMastRaise
+	esm.Extension = 1
+	var sonar acoustics.SonarState
+	for gt := 0.0; gt < 20; gt += 0.1 {
+		acoustics.UpdateESM(&sonar, &esm, player, []*world.Entity{ship}, world.WeatherLight, gt, 0.1, &bathy)
+	}
+	if esm.HasRecentRF(ship.ID, 20) {
+		t.Fatal("ESM must not intercept radar through island")
+	}
+	if acoustics.EnemyRadarDetectsSurface(ship, &world.Entity{
+		ID: "tgt", Kind: world.KindSurfaceShip, Status: world.StatusActive,
+		X: 500, Y: 500,
+	}, 10, 0.1, &bathy) {
+		t.Fatal("surface radar must not paint through island")
 	}
 }

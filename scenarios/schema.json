@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ssn688/sim/scenarios/schema.json",
+  "$id": "https://github.com/bubnov-mikhail/ssn688/scenarios/schema.json",
   "title": "SSN-688 Scenario",
   "description": "Portable campaign scenario for SSN-688 Modern Submarine Combat Simulator. All binary assets (cover art, custom bathymetry) must be inlined as base64 in the same JSON file. Player-facing prose uses loc_string objects {\"en\",\"ru\",…}. Game version and format compatibility use semantic versioning.",
   "type": "object",
@@ -162,6 +162,10 @@
         "cover": {
           "$ref": "#/$defs/coverAsset"
         },
+        "brief_map": {
+          "$ref": "#/$defs/coverAsset",
+          "description": "Regional campaign map for the mission briefing screen (past missions B&W, current highlighted)."
+        },
         "theater_id": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_]{0,63}$"
@@ -222,6 +226,10 @@
           "items": {
             "$ref": "#/$defs/output"
           }
+        },
+        "end_after_event": {
+          "type": "string",
+          "description": "Mission event id that must fire before COMM status report and END MISSION."
         }
       }
     },
@@ -368,6 +376,11 @@
             "NE"
           ]
         },
+        "corner_inset_yd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Yards inward from the chart corner for spawn=corner (0 uses the default margin)."
+        },
         "min_route_yd": {
           "type": "number",
           "minimum": 0
@@ -408,7 +421,12 @@
           "type": "string"
         },
         "ally_ignore": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Friendly AI must not select this unit as quarry."
+        },
+        "exercise_target": {
+          "type": "boolean",
+          "description": "Practice hulk: signal torpedoes only; no warshot ASW prosecution."
         },
         "payload": {
           "$ref": "#/$defs/unitPayload"
@@ -425,6 +443,16 @@
           "minimum": 0,
           "description": "Heavy fish magazine (subs)"
         },
+        "harpoons": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sub-Harpoon magazine (688-class allies)"
+        },
+        "cruise_missiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Klub/Oniks/Kalibr ASCM magazine (Kilo/Yasen subs)"
+        },
         "asw_rockets": {
           "type": "integer",
           "minimum": 0,
@@ -434,6 +462,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Lightweight ASW tube fish"
+        },
+        "exercise_torpedoes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Mk48 EX signal fish (practice hulks)"
         },
         "rbu": {
           "type": "integer",
@@ -560,6 +593,7 @@
       "required": [
         "type"
       ],
+      "description": "Event trigger. Types time/objective_*/unit_destroyed/enemy_prosecutes_allies dispatch at runtime; var_eq/var_unset filter at mission build from campaign vars.",
       "properties": {
         "type": {
           "type": "string",
@@ -568,9 +602,11 @@
             "objective_complete",
             "objective_identified",
             "unit_destroyed",
+            "enemy_prosecutes_allies",
             "var_eq",
             "var_unset"
-          ]
+          ],
+          "description": "Runtime: time, objective_complete, objective_identified, unit_destroyed, enemy_prosecutes_allies. Build-time: var_eq, var_unset."
         },
         "at_sec": {
           "type": "number",
@@ -593,6 +629,14 @@
         },
         "unless_var": {
           "type": "string"
+        },
+        "require_event": {
+          "type": "string",
+          "description": "Runtime only: prerequisite mission event id must have fired at or before trigger time."
+        },
+        "unless_event": {
+          "type": "string",
+          "description": "Runtime only: skip if prerequisite event already fired at or before trigger time (uses IdentifiedAtSec for objective_identified)."
         }
       }
     },
@@ -607,10 +651,13 @@
           "type": "string",
           "enum": [
             "comm_schedule",
+            "reveal_objective",
             "set_defcon",
             "set_ai_state",
-            "set_var",
-            "reveal_objective"
+            "fire_weapon",
+            "destroy_unit",
+            "plot_marker",
+            "ally_sub_assist"
           ]
         },
         "id": {
@@ -634,14 +681,49 @@
         "ai_state": {
           "type": "string"
         },
-        "var": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string"
-        },
         "objective_id": {
-          "type": "string"
+          "type": "string",
+          "description": "reveal_objective: task to unhide."
+        },
+        "shooter_id": {
+          "type": "string",
+          "description": "Unit firing (fire_weapon); defaults to unit_id if set. destroy_unit: optional alias for attributed_to."
+        },
+        "attributed_to": {
+          "type": "string",
+          "description": "destroy_unit: unit credited with the attack (stored on blast attribution)."
+        },
+        "target_id": {
+          "type": "string",
+          "description": "Aimed unit (fire_weapon) or destroy_unit victim when unit_id omitted."
+        },
+        "weapon": {
+          "type": "string",
+          "enum": [
+            "exercise_torpedo",
+            "exercise_fish",
+            "exercise",
+            "ship_torpedo",
+            "combat_torpedo",
+            "torpedo",
+            "sub_torpedo",
+            "hostile_torpedo",
+            "rbu",
+            "rastrub"
+          ],
+          "description": "fire_weapon: weapon kind (aliases accepted per kind)."
+        },
+        "x": {
+          "type": "number",
+          "description": "plot_marker or ally_sub_assist: easting (yd)."
+        },
+        "y": {
+          "type": "number",
+          "description": "plot_marker or ally_sub_assist: northing (yd)."
+        },
+        "name": {
+          "$ref": "#/$defs/loc_string",
+          "description": "plot_marker: chart label."
         }
       }
     },

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // RBU-6000-style short-range ASW rocket barrage (Grisha). No swimming fish —
@@ -86,6 +86,9 @@ func (fc *FireControl) rbuAmmo(ship *world.Entity) int {
 // LaunchRBU fires a short-range ASW rocket pattern toward a lead near the target.
 func (fc *FireControl) LaunchRBU(ship, target *world.Entity, gameTime float64) *RBUSalvo {
 	if ship == nil || target == nil || !ship.Alive() || !target.Alive() {
+		return nil
+	}
+	if world.IsExerciseTarget(ship) {
 		return nil
 	}
 	if !SurfaceHasRBU(ship.SignatureID) {

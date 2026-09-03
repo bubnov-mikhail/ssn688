@@ -9,11 +9,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -220,6 +220,10 @@ func (a *App) handleMastButton(id string) {
 		a.Engine.Scenario.CheckObjectives()
 		if !a.Engine.Scenario.PrimaryObjectivesComplete() {
 			a.Status(i18n.StatusTransmitNeedObjectives)
+			break
+		}
+		if !a.Engine.Scenario.MissionReportAllowed() {
+			a.Status(i18n.StatusTransmitNeedEvent)
 			break
 		}
 		gt := a.Engine.Clock.GameTime

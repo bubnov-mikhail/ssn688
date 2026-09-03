@@ -3,7 +3,7 @@ package acoustics
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestHarmonicMatchFractionTemplateVsNoise(t *testing.T) {
@@ -30,7 +30,7 @@ func TestAcousticIdentifyRequiresTwoMinutes(t *testing.T) {
 	gt := 0.0
 	for gt < HarmonicIdentifyHoldSec+2 {
 		gt += 0.1
-		tryAcousticIdentify(c, sig, em, 0.1, gt)
+		tryAcousticIdentify(c, sig, em, 0.1, gt, 0)
 		if gt < HarmonicIdentifyHoldSec-0.2 && c.Identified {
 			t.Fatalf("identified too early at t=%.1f hold=%.1f", gt, c.HarmonicHoldSec)
 		}
@@ -49,18 +49,56 @@ func TestAcousticIdentifyResetsOnLostFingerprint(t *testing.T) {
 	sig := TemplateSpectrumForTest(p)
 	c := &Contact{ID: "C02", SourceEntityID: em.ID}
 	for i := 0; i < 800; i++ {
-		tryAcousticIdentify(c, sig, em, 0.1, float64(i)*0.1)
+		tryAcousticIdentify(c, sig, em, 0.1, float64(i)*0.1, 0)
 	}
 	if c.HarmonicHoldSec < 70 {
 		t.Fatalf("hold %.1f", c.HarmonicHoldSec)
 	}
 	var noise Spectrum
-	tryAcousticIdentify(c, noise, em, 1, 81)
+	tryAcousticIdentify(c, noise, em, 1, 81, 0)
 	if c.HarmonicHoldSec != 0 {
 		t.Fatalf("hold should reset on lost fingerprint, got %.1f", c.HarmonicHoldSec)
 	}
 	if c.Identified {
 		t.Fatal("must not identify after reset")
+	}
+}
+
+func TestAcousticIdentifyBlockedOnWeakSignal(t *testing.T) {
+	em := &world.Entity{ID: "civ_tanker", SignatureID: "tanker", Kind: world.KindSurfaceShip, Status: world.StatusActive}
+	p, _ := world.ProfileByID("tanker")
+	sig := TemplateSpectrumForTest(p)
+	atten := sig.Peak() - 7.0
+	for i := range sig {
+		sig[i] -= atten
+	}
+	c := &Contact{ID: "C05", SourceEntityID: em.ID, SNR: 7}
+
+	for i := 0; i < 1500; i++ {
+		tryAcousticIdentify(c, sig, em, 0.1, float64(i)*0.1, 0)
+	}
+	if c.HarmonicHoldSec > 0 {
+		t.Fatalf("weak signal must not accumulate hold, got %.1f", c.HarmonicHoldSec)
+	}
+	if c.Identified {
+		t.Fatal("weak signal must not auto-identify")
+	}
+}
+
+func TestAcousticIdentifyBlockedOnMixedBearing(t *testing.T) {
+	em := &world.Entity{ID: "civ_tanker", SignatureID: "tanker", Kind: world.KindSurfaceShip, Status: world.StatusActive}
+	p, _ := world.ProfileByID("tanker")
+	sig := TemplateSpectrumForTest(p)
+	c := &Contact{ID: "C06", SourceEntityID: em.ID, SNR: sig.Peak()}
+
+	for i := 0; i < 1500; i++ {
+		tryAcousticIdentify(c, sig, em, 0.1, float64(i)*0.1, 2)
+	}
+	if c.HarmonicHoldSec > 0 {
+		t.Fatalf("mixed bearing must not accumulate hold, got %.1f", c.HarmonicHoldSec)
+	}
+	if c.Identified {
+		t.Fatal("mixed bearing must not auto-identify")
 	}
 }
 

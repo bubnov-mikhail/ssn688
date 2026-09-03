@@ -5,11 +5,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func benchApp() *App {
@@ -79,7 +79,7 @@ func BenchmarkTacticalBathyRaster(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		a.invalidateTacticalBathy()
-		_ = a.ensureTacticalBathyImage(view, bathy, false)
+		_, _ = a.ensureTacticalBathyImage(view, bathy, false)
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 // Settings holds user preferences persisted between sessions.

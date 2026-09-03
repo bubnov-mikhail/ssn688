@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ssn688/sim/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
 )
 
 // AutosaveName returns the canonical between-missions autosave filename.

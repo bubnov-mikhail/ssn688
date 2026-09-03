@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func bandNear(freqHz float64) int {

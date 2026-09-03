@@ -3,7 +3,7 @@ package ai
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestColregsHeadOnTurnsStarboard(t *testing.T) {

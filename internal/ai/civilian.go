@@ -1,9 +1,9 @@
 package ai
 
 import (
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // UpdateAllAI drives enemy combatants, friendly allies, and neutral shipping.
@@ -14,15 +14,13 @@ func UpdateAllAI(entities []*world.Entity, player *world.Entity, gameTime, dt fl
 	UpdateCivilianAI(entities, player, gameTime, bathy, routes)
 }
 
-// UpdateCivilianAI steers neutrals along assigned cruise routes with COLREGS avoidance.
+// UpdateCivilianAI steers neutrals along assigned cruise routes.
 func UpdateCivilianAI(entities []*world.Entity, player *world.Entity, gameTime float64, bathy *world.Bathymetry, routes []*world.Route) {
-	all := trafficUniverse(entities, player)
-
 	for _, e := range entities {
 		if !e.Alive() || e.Side != world.SideNeutral {
 			continue
 		}
-		updateCivilian(e, all, routes)
+		updateCivilian(e, routes)
 		applyShoreAvoidance(e, bathy)
 	}
 }
@@ -34,14 +32,13 @@ func trafficUniverse(entities []*world.Entity, player *world.Entity) []*world.En
 	return all
 }
 
-func updateCivilian(ship *world.Entity, all []*world.Entity, routes []*world.Route) {
+func updateCivilian(ship *world.Entity, routes []*world.Route) {
 	ship.OrderedDepth = 0
 	ship.DepthFt = 0
 	if !followAssignedRoute(ship, routes, "CRUISE", routeCruiseSpeed(ship)) {
 		ship.OrderedSpeed = routeCruiseSpeed(ship)
 		ship.AIState = "CRUISE"
 	}
-	applyColregsTraffic(ship, all)
 }
 
 func cruiseSpeed(e *world.Entity) float64 {

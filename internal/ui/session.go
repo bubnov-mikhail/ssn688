@@ -7,13 +7,13 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/save"
-	"github.com/ssn688/sim/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/save"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
 )
 
 const (
@@ -34,6 +34,7 @@ func disposeImage(img **ebiten.Image) {
 // releaseSessionCaches frees GPU textures and large session buffers.
 // Engine is left for the caller to replace or nil.
 func (a *App) releaseSessionCaches() {
+	render.ClearBlitCache()
 	a.disposeWaterfallImages()
 	disposeImage(&a.passivePPI)
 	a.passivePPIPixels = nil
@@ -47,6 +48,8 @@ func (a *App) releaseSessionCaches() {
 	disposeImage(&a.tactical.minimapBathyImg)
 	a.tactical.bathyPix = nil
 	a.tactical.minimapBathyPix = nil
+	a.tactical.bakedBathyRGBA = nil
+	a.tactical.bakedBathy = nil
 	a.tactical = tacticalState{}
 	a.disposePeriscopeImage()
 	a.periShipScratch = nil
@@ -110,6 +113,7 @@ func (a *App) releaseSessionCaches() {
 
 // exitToMenu returns to the main menu and drops the running scenario from memory.
 func (a *App) exitToMenu() {
+	a.endScenarioUI()
 	a.releaseSessionCaches()
 	a.Engine = nil
 	a.Mode = ModeMenu
@@ -121,6 +125,7 @@ func (a *App) exitToMenu() {
 }
 
 func (a *App) beginGameSession(engine *sim.Engine) {
+	a.endScenarioUI()
 	a.releaseSessionCaches()
 	a.Engine = engine
 	a.Mode = ModeGame

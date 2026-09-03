@@ -9,7 +9,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 //go:embed voices

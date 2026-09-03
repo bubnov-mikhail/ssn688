@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // PeriMastOrder is the commanded periscope position.

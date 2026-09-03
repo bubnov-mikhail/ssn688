@@ -10,10 +10,10 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
 const (
@@ -550,6 +550,7 @@ func (a *App) ensureActivePlotImage() {
 	if a.activePlotImg != nil && a.activePlotImg.Bounds().Dx() == w {
 		return
 	}
+	disposeImage(&a.activePlotImg)
 	a.activePlotImg = ebiten.NewImage(w, h)
 	a.activePlotPix = make([]byte, w*h*4)
 	a.activePlotGridPix = nil
@@ -733,9 +734,7 @@ func (a *App) drawActiveRangeDisplay(screen *ebiten.Image, sonar *acoustics.Sona
 	if a.activePlotNeedsGridRebuild() {
 		a.rebuildActivePlotRaster()
 	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(activePlotX, activePlotY)
-	screen.DrawImage(a.activePlotImg, op)
+	render.DrawImageAt(screen, a.activePlotImg, activePlotX, activePlotY)
 
 	x, y, w, h := activePlotX, activePlotY, activePlotW, activePlotH
 	a.drawActiveEchoFlashes(screen, maxR)

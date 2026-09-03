@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
 )
 
 func TestBearingWaterfallNewestFirst(t *testing.T) {

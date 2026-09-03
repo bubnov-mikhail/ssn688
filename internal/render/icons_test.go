@@ -3,7 +3,7 @@ package render
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/render/navicon"
+	"github.com/bubnov-mikhail/ssn688/internal/render/navicon"
 )
 
 func TestNavIconsRasterized(t *testing.T) {

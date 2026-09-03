@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"strconv"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
 const (
@@ -20,6 +22,8 @@ const (
 	scenarioColumnGap    = 24
 	scenarioTitleGap     = 40 // title + version block above cover
 	scenarioCoverTextGap = 28 // clear font baselines into cover
+	scenarioBriefMapAspectW = 880
+	scenarioBriefMapAspectH = 1040
 )
 
 func scenarioPanelW() int {
@@ -28,6 +32,38 @@ func scenarioPanelW() int {
 
 func scenarioDetailX() int {
 	return scenarioPanelX + 16 + scenarioListW + scenarioColumnGap
+}
+
+func scenarioBriefPanelW(mapW int) int {
+	if mapW <= 0 {
+		return scenarioPanelW()
+	}
+	return scenarioPanelW() + scenarioColumnGap + mapW
+}
+
+func scenarioBriefMapSize(descH int) (w, h int) {
+	if descH < 40 {
+		descH = 40
+	}
+	h = descH
+	w = h * scenarioBriefMapAspectW / scenarioBriefMapAspectH
+	return w, h
+}
+
+func scenarioBriefShowsMap(cur *campaign.MissionDef, debrief bool) bool {
+	if cur == nil || debrief {
+		return false
+	}
+	_, key := campaign.MissionBriefMap(cur)
+	return key != ""
+}
+
+func scenarioBriefMapRect(aboveLoadout bool) (x, y, w, h int) {
+	_, ty, _, th := scenarioBriefDescRect(aboveLoadout)
+	w, h = scenarioBriefMapSize(th)
+	x = scenarioDetailX() + scenarioDetailW + scenarioColumnGap
+	y = ty
+	return x, y, w, h
 }
 
 // scenarioBriefDescRect is the scrollable mission description area above loadout (or buttons in debrief).
@@ -56,12 +92,175 @@ func drawWrappedTextBox(screen *ebiten.Image, text string, x, y, maxW, lineH, ma
 	render.DrawMarkdown(screen, text, x, y, maxW, maxY, small)
 }
 
+func (a *App) disposeScenarioPanelCaches() {
+	if a.scenarioListDetailImg != nil {
+		a.scenarioListDetailImg.Dispose()
+		a.scenarioListDetailImg = nil
+	}
+	a.scenarioListDetailKey = ""
+	if a.scenarioBriefDetailImg != nil {
+		a.scenarioBriefDetailImg.Dispose()
+		a.scenarioBriefDetailImg = nil
+	}
+	a.scenarioBriefDetailKey = ""
+	a.briefMapCacheKey = ""
+}
+
+func scenarioListDetailCacheSize() (w, h int) {
+	titleY := scenarioPanelY + 48
+	_, by, _, bh := scenarioListBackstoryRect()
+	w = scenarioDetailW
+	h = by + bh - titleY
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
+func (a *App) scenarioListDetailCacheKey(sc *campaign.ScenarioDef, tw int) string {
+	if sc == nil {
+		return ""
+	}
+	body := sc.Backstory.GetText(a.Lang())
+	if !sc.Compatible {
+		body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
+	}
+	return string(sc.ID) + "\x00" + strconv.Itoa(a.scenarioBackstoryScroll) + "\x00" + strconv.Itoa(tw) + "\x00" + body
+}
+
+func (a *App) ensureScenarioListDetailCache(sc *campaign.ScenarioDef) {
+	if sc == nil {
+		return
+	}
+	_, _, tw, _ := scenarioListBackstoryRect()
+	key := a.scenarioListDetailCacheKey(sc, tw)
+	w, h := scenarioListDetailCacheSize()
+	if a.scenarioListDetailImg != nil && a.scenarioListDetailKey == key &&
+		a.scenarioListDetailImg.Bounds().Dx() == w && a.scenarioListDetailImg.Bounds().Dy() == h {
+		return
+	}
+	if a.scenarioListDetailImg != nil {
+		a.scenarioListDetailImg.Dispose()
+		a.scenarioListDetailImg = nil
+	}
+	a.scenarioListDetailKey = key
+	img := ebiten.NewImage(w, h)
+	titleY := scenarioPanelY + 48
+	coverY := scenarioListCoverY()
+	render.DrawTextLarge(img, sc.Title.GetText(a.Lang()), 0, 28, render.ColorText)
+	render.DrawText(img, scenarioVersionLine(sc), 0, 52, render.ColorPhosphorDim, true)
+	drawScenarioCoverImage(a, img, sc, nil, 0, coverY-titleY, scenarioDetailW, scenarioCoverH)
+	body := sc.Backstory.GetText(a.Lang())
+	if !sc.Compatible {
+		body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
+	}
+	lines := a.scenarioListMarkdownLines(body, tw)
+	_, by, _, bh := scenarioListBackstoryRect()
+	vis := bh / 18
+	if vis < 1 {
+		vis = 1
+	}
+	a.scenarioBackstoryScroll = clampContactTableScroll(a.scenarioBackstoryScroll, len(lines), vis)
+	start, end := contactTableWindow(len(lines), a.scenarioBackstoryScroll, vis)
+	render.DrawMDLines(img, lines, start, end, 0, by-titleY, false)
+	drawContactTableScrollbar(img, tw+4, by-titleY, bh, len(lines), vis, a.scenarioBackstoryScroll)
+	a.scenarioListDetailImg = img
+}
+
+func scenarioBriefDetailCacheSize(aboveLoadout bool, mapW int) (w, h int) {
+	titleY := scenarioPanelY + 64
+	_, ty, tw, th := scenarioBriefDescRect(aboveLoadout)
+	h = ty + th - titleY
+	w = tw + 14
+	if mapW > 0 {
+		w += scenarioColumnGap + mapW
+	}
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
+func (a *App) scenarioBriefDetailCacheKey(sc *campaign.ScenarioDef, cur *campaign.MissionDef, aboveLoadout bool, mapW int) string {
+	if sc == nil || cur == nil {
+		return ""
+	}
+	_, _, tw, _ := scenarioBriefDescRect(aboveLoadout)
+	body := cur.Description.GetText(a.Lang())
+	small := aboveLoadout
+	if !sc.Compatible {
+		body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
+		small = false
+	} else if a.briefDebrief {
+		prog := a.cachedScenarioProgress(sc.ID)
+		body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes, a.Lang())
+		small = false
+	}
+	return string(sc.ID) + "\x00" + string(cur.ID) + "\x00" + strconv.FormatBool(a.briefDebrief) + "\x00" +
+		strconv.Itoa(a.scenarioBriefDescScroll) + "\x00" + strconv.Itoa(tw) + "\x00" + strconv.Itoa(mapW) + "\x00" +
+		strconv.FormatBool(small) + "\x00" + body + "\x00" + a.briefMapCacheKey
+}
+
+func (a *App) ensureScenarioBriefDetailCache(sc *campaign.ScenarioDef, cur *campaign.MissionDef, aboveLoadout bool, mapW int) {
+	if sc == nil || cur == nil {
+		return
+	}
+	key := a.scenarioBriefDetailCacheKey(sc, cur, aboveLoadout, mapW)
+	w, h := scenarioBriefDetailCacheSize(aboveLoadout, mapW)
+	if a.scenarioBriefDetailImg != nil && a.scenarioBriefDetailKey == key &&
+		a.scenarioBriefDetailImg.Bounds().Dx() == w && a.scenarioBriefDetailImg.Bounds().Dy() == h {
+		return
+	}
+	if a.scenarioBriefDetailImg != nil {
+		a.scenarioBriefDetailImg.Dispose()
+		a.scenarioBriefDetailImg = nil
+	}
+	a.scenarioBriefDetailKey = key
+	img := ebiten.NewImage(w, h)
+	titleY := scenarioPanelY + 64
+	_, ty, tw, th := scenarioBriefDescRect(aboveLoadout)
+	render.DrawTextLarge(img, cur.Title.GetText(a.Lang()), 0, 0, render.ColorText)
+	body := cur.Description.GetText(a.Lang())
+	small := true
+	if !sc.Compatible {
+		body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
+		small = false
+	} else if a.briefDebrief {
+		prog := a.cachedScenarioProgress(sc.ID)
+		body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes, a.Lang())
+		small = false
+	}
+	lines := a.scenarioBriefMarkdownLines(body, tw, small)
+	lineH := 18
+	if small {
+		lineH = 14
+	}
+	vis := th / lineH
+	if vis < 1 {
+		vis = 1
+	}
+	a.scenarioBriefDescScroll = clampContactTableScroll(a.scenarioBriefDescScroll, len(lines), vis)
+	start, end := contactTableWindow(len(lines), a.scenarioBriefDescScroll, vis)
+	render.DrawMDLines(img, lines, start, end, 0, ty-titleY, small)
+	drawContactTableScrollbar(img, tw+4, ty-titleY, th, len(lines), vis, a.scenarioBriefDescScroll)
+	if mapW > 0 && a.briefMapCacheKey != "" {
+		mx := tw + 14 + scenarioColumnGap
+		_, mh := scenarioBriefMapSize(th)
+		render.DrawScenarioCoverImage(img, a.briefMapCacheKey, mx, ty-titleY, mapW, mh)
+	}
+	a.scenarioBriefDetailImg = img
+}
+
 func drawScenarioCoverImage(a *App, screen *ebiten.Image, sc *campaign.ScenarioDef, m *campaign.MissionDef, x, y, w, h int) {
 	if sc == nil {
 		return
 	}
-	if data, key := campaign.MissionCover(sc, m); len(data) > 0 {
-		render.DrawScenarioCoverBytes(screen, key, data, x, y, w, h)
+	data, key := campaign.MissionCover(sc, m)
+	if len(data) > 0 && key != "" {
+		render.EnsureScenarioCoverImage(key, data)
+	}
+	if key != "" {
+		render.DrawScenarioCoverImage(screen, key, x, y, w, h)
 		return
 	}
 	render.FillRect(screen, x, y, w, h, render.ColorPanelInset)
@@ -118,6 +317,18 @@ func (a *App) ensureScenarioSelection() {
 	id := defs[a.ScenarioListIndex].ID
 	if id != a.SelectedScenarioID {
 		a.scenarioBackstoryScroll = 0
+		a.scenarioListMDKey = ""
+		a.scenarioListDetailKey = ""
+		a.briefMapCacheKey = ""
+		a.scenarioBriefDetailKey = ""
+		if a.scenarioBriefDetailImg != nil {
+			a.scenarioBriefDetailImg.Dispose()
+			a.scenarioBriefDetailImg = nil
+		}
+		a.markScenarioUIDirty()
+		if sc := campaign.ScenarioByID(id); sc != nil {
+			campaign.WarmScenarioCover(sc, nil)
+		}
 	}
 	a.SelectedScenarioID = id
 }
@@ -132,6 +343,7 @@ func (a *App) updateScenarioList() error {
 	mx, my := ebiten.CursorPosition()
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		a.endScenarioUI()
 		a.Mode = ModeMenu
 		return nil
 	}
@@ -150,12 +362,17 @@ func (a *App) updateScenarioList() error {
 		if !sc.Compatible {
 			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
 		}
-		lines := render.ParseMarkdown(body, tw, false)
+		lines := a.scenarioListMarkdownLines(body, tw)
 		vis := th / 18
 		if vis < 1 {
 			vis = 1
 		}
+		prevScroll := a.scenarioBackstoryScroll
 		scrollContactTableWheel(mx, my, tx, ty, tw+10, th, len(lines), vis, &a.scenarioBackstoryScroll)
+		if a.scenarioBackstoryScroll != prevScroll {
+			a.scenarioListDetailKey = ""
+			a.markScenarioUIDirty()
+		}
 	}
 
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -197,6 +414,7 @@ func (a *App) updateScenarioList() error {
 		a.briefDebrief = false
 		a.briefMissionID = ""
 		a.Mode = ModeScenarioBrief
+		a.markScenarioUIDirty()
 		a.initScenarioBrief()
 		return nil
 	}
@@ -212,6 +430,13 @@ func (a *App) updateScenarioBrief() error {
 	mx, my := ebiten.CursorPosition()
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		if a.scenarioBriefDetailImg != nil {
+			a.scenarioBriefDetailImg.Dispose()
+			a.scenarioBriefDetailImg = nil
+		}
+		a.scenarioBriefDetailKey = ""
+		a.briefMapCacheKey = ""
+		a.markScenarioUIDirty()
 		a.Mode = ModeScenarioList
 		return nil
 	}
@@ -224,14 +449,14 @@ func (a *App) updateScenarioBrief() error {
 		if !sc.Compatible {
 			body = "This scenario is incompatible with this game version.\n\n" + sc.IncompatibleReason
 		} else if a.briefDebrief && cur != nil {
-			prog := a.scenarioProgress(sc.ID)
+			prog := a.cachedScenarioProgress(sc.ID)
 			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes, a.Lang())
 		} else if cur != nil {
 			body = cur.Description.GetText(a.Lang())
 		}
 		if body != "" {
 			small := aboveLoadout
-			lines := render.ParseMarkdown(body, tw, small)
+			lines := a.scenarioBriefMarkdownLines(body, tw, small)
 			lineH := 18
 			if small {
 				lineH = 14
@@ -240,7 +465,12 @@ func (a *App) updateScenarioBrief() error {
 			if vis < 1 {
 				vis = 1
 			}
+			prevScroll := a.scenarioBriefDescScroll
 			scrollContactTableWheel(mx, my, tx, ty, tw+10, th, len(lines), vis, &a.scenarioBriefDescScroll)
+			if a.scenarioBriefDescScroll != prevScroll {
+				a.scenarioBriefDetailKey = ""
+				a.markScenarioUIDirty()
+			}
 		}
 	}
 
@@ -254,6 +484,8 @@ func (a *App) updateScenarioBrief() error {
 
 	bx, by, bw, bh := a.scenarioBriefBackRect()
 	if hitRect(mx, my, bx, by, bw, bh) {
+		a.briefMapCacheKey = ""
+		a.markScenarioUIDirty()
 		a.Mode = ModeScenarioList
 		return nil
 	}
@@ -375,8 +607,67 @@ func (a *App) briefDisplayedMission(sc *campaign.ScenarioDef) *campaign.MissionD
 	return prog.CurrentMission(sc)
 }
 
+func (a *App) scenarioBriefMarkdownLines(body string, tw int, small bool) []render.MDLine {
+	key := body + "\x00" + strconv.Itoa(tw) + "\x00" + strconv.FormatBool(small)
+	if key == a.scenarioBriefMDKey && len(a.scenarioBriefMDLines) > 0 {
+		return a.scenarioBriefMDLines
+	}
+	a.scenarioBriefMDKey = key
+	a.scenarioBriefMDLines = render.ParseMarkdown(body, tw, small)
+	return a.scenarioBriefMDLines
+}
+
+func (a *App) scenarioListMarkdownLines(body string, tw int) []render.MDLine {
+	key := body + "\x00" + strconv.Itoa(tw)
+	if key == a.scenarioListMDKey && len(a.scenarioListMDLines) > 0 {
+		return a.scenarioListMDLines
+	}
+	a.scenarioListMDKey = key
+	a.scenarioListMDLines = render.ParseMarkdown(body, tw, false)
+	return a.scenarioListMDLines
+}
+
+func (a *App) cachedScenarioProgress(id campaign.ScenarioID) campaign.Progress {
+	if a.briefProgressOK && a.briefProgressID == id {
+		return a.briefProgress
+	}
+	a.briefProgress = a.scenarioProgress(id)
+	a.briefProgressID = id
+	a.briefProgressOK = true
+	return a.briefProgress
+}
+
+func (a *App) invalidateScenarioProgressCache() {
+	a.briefProgressOK = false
+}
+
+func (a *App) ensureScenarioBriefMap(cur *campaign.MissionDef) {
+	want := ""
+	if cur != nil && scenarioBriefShowsMap(cur, a.briefDebrief) {
+		want = campaign.WarmMissionBriefMap(cur)
+	}
+	if want != a.briefMapCacheKey {
+		a.briefMapCacheKey = want
+		a.scenarioBriefDetailKey = ""
+	}
+}
+
+func (a *App) syncScenarioBriefAssets(sc *campaign.ScenarioDef) {
+	a.scenarioBriefMDKey = ""
+	a.scenarioBriefDetailKey = ""
+	a.invalidateScenarioProgressCache()
+	if sc == nil {
+		a.briefMapCacheKey = ""
+		return
+	}
+	a.ensureScenarioBriefMap(a.briefDisplayedMission(sc))
+}
+
 func (a *App) initScenarioBrief() {
 	a.scenarioBriefDescScroll = 0
+	a.scenarioBriefDetailKey = ""
+	a.markScenarioUIDirty()
+	a.invalidateScenarioProgressCache()
 	sc := a.selectedScenarioDef()
 	if sc == nil {
 		return
@@ -404,6 +695,7 @@ func (a *App) initScenarioBrief() {
 					a.briefMissionID = sc.Missions[len(sc.Missions)-1].ID
 				}
 			}
+			a.syncScenarioBriefAssets(sc)
 			return
 		}
 	}
@@ -414,6 +706,7 @@ func (a *App) initScenarioBrief() {
 	if a.briefMissionID == "" && len(sc.Missions) > 0 {
 		a.briefMissionID = sc.Missions[0].ID
 	}
+	a.syncScenarioBriefAssets(sc)
 }
 
 func (a *App) scenarioProgress(id campaign.ScenarioID) campaign.Progress {
@@ -440,14 +733,20 @@ func (a *App) scenarioProgress(id campaign.ScenarioID) campaign.Progress {
 }
 
 func (a *App) drawScenarioList(screen *ebiten.Image) {
-	render.DrawMenuBackground(screen)
+	defs := a.scenarioDefs()
+	a.ensureScenarioSelection()
+	sc := a.selectedScenarioDef()
+	mx, my := ebiten.CursorPosition()
+	hover := a.scenarioListHoverKey(mx, my)
+	if !a.scenarioUIDirty && hover == a.scenarioUIHoverKey {
+		return
+	}
+
+	a.drawScenarioScreenBackground(screen)
 	panelW := scenarioPanelW()
 	render.DrawConsolePanel(screen, scenarioPanelX, scenarioPanelY, panelW, scenarioPanelH)
 	render.DrawTextLarge(screen, a.L(i18n.UISelectScenario), scenarioPanelX+20, scenarioPanelY+28, render.ColorText)
 
-	defs := a.scenarioDefs()
-	a.ensureScenarioSelection()
-	sc := a.selectedScenarioDef()
 	listX, listY, listW, rowH := scenarioListRect()
 	for i, d := range defs {
 		y := listY + i*rowH
@@ -469,31 +768,17 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 	}
 
 	if sc != nil {
-		detailX := scenarioDetailX()
-		titleX := detailX
-		titleY := scenarioPanelY + 48
-		render.DrawTextLarge(screen, sc.Title.GetText(a.Lang()), titleX, titleY, render.ColorText)
-		render.DrawText(screen, scenarioVersionLine(sc), titleX, titleY+24, render.ColorPhosphorDim, true)
-		coverY := scenarioListCoverY()
-		drawScenarioCoverImage(a, screen, sc, nil, detailX, coverY, scenarioDetailW, scenarioCoverH)
-
-		tx, ty, tw, th := scenarioListBackstoryRect()
-		body := sc.Backstory.GetText(a.Lang())
-		if !sc.Compatible {
-			body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
+		a.ensureScenarioListDetailCache(sc)
+		if a.scenarioListDetailImg != nil {
+			dx := scenarioDetailX()
+			dy := scenarioPanelY + 48
+			var opts ebiten.DrawImageOptions
+			opts.GeoM.Translate(float64(dx), float64(dy))
+			screen.DrawImage(a.scenarioListDetailImg, &opts)
 		}
-		lines := render.ParseMarkdown(body, tw, false)
-		vis := th / 18
-		if vis < 1 {
-			vis = 1
-		}
-		a.scenarioBackstoryScroll = clampContactTableScroll(a.scenarioBackstoryScroll, len(lines), vis)
-		start, end := contactTableWindow(len(lines), a.scenarioBackstoryScroll, vis)
-		render.DrawMDLines(screen, lines, start, end, tx, ty, false)
-		drawContactTableScrollbar(screen, tx+tw+4, ty, th, len(lines), vis, a.scenarioBackstoryScroll)
 	}
 
-	mx, my := ebiten.CursorPosition()
+	mx, my = ebiten.CursorPosition()
 	cx, cy, cw, ch := a.scenarioListContinueRect()
 	hasSave := false
 	if sc != nil && sc.Compatible {
@@ -528,19 +813,33 @@ func (a *App) drawScenarioList(screen *ebiten.Image) {
 		render.DrawText(screen, a.displayStatus(), scenarioPanelX+20, scenarioPanelY+scenarioPanelH+12, render.ColorWarn, false)
 	}
 	a.drawConfirmDialog(screen)
+	a.scenarioUIDirty = false
+	a.scenarioUIHoverKey = hover
 }
 
 func (a *App) drawScenarioBrief(screen *ebiten.Image) {
-	render.DrawMenuBackground(screen)
-	panelW := scenarioPanelW()
-	render.DrawConsolePanel(screen, scenarioPanelX, scenarioPanelY, panelW, scenarioPanelH)
 	sc := a.selectedScenarioDef()
 	if sc == nil {
 		return
 	}
-	prog := a.scenarioProgress(sc.ID)
-	complete := prog.ScenarioComplete(sc)
 	cur := a.briefDisplayedMission(sc)
+	a.ensureScenarioBriefMap(cur)
+	aboveLoadout := sc.Compatible && !a.briefDebrief
+	mapW := 0
+	if scenarioBriefShowsMap(cur, a.briefDebrief) {
+		_, _, mapW, _ = scenarioBriefMapRect(aboveLoadout)
+	}
+	prog := a.cachedScenarioProgress(sc.ID)
+	complete := prog.ScenarioComplete(sc)
+	mx, my := ebiten.CursorPosition()
+	hover := a.scenarioBriefHoverKey(mx, my, sc, complete)
+	if !a.scenarioUIDirty && hover == a.scenarioUIHoverKey && !a.loadoutDragging && a.loadoutOrdnanceMenuTube == 0 {
+		return
+	}
+
+	a.drawScenarioScreenBackground(screen)
+	panelW := scenarioBriefPanelW(mapW)
+	render.DrawConsolePanel(screen, scenarioPanelX, scenarioPanelY, panelW, scenarioPanelH)
 	render.DrawTextLarge(screen, sc.Title.GetText(a.Lang()), scenarioPanelX+20, scenarioPanelY+28, render.ColorText)
 	render.DrawText(screen, scenarioVersionLine(sc), scenarioPanelX+20, scenarioPanelY+52, render.ColorPhosphorDim, true)
 
@@ -567,41 +866,20 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 	}
 
 	if cur != nil {
-		textX := scenarioDetailX()
-		descY := scenarioPanelY + 64
-		render.DrawTextLarge(screen, cur.Title.GetText(a.Lang()), textX, descY, render.ColorText)
-
-		aboveLoadout := sc.Compatible && !a.briefDebrief
-		tx, ty, tw, th := scenarioBriefDescRect(aboveLoadout)
-		body := cur.Description.GetText(a.Lang())
-		small := true
-		if !sc.Compatible {
-			body = a.L(i18n.UIScenarioIncompatBody) + "\n\n" + sc.IncompatibleReason
-			small = false
-		} else if a.briefDebrief {
-			body = campaign.ComposeMissionDebrief(*cur, prog.DebriefOutcomes, a.Lang())
-			small = false
+		a.ensureScenarioBriefDetailCache(sc, cur, aboveLoadout, mapW)
+		if a.scenarioBriefDetailImg != nil {
+			dx := scenarioDetailX()
+			dy := scenarioPanelY + 64
+			var opts ebiten.DrawImageOptions
+			opts.GeoM.Translate(float64(dx), float64(dy))
+			screen.DrawImage(a.scenarioBriefDetailImg, &opts)
 		}
-		lines := render.ParseMarkdown(body, tw, small)
-		lineH := 18
-		if small {
-			lineH = 14
-		}
-		vis := th / lineH
-		if vis < 1 {
-			vis = 1
-		}
-		a.scenarioBriefDescScroll = clampContactTableScroll(a.scenarioBriefDescScroll, len(lines), vis)
-		start, end := contactTableWindow(len(lines), a.scenarioBriefDescScroll, vis)
-		render.DrawMDLines(screen, lines, start, end, tx, ty, small)
-		drawContactTableScrollbar(screen, tx+tw+4, ty, th, len(lines), vis, a.scenarioBriefDescScroll)
-
 		if aboveLoadout {
 			a.drawScenarioLoadout(screen)
 		}
 	}
 
-	mx, my := ebiten.CursorPosition()
+	mx, my = ebiten.CursorPosition()
 	bx, by, bw, bh := a.scenarioBriefBackRect()
 	render.DrawBevelButton(screen, bx, by, bw, bh, a.L(i18n.UIBack), hitRect(mx, my, bx, by, bw, bh), false)
 	stx, sty, stw, sth := a.scenarioBriefPrimaryRect()
@@ -617,4 +895,6 @@ func (a *App) drawScenarioBrief(screen *ebiten.Image) {
 		render.DrawBevelButtonDisabled(screen, stx, sty, stw, sth, a.L(i18n.UIScenarioComplete))
 	}
 	a.drawConfirmDialog(screen)
+	a.scenarioUIDirty = false
+	a.scenarioUIHoverKey = hover
 }

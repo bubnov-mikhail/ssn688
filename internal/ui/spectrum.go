@@ -10,12 +10,12 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/layout"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -231,8 +231,10 @@ func (a *App) classifyButtonRect() (x, y, w, h int) {
 	return x, y, w, h
 }
 
-func (a *App) drawClassifyButton(screen *ebiten.Image, filter acoustics.ClassifyFilter) {
+func (a *App) drawClassifyButton(screen *ebiten.Image, filter acoustics.ClassifyFilter, offX, offY int) {
 	cx, cy, cw, ch := a.classifyButtonRect()
+	cx += offX
+	cy += offY
 	mx, my := ebiten.CursorPosition()
 	canClassify := filter != acoustics.ClassifyIndistinct
 	label := a.L(i18n.UIClassify)
@@ -252,7 +254,12 @@ func (a *App) updateSpectrumScreen(sonar *acoustics.SonarState) {
 
 	bins, bearing := a.spectrumBinsForUI(sonar)
 	filter := a.spectrumClassifyFilter(bins, bearing)
-	a.ensureReferenceInFilter(filter)
+	if c := a.selectedContact(sonar); c != nil && (c.ConfirmedID != "" || c.ConfirmedClass != "") {
+		// Keep the plate on the contact's class — do not snap back to library[0].
+		a.syncReferenceToContact(c)
+	} else {
+		a.ensureReferenceInFilter(filter)
+	}
 	canClassify := filter != acoustics.ClassifyIndistinct
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -307,45 +314,52 @@ func (a *App) confirmClassification(sonar *acoustics.SonarState, filter acoustic
 	a.Audio.PlayClip(audio.ClipSonarContactClassified, a.Lf(i18n.StatusVoiceClassified, c.ID, p.DisplayName()))
 }
 
-func (a *App) drawSpectrumContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	render.FillRect(screen, spectrumTableX, spectrumTableY, spectrumTableW, spectrumTableHeight(), render.ColorPanelInset)
-	render.DrawText(screen, a.L(i18n.UIColID), spectrumTableX+spectrumColID, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, a.L(i18n.UIColBRGDeg), spectrumTableX+spectrumColBRG, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, a.L(i18n.UIColRNG), spectrumTableX+spectrumColRNG, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, a.L(i18n.UIColSource), spectrumTableX+spectrumColSRC, spectrumTableY+16, render.ColorPhosphorDim, true)
-	render.DrawText(screen, a.L(i18n.UIColClass), spectrumTableX+spectrumColCLASS, spectrumTableY+16, render.ColorPhosphorDim, true)
+func (a *App) drawSpectrumContactTable(screen *ebiten.Image, sonar *acoustics.SonarState, offX, offY int) {
+	tx, ty := spectrumTableX+offX, spectrumTableY+offY
+	render.FillRect(screen, tx, ty, spectrumTableW, spectrumTableHeight(), render.ColorPanelInset)
+	render.DrawText(screen, a.L(i18n.UIColID), tx+spectrumColID, ty+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColBRGDeg), tx+spectrumColBRG, ty+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColRNG), tx+spectrumColRNG, ty+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColSource), tx+spectrumColSRC, ty+16, render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIColClass), tx+spectrumColCLASS, ty+16, render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	player := a.Engine.Scenario.Player
 	a.contactTableScroll.spectrum = clampContactTableScroll(a.contactTableScroll.spectrum, len(sonar.Contacts), spectrumTableVisibleRows)
 	start, end := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.spectrum, spectrumTableVisibleRows)
-	y := spectrumTableY + spectrumTableRow
+	y := ty + spectrumTableRow
 	for i := start; i < end; i++ {
 		c := &sonar.Contacts[i]
 		selected := c.SourceEntityID == a.selectedContactID
-		hover := mx >= spectrumTableX && mx < spectrumTableX+spectrumTableW && my >= y && my < y+spectrumTableRow
+		hover := mx >= tx && mx < tx+spectrumTableW && my >= y && my < y+spectrumTableRow
 		if selected {
-			render.FillRect(screen, spectrumTableX+2, y, spectrumTableW-4, spectrumTableRow, color.RGBA{80, 60, 0, 180})
+			render.FillRect(screen, tx+2, y, spectrumTableW-4, spectrumTableRow, color.RGBA{80, 60, 0, 180})
 		} else if hover {
-			render.FillRect(screen, spectrumTableX+2, y, spectrumTableW-4, spectrumTableRow, render.ColorPanelMid)
+			render.FillRect(screen, tx+2, y, spectrumTableW-4, spectrumTableRow, render.ColorPanelMid)
 		}
 		clr := render.ColorPhosphor
 		if c.ConfirmedClass != "" {
 			clr = render.ColorAmber
 		}
-		render.DrawText(screen, c.ID, spectrumTableX+spectrumColID, y+16, clr, true)
-		render.DrawText(screen, contactBearingLabel(c), spectrumTableX+spectrumColBRG, y+16, clr, true)
-		render.DrawText(screen, contactRangeLabel(c), spectrumTableX+spectrumColRNG, y+16, clr, true)
-		render.DrawText(screen, contactSourceLabel(c, player, sonar), spectrumTableX+spectrumColSRC, y+16, clr, true)
-		render.DrawText(screen, contactClassLabel(c), spectrumTableX+spectrumColCLASS, y+16, clr, true)
+		render.DrawText(screen, c.ID, tx+spectrumColID, y+16, clr, true)
+		render.DrawText(screen, contactBearingLabel(c), tx+spectrumColBRG, y+16, clr, true)
+		render.DrawText(screen, contactRangeLabel(c), tx+spectrumColRNG, y+16, clr, true)
+		render.DrawText(screen, contactSourceLabel(c, player, sonar), tx+spectrumColSRC, y+16, clr, true)
+		render.DrawText(screen, contactClassLabel(c), tx+spectrumColCLASS, y+16, clr, true)
 		y += spectrumTableRow
 	}
-	drawContactTableScrollbar(screen, spectrumTableX+spectrumTableW+4, spectrumTableY+spectrumTableRow, spectrumTableVisibleRows*spectrumTableRow, len(sonar.Contacts), spectrumTableVisibleRows, a.contactTableScroll.spectrum)
+	drawContactTableScrollbar(screen, tx+spectrumTableW+4, ty+spectrumTableRow, spectrumTableVisibleRows*spectrumTableRow, len(sonar.Contacts), spectrumTableVisibleRows, a.contactTableScroll.spectrum)
 }
 
-func (a *App) drawReferenceNav(screen *ebiten.Image, x, y int, profile world.SignatureProfile, filter acoustics.ClassifyFilter) {
+func (a *App) drawReferenceNav(screen *ebiten.Image, x, y int, profile world.SignatureProfile, filter acoustics.ClassifyFilter, offX, offY int) {
 	mx, my := ebiten.CursorPosition()
 	prev, next, labelX, labelW := a.referenceNavLayout(x, y)
+	prev.X += offX
+	prev.Y += offY
+	next.X += offX
+	next.Y += offY
+	labelX += offX
+	y += offY
 	active := filter != acoustics.ClassifyIndistinct
 	textY := render.ButtonLabelBaseline(y, refNavBtnH)
 
@@ -353,7 +367,7 @@ func (a *App) drawReferenceNav(screen *ebiten.Image, x, y int, profile world.Sig
 	if !active {
 		labelClr = render.ColorDim
 	}
-	render.DrawButtonText(screen, a.spectrumProfileLabel(), spectrumChartX+spectrumChartLabelInset, textY, labelClr)
+	render.DrawButtonText(screen, a.spectrumProfileLabel(), spectrumChartX+spectrumChartLabelInset+offX, textY, labelClr)
 	if !active {
 		render.DrawBevelButtonDisabled(screen, prev.X, prev.Y, prev.W, prev.H, prev.Label)
 		render.FillRect(screen, labelX, y, labelW, refNavBtnH, render.ColorPanelInset)
@@ -432,6 +446,7 @@ func (a *App) drawFuzzySignature(screen *ebiten.Image, x, y, w, h int, peaks []a
 
 	if need {
 		if a.spectrumFuzzyImg == nil || a.spectrumFuzzyImg.Bounds().Dx() != w || a.spectrumFuzzyImg.Bounds().Dy() != h {
+			disposeImage(&a.spectrumFuzzyImg)
 			a.spectrumFuzzyImg = ebiten.NewImage(w, h)
 			a.spectrumFuzzyPix = make([]byte, w*h*4)
 		}
@@ -544,25 +559,25 @@ func (a *App) drawFuzzySignature(screen *ebiten.Image, x, y, w, h int, peaks []a
 	screen.DrawImage(a.spectrumFuzzyImg, op)
 }
 
-func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile world.SignatureProfile, bearing float64, filter acoustics.ClassifyFilter) {
+func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile world.SignatureProfile, bearing float64, filter acoustics.ClassifyFilter, offX, offY int) {
 	navX := spectrumChartX + spectrumChartLabelInset + referenceProfileWidth() + refProfileGap
-	refY := spectrumRefY()
-	obsY := spectrumObsY()
-	navY := spectrumRefNavY()
+	refY := spectrumRefY() + offY
+	obsY := spectrumObsY() + offY
+	chartX := spectrumChartX + offX
 
 	// Gray-plate row above the green Hz ruler; black reference panel below it.
-	a.drawReferenceNav(screen, navX, navY, profile, filter)
-	a.drawClassifyButton(screen, filter)
-	a.drawFreqScale(screen, spectrumChartX, refY-12, spectrumChartW)
+	a.drawReferenceNav(screen, navX, spectrumRefNavY(), profile, filter, offX, offY)
+	a.drawClassifyButton(screen, filter, offX, offY)
+	a.drawFreqScale(screen, chartX, refY-12, spectrumChartW)
 	if filter == acoustics.ClassifyIndistinct {
-		render.FillRect(screen, spectrumChartX, refY, spectrumChartW, spectrumSigPanelH, cwSigPanelBG)
-		render.DrawText(screen, a.L(i18n.UIRefUnavailable), spectrumChartX+24, refY+spectrumSigPanelH/2, render.ColorDim, true)
+		render.FillRect(screen, chartX, refY, spectrumChartW, spectrumSigPanelH, cwSigPanelBG)
+		render.DrawText(screen, a.L(i18n.UIRefUnavailable), chartX+24, refY+spectrumSigPanelH/2, render.ColorDim, true)
 	} else {
 		refPeaks := acoustics.ProfileReferencePeaks(profile)
-		a.drawSharpSignature(screen, spectrumChartX, refY, spectrumChartW, spectrumSigPanelH, refPeaks)
+		a.drawSharpSignature(screen, chartX, refY, spectrumChartW, spectrumSigPanelH, refPeaks)
 	}
 
-	render.DrawText(screen, fmt.Sprintf("%s %.0f°", a.L(i18n.UIContactSignalAt), bearing), spectrumChartX+spectrumChartLabelInset, obsY-18, cwSigGreenDim, true)
+	render.DrawText(screen, fmt.Sprintf("%s %.0f°", a.L(i18n.UIContactSignalAt), bearing), chartX+spectrumChartLabelInset, obsY-18, cwSigGreenDim, true)
 	filterLbl := a.spectrumFilterLabel(filter)
 	filterClr := cwSigGreenDim
 	switch filter {
@@ -574,10 +589,26 @@ func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile wo
 			filterClr = render.ColorAmber
 		}
 	}
-	render.DrawText(screen, filterLbl, spectrumChartX+220, obsY-18, filterClr, true)
+	render.DrawText(screen, filterLbl, chartX+220, obsY-18, filterClr, true)
 	obsPeaks := acoustics.ObservedPeaksFromBins(bins)
-	a.drawFuzzySignature(screen, spectrumChartX, obsY, spectrumChartW, spectrumSigPanelH+20, obsPeaks)
-	a.drawFreqScale(screen, spectrumChartX, obsY+spectrumSigPanelH+28, spectrumChartW)
+	a.drawFuzzySignature(screen, chartX, obsY, spectrumChartW, spectrumSigPanelH+20, obsPeaks)
+	a.drawFreqScale(screen, chartX, obsY+spectrumSigPanelH+28, spectrumChartW)
+}
+
+func (a *App) drawSpectrumPanelContent(screen *ebiten.Image, sonar *acoustics.SonarState, bins []float64, profile world.SignatureProfile, bearing float64, filter acoustics.ClassifyFilter, offX, offY int) {
+	render.DrawConsolePanel(screen, spectrumScreenPanelX+offX, spectrumScreenPanelY+offY, spectrumScreenPanelW, spectrumScreenPanelH)
+	tableH := spectrumTableHeight()
+	render.DrawMonitor(screen, spectrumTableX+offX, spectrumTableY+offY, spectrumTableW, tableH)
+	render.DrawMonitor(screen, spectrumChartX+offX, spectrumTableY+offY, spectrumChartW, tableH)
+	a.drawArraySelector(screen, sonar, spectrumArrayLabelX+offX, spectrumArrayLabelY+offY, a.cachedSpectrumArrayButtons())
+	a.drawSpectrumContactTable(screen, sonar, offX, offY)
+	a.drawSpectrumChart(screen, bins, profile, bearing, filter, offX, offY)
+
+	if sonar.PassiveArray == acoustics.PassiveArrayTowed && sonar.TowedDamaged {
+		render.DrawText(screen, a.L(i18n.UITowedDamagedData), spectrumChartX+120+offX, spectrumObsY()+40+offY, render.ColorWarn, false)
+	} else if sonar.PassiveArray == acoustics.PassiveArrayHull && a.hullArrayDamaged() {
+		render.DrawText(screen, a.L(i18n.UIHullDamagedData), spectrumChartX+120+offX, spectrumObsY()+40+offY, render.ColorWarn, false)
+	}
 }
 
 func (a *App) drawSpectrum(screen *ebiten.Image) {
@@ -588,12 +619,9 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	a.ensureReferenceInFilter(filter)
 	profile := a.referenceProfile()
 
-	render.DrawConsolePanel(screen, spectrumScreenPanelX, spectrumScreenPanelY, spectrumScreenPanelW, spectrumScreenPanelH)
-	tableH := spectrumTableHeight()
-	render.DrawMonitor(screen, spectrumTableX, spectrumTableY, spectrumTableW, tableH)
-	render.DrawMonitor(screen, spectrumChartX, spectrumTableY, spectrumChartW, tableH)
+	a.drawSpectrumPanelContent(screen, sonar, bins, profile, bearing, filter, 0, 0)
+
 	render.DrawScreenTitle(screen, a.L(i18n.UITitleSpectrum), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
-	a.drawArraySelector(screen, sonar, spectrumArrayLabelX, spectrumArrayLabelY, a.cachedSpectrumArrayButtons())
 
 	if c := a.selectedContact(sonar); c != nil {
 		idTxt := "ID: —"
@@ -612,15 +640,6 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	render.DrawText(screen, fmt.Sprintf("%s: %s  |  %s  |  %s: %s  |  Speed %.1f kts",
 		a.L(i18n.UIArray), a.sonarArrayLabel(sonar), a.towedCableStatus(sonar),
 		a.L(i18n.UILayer), i18n.LocalizeLayerName(a.Engine.Acoustics.Env.LayerNameKnown(player.DepthFt), a.Lang()), player.SpeedKts), 40, 256, render.ColorPhosphorDim, true)
-
-	a.drawSpectrumContactTable(screen, sonar)
-	a.drawSpectrumChart(screen, bins, profile, bearing, filter)
-
-	if sonar.PassiveArray == acoustics.PassiveArrayTowed && sonar.TowedDamaged {
-		render.DrawText(screen, a.L(i18n.UITowedDamagedData), spectrumChartX+120, spectrumObsY()+40, render.ColorWarn, false)
-	} else if sonar.PassiveArray == acoustics.PassiveArrayHull && a.hullArrayDamaged() {
-		render.DrawText(screen, a.L(i18n.UIHullDamagedData), spectrumChartX+120, spectrumObsY()+40, render.ColorWarn, false)
-	}
 
 	mx, my := ebiten.CursorPosition()
 	if a.uiTooltip != "" {

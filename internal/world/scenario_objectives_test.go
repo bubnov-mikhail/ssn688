@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 func testMissionScenario() *Scenario {
@@ -65,17 +65,11 @@ func TestTrainingObjectivesIdentifyAndDestroy(t *testing.T) {
 		}
 	}
 	sc.CheckObjectives()
-	if findObj(sc, "obj_grisha").Complete {
-		t.Fatal("grisha kill without ID should stay open")
-	}
-
-	sc.NoteIdentified("enemy_grisha")
-	sc.CheckObjectives()
 	if !findObj(sc, "obj_grisha").Complete {
-		t.Fatal("grisha should complete after ID+kill")
+		t.Fatal("grisha should complete on sink (wreck confirms ID)")
 	}
 
-	sc.NoteIdentified("civ_tanker")
+	sc.NoteIdentified("civ_tanker", 0)
 	sc.CheckObjectives()
 	if !findObj(sc, "obj_tanker").Complete {
 		t.Fatal("tanker should complete on ID only")
@@ -87,7 +81,7 @@ func TestTrainingObjectivesIdentifyAndDestroy(t *testing.T) {
 
 func TestMissionStatusReportShowsIDAndPriority(t *testing.T) {
 	sc := testMissionScenario()
-	sc.NoteIdentified("civ_tanker")
+	sc.NoteIdentified("civ_tanker", 0)
 	rep := sc.MissionStatusReport()
 	if !strings.Contains(rep, "PRI") || !strings.Contains(rep, "SEC") {
 		t.Fatalf("missing PRI/SEC:\n%s", rep)

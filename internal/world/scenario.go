@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 // Scenario holds mission state.
@@ -33,14 +33,21 @@ type Scenario struct {
 	MissionEvents []MissionEvent
 	// FiredEventIDs tracks one-shot mission event dispatch.
 	FiredEventIDs map[string]bool
+	// FiredEventAt records mission clock when each event fired (for ordering gates).
+	FiredEventAt map[string]float64
+	// EndAfterEventID blocks COMM report / mission end until that event has fired.
+	EndAfterEventID string
 }
 
 // MissionEvent is a runtime when/then rule copied from campaign JSON.
 type MissionEvent struct {
 	ID          string
 	WhenType    string
+	WhenAtSec   float64
 	ObjectiveID string
 	UnitID      string
+	RequireEventID string
+	UnlessEventID  string
 	Actions     []MissionEventAction
 }
 
@@ -51,11 +58,17 @@ type MissionEventAction struct {
 	Text        i18n.TranslatedText
 	AtSec       float64
 	UnitID      string
+	ShooterID    string
+	AttributedTo string
+	TargetID     string
+	Weapon       string
 	Defcon      int
 	AIState     string
 	Var         string
 	Value       string
 	ObjectiveID string
+	X, Y        float64
+	Name        i18n.TranslatedText
 }
 
 // CommScheduledMessage is follow-on traffic gated by game time + raised COMM mast.
@@ -67,8 +80,9 @@ type CommScheduledMessage struct {
 
 // CommInboxEntry is a received (or briefing) message in the COMM console.
 type CommInboxEntry struct {
-	TimeSec float64
-	Body    i18n.TranslatedText
+	TimeSec  float64
+	Body     i18n.TranslatedText
+	SourceID string // "briefing", schedule message ID, or empty for local REPORT
 }
 
 // DisplayText returns the message body for lang (falls back via TranslatedText).
@@ -85,6 +99,7 @@ type Objective struct {
 	NeedIdentify bool // must successfully ID the target
 	NeedDestroy  bool // must sink / destroy the target
 	Identified   bool
+	IdentifiedAtSec float64 // mission clock when ID first satisfied (0 if unknown)
 	// Hidden tasks stay out of COMM REPORT / UI until RevealObjective.
 	Hidden bool
 }
@@ -95,12 +110,17 @@ func ClampSubToBottom(e *Entity, bathy *Bathymetry) {
 		return
 	}
 	bot := bathy.DepthAtFt(e.X, e.Y)
+	if bot <= 0 {
+		return
+	}
 	maxDepth := bot - 60
 	if maxDepth < 60 {
 		maxDepth = 60
 	}
 	if e.DepthFt > maxDepth {
 		e.DepthFt = maxDepth
+	}
+	if e.Alive() && e.OrderedDepth > maxDepth {
 		e.OrderedDepth = maxDepth
 	}
 }
@@ -193,6 +213,19 @@ func PlaceAwayFrom(rng *rand.Rand, e, ref *Entity, minR, maxR float64, others []
 				if minR > 0 && ref.RangeYardsTo(e) < minR {
 					continue
 				}
+				ok := true
+				for _, o := range others {
+					if o == nil || o == e {
+						continue
+					}
+					if o.RangeYardsTo(e) < minSepOthers {
+						ok = false
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
 				e.HeadingDeg = rng.Float64() * 360
 				e.OrderedHead = e.HeadingDeg
 				return
@@ -229,6 +262,10 @@ func (s *Scenario) CheckObjectives() {
 				break
 			}
 		}
+		// Wreck confirms identity — ally or player kill both count.
+		if destroyed && obj.NeedIdentify {
+			obj.Identified = true
+		}
 		idOK := !obj.NeedIdentify || obj.Identified
 		killOK := !obj.NeedDestroy || destroyed
 		obj.Complete = idOK && killOK
@@ -236,12 +273,15 @@ func (s *Scenario) CheckObjectives() {
 }
 
 // NoteIdentified marks matching objectives as identified (sticky).
-func (s *Scenario) NoteIdentified(entityID string) {
+func (s *Scenario) NoteIdentified(entityID string, gameTime float64) {
 	if s == nil || entityID == "" {
 		return
 	}
 	for i := range s.Objectives {
 		if s.Objectives[i].TargetID == entityID {
+			if !s.Objectives[i].Identified && gameTime > 0 {
+				s.Objectives[i].IdentifiedAtSec = gameTime
+			}
 			s.Objectives[i].Identified = true
 		}
 	}
@@ -261,6 +301,14 @@ func (s *Scenario) PrimaryObjectivesComplete() bool {
 		}
 	}
 	return len(s.Objectives) > 0
+}
+
+// MissionReportAllowed is false until EndAfterEventID has fired (when set).
+func (s *Scenario) MissionReportAllowed() bool {
+	if s == nil || s.EndAfterEventID == "" {
+		return true
+	}
+	return s.FiredEventIDs != nil && s.FiredEventIDs[s.EndAfterEventID]
 }
 
 func (s *Scenario) MissionComplete() bool {

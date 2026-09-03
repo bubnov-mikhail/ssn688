@@ -23,4 +23,10 @@ func TestSideHelpers(t *testing.T) {
 	if HostileTorpedoSide(ally) != SideEnemy || HostileTorpedoSide(foe) != SidePlayer {
 		t.Fatal("hostile torpedo side")
 	}
+	if !IsEnemyQuarryTarget(player, player) || !IsEnemyQuarryTarget(ally, player) {
+		t.Fatal("enemy quarry targets")
+	}
+	if IsEnemyQuarryTarget(foe, player) || IsEnemyQuarryTarget(civ, player) {
+		t.Fatal("enemy quarry excludes hostile/neutral")
+	}
 }

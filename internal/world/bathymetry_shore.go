@@ -95,6 +95,44 @@ func (b Bathymetry) cellDepthBlocked(i, j int) bool {
 	return float64(b.Depths[b.index(i, j)]) < 40
 }
 
+// AcousticPathBlocked reports whether a horizontal path between two world
+// points crosses dry land (depth <= 0) or off-chart cells. Used to prevent
+// passive/active sonar from hearing targets through an island or peninsula.
+func (b Bathymetry) AcousticPathBlocked(x0, y0, x1, y1 float64) bool {
+	if !b.Valid() {
+		return false
+	}
+	dx := x1 - x0
+	dy := y1 - y0
+	dist := math.Hypot(dx, dy)
+	if dist < 1 {
+		return false
+	}
+	step := b.CellSize * 0.45
+	if step < 40 {
+		step = 40
+	}
+	if step > 120 {
+		step = 120
+	}
+	n := int(dist/step) + 1
+	if n < 2 {
+		n = 2
+	}
+	for i := 1; i < n; i++ {
+		t := float64(i) / float64(n)
+		if b.IsLand(x0+dx*t, y0+dy*t) {
+			return true
+		}
+	}
+	return false
+}
+
+// HorizonBlocked reports dry land between two chart points (radar, ESM, optics).
+func (b Bathymetry) HorizonBlocked(x0, y0, x1, y1 float64) bool {
+	return b.AcousticPathBlocked(x0, y0, x1, y1)
+}
+
 func (b Bathymetry) OnChart(x, y float64) bool {
 	if !b.Valid() {
 		return false

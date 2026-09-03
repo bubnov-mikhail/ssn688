@@ -9,12 +9,12 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -1088,6 +1088,7 @@ func (a *App) wepsFitSelectedContact() {
 
 func (a *App) ensureWepsMapImg() *ebiten.Image {
 	if a.wepsMapImg == nil || a.wepsMapImg.Bounds().Dx() != wepsMapW || a.wepsMapImg.Bounds().Dy() != wepsMapH {
+		disposeImage(&a.wepsMapImg)
 		a.wepsMapImg = ebiten.NewImage(wepsMapW, wepsMapH)
 	}
 	return a.wepsMapImg
@@ -1109,11 +1110,11 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 	player := a.Engine.Scenario.Player
 	px := float64(wepsMapW) / 2
 	py := float64(wepsMapH) / 2
-	ringLabelClr := color.RGBA{0, 150, 120, 210}
+	ringLabelClr := color.RGBA{120, 175, 158, 220}
 	for _, rYd := range []float64{1000, 2000, 4000, 8000} {
 		rad := rYd * a.wepsMapZoom
 		if rad > 20 && rad < float64(wepsMapW)/2 {
-			drawCircle(img, px, py, rad, color.RGBA{0, 70, 55, 160})
+			drawCircle(img, px, py, rad, color.RGBA{100, 155, 140, 175})
 			drawMapRangeRingLabel(img, px, py, rad, rYd, ringLabelClr)
 		}
 	}
@@ -1205,9 +1206,7 @@ func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fis
 
 	render.DrawText(img, fmt.Sprintf("ZOOM %.3f  GYRO %03.0f", a.wepsMapZoom, fc.GyroAngleDeg), 10, 16, render.ColorPhosphorDim, true)
 
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(wepsMapX), float64(wepsMapY))
-	screen.DrawImage(img, op)
+	render.DrawImageAt(screen, img, wepsMapX, wepsMapY)
 }
 
 // wepsMapMarkerInside requires icon + label to stay inside the map buffer.

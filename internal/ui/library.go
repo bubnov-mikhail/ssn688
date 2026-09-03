@@ -12,12 +12,12 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/assets"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/layout"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/assets"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -325,10 +325,8 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 			if selected {
 				clr = render.ColorAmber
 			}
-			label := a.L(r.Label)
-			if len(label) > 48 {
-				label = label[:45] + "..."
-			}
+			// Pad 10 left / ~6 right — fill to the catalog column edge.
+			label := fitTextSmall(a.L(r.Label), libLeftW-16)
 			render.DrawText(screen, label, libLeftX+10, y+14, clr, true)
 		}
 		y += libRowH
@@ -360,10 +358,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 		}
 		render.DrawText(screen, c.ID, libLeftX+8, y+14, clr, true)
 		render.DrawText(screen, contactBearingLabel(c), libLeftX+56, y+14, clr, true)
-		if len(class) > 36 {
-			class = class[:33] + "..."
-		}
-		render.DrawText(screen, class, libLeftX+110, y+14, clr, true)
+		render.DrawText(screen, fitTextSmall(class, libLeftW-110-8), libLeftX+110, y+14, clr, true)
 		y += libRowH
 	}
 	drawContactTableScrollbar(screen, libLeftX+libLeftW+4, libConY+libRowH, libConH-libRowH, len(sonar.Contacts), libConVis, a.contactTableScroll.library)
@@ -422,4 +417,30 @@ func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 		y += 16
 	}
 	drawContactTableScrollbar(screen, libRightX+libRightW-6, textTop, textH, len(lines), vis, a.libraryDetailScroll)
+}
+
+// fitTextSmall truncates s with "..." so its small-face width fits maxPx (UTF-8 safe).
+func fitTextSmall(s string, maxPx int) string {
+	if maxPx <= 0 || render.SmallLabelWidth(s) <= maxPx {
+		return s
+	}
+	const ellipsis = "..."
+	ew := render.SmallLabelWidth(ellipsis)
+	if ew >= maxPx {
+		return ellipsis
+	}
+	runes := []rune(s)
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if render.SmallLabelWidth(string(runes[:mid])+ellipsis) <= maxPx {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo <= 0 {
+		return ellipsis
+	}
+	return string(runes[:lo]) + ellipsis
 }

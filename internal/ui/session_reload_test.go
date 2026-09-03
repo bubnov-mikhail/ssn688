@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/save"
-	"github.com/ssn688/sim/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/save"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
 )
 
 func TestReloadAfterSessionDispose(t *testing.T) {
@@ -55,7 +55,7 @@ func TestReloadAfterSessionDispose(t *testing.T) {
 		a.updateSimulationUI()
 	}
 	view := tacticalMapView{0, 0, 128, 128, 0, 0, a.tactical.zoom}
-	_ = a.ensureTacticalBathyImage(view, a.Engine.Scenario.Bathy, false)
+	_, _ = a.ensureTacticalBathyImage(view, a.Engine.Scenario.Bathy, false)
 	if a.Engine.Scenario.Player == nil {
 		t.Fatal("nil player")
 	}

@@ -7,12 +7,12 @@ import (
 	"sort"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/fastmath"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/fastmath"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -204,11 +204,8 @@ func (a *App) drawPeriscopeOptic(screen *ebiten.Image, x, y, w, h int, peri *aco
 	layout := periOpticLetterbox(ox, oy, ow, oh)
 	render.FillRect(screen, ox, oy, ow, oh, color.RGBA{8, 10, 12, 255})
 
-	op := &ebiten.DrawImageOptions{}
-	op.Filter = ebiten.FilterLinear
-	op.GeoM.Scale(layout.Scale, layout.Scale)
-	op.GeoM.Translate(float64(layout.IX), float64(layout.IY))
-	screen.DrawImage(a.periImg, op)
+	slotKey := fmt.Sprintf("peri:%.2f:%dx%d", gt, layout.IW, layout.IH)
+	render.DrawImageSlot(screen, slotKey, a.periImg, layout.IX, layout.IY, layout.IW, layout.IH)
 
 	// Reticule + FOV scale over the live picture.
 	cx = layout.IX + layout.IW/2

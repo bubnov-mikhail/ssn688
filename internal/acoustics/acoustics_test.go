@@ -3,7 +3,7 @@ package acoustics
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func testEntity(id, sig string, kind world.EntityKind, depth, speed float64) *world.Entity {

@@ -1,14 +1,21 @@
 package campaign
 
-import "github.com/ssn688/sim/internal/weapons"
+import (
+	"strings"
+
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+)
 
 // UnitPayload overrides default magazines for AI platforms (enemy or allied).
 // Nil fields keep class defaults from weapons.EnemySubMagazineFor / Surface* helpers.
 type UnitPayload struct {
 	Torpedoes  *int // heavy fish (subs)
-	ASWRockets *int // Rastrub / Otvet / ASROC cells
-	ShipTubes  *int // lightweight tube fish
-	RBU        *int // RBU-6000 salvos
+	Harpoons        *int // Sub-Harpoon (688-class allies)
+	CruiseMissiles  *int // Klub/Oniks/Kalibr (hostile subs)
+	ASWRockets      *int // Rastrub / Otvet / ASROC cells
+	ShipTubes         *int // lightweight tube fish
+	ExerciseTorpedoes *int // Mk48 EX signal fish (practice hulks)
+	RBU               *int // RBU-6000 salvos
 	SAM        *int // point-defense SAM
 	CIWS       *int // CIWS bursts
 }
@@ -40,29 +47,55 @@ func ApplyUnitPayloads(fc *weapons.FireControl, m *MissionDef, vars map[string]s
 	if fc.EnemyCIWS == nil {
 		fc.EnemyCIWS = map[string]int{}
 	}
+	if fc.AllyHarpoonMag == nil {
+		fc.AllyHarpoonMag = map[string]int{}
+	}
+	if fc.EnemyASCMMag == nil {
+		fc.EnemyASCMMag = map[string]int{}
+	}
+	if fc.EnemyExerciseTube == nil {
+		fc.EnemyExerciseTube = map[string]int{}
+	}
 	applyOne := func(u UnitSpec) {
-		if u.Payload == nil || !specMatchesVars(u.RequireVar, u.UnlessVar, vars) {
-			return
+		if u.Payload != nil && specMatchesVars(u.RequireVar, u.UnlessVar, vars) {
+			p := u.Payload
+			id := u.ID
+			if p.Torpedoes != nil {
+				fc.EnemyMagazine[id] = *p.Torpedoes
+			}
+			if p.Harpoons != nil {
+				fc.AllyHarpoonMag[id] = *p.Harpoons
+			}
+			if p.CruiseMissiles != nil {
+				fc.EnemyASCMMag[id] = *p.CruiseMissiles
+			}
+			if p.ASWRockets != nil {
+				fc.EnemyRastrub[id] = *p.ASWRockets
+			}
+			if p.ShipTubes != nil {
+				fc.EnemyShipTube[id] = *p.ShipTubes
+			}
+			if p.ExerciseTorpedoes != nil {
+				fc.EnemyExerciseTube[id] = *p.ExerciseTorpedoes
+			}
+			if p.RBU != nil {
+				fc.EnemyRBU[id] = *p.RBU
+			}
+			if p.SAM != nil {
+				fc.EnemySAM[id] = *p.SAM
+			}
+			if p.CIWS != nil {
+				fc.EnemyCIWS[id] = *p.CIWS
+			}
 		}
-		p := u.Payload
-		id := u.ID
-		if p.Torpedoes != nil {
-			fc.EnemyMagazine[id] = *p.Torpedoes
-		}
-		if p.ASWRockets != nil {
-			fc.EnemyRastrub[id] = *p.ASWRockets
-		}
-		if p.ShipTubes != nil {
-			fc.EnemyShipTube[id] = *p.ShipTubes
-		}
-		if p.RBU != nil {
-			fc.EnemyRBU[id] = *p.RBU
-		}
-		if p.SAM != nil {
-			fc.EnemySAM[id] = *p.SAM
-		}
-		if p.CIWS != nil {
-			fc.EnemyCIWS[id] = *p.CIWS
+		if u.ExerciseTarget || strings.HasPrefix(u.ID, "ex_hulk_") {
+			id := u.ID
+			fc.EnemyShipTube[id] = 0
+			fc.EnemyRastrub[id] = 0
+			fc.EnemyRBU[id] = 0
+			if _, ok := fc.EnemyExerciseTube[id]; !ok {
+				fc.EnemyExerciseTube[id] = 2
+			}
 		}
 	}
 	applyOne(m.Player)

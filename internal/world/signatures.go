@@ -1,6 +1,6 @@
 package world
 
-import "github.com/ssn688/sim/internal/i18n"
+import "github.com/bubnov-mikhail/ssn688/internal/i18n"
 
 // SignatureLibrary holds known acoustic profiles for classification.
 // Tonals are discrete LOFAR/DEMON peaks (machinery + blade-rate harmonics),

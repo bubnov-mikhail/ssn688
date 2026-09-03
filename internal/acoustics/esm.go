@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -195,7 +195,7 @@ func (e *ESMState) AdvanceMastMotion(dt, gameTime float64, player *world.Entity)
 // UpdateESM processes search-radar intercepts while the mast is up.
 // weather affects receive strength and own-mast illumination.
 // dt is the sim tick length (needed to catch narrow beams that dwell < 1 tick).
-func UpdateESM(sonar *SonarState, esm *ESMState, player *world.Entity, emitters []*world.Entity, weather world.Weather, gameTime, dt float64) {
+func UpdateESM(sonar *SonarState, esm *ESMState, player *world.Entity, emitters []*world.Entity, weather world.Weather, gameTime, dt float64, bathy *world.Bathymetry) {
 	if esm == nil || sonar == nil || player == nil {
 		return
 	}
@@ -231,6 +231,9 @@ func UpdateESM(sonar *SonarState, esm *ESMState, player *world.Entity, emitters 
 		}
 		rangeYd := player.RangeYardsTo(em)
 		if rangeYd < 1 || rangeYd > prof.MaxRangeYd*1.2 {
+			continue
+		}
+		if horizonBlocked(bathy, player, em) {
 			continue
 		}
 		brgTrue := player.BearingDegTo(em)
@@ -479,7 +482,7 @@ func IlluminationBand(v float64) int {
 
 // EnemyRadarDetectsMast is true when a ship's search radar currently has a solid
 // paint on the player's raised ESM/COMM/periscope mast (used by AI).
-func EnemyRadarDetectsMast(ship, player *world.Entity, weather world.Weather, esm *ESMState, comm *COMMState, peri *PeriscopeState, gameTime float64) bool {
+func EnemyRadarDetectsMast(ship, player *world.Entity, weather world.Weather, esm *ESMState, comm *COMMState, peri *PeriscopeState, gameTime float64, bathy *world.Bathymetry) bool {
 	if ship == nil || player == nil {
 		return false
 	}
@@ -497,6 +500,9 @@ func EnemyRadarDetectsMast(ship, player *world.Entity, weather world.Weather, es
 	if !world.RadarBeamPassed(ship, gameTime, 0.1, ship.BearingDegTo(player)) {
 		return false
 	}
+	if horizonBlocked(bathy, ship, player) {
+		return false
+	}
 	rangeYd := ship.RangeYardsTo(player)
 	maxYd := prof.MastDetectYd * weather.MastDetectFactor()
 	return rangeYd <= maxYd
@@ -504,7 +510,7 @@ func EnemyRadarDetectsMast(ship, player *world.Entity, weather world.Weather, es
 
 // EnemyRadarDetectsSurface is true when ship search radar has a solid paint on a
 // surface contact (hull, not a thin mast). Used by ally/enemy surface AI.
-func EnemyRadarDetectsSurface(ship, target *world.Entity, gameTime, dt float64) bool {
+func EnemyRadarDetectsSurface(ship, target *world.Entity, gameTime, dt float64, bathy *world.Bathymetry) bool {
 	if ship == nil || target == nil {
 		return false
 	}
@@ -524,5 +530,15 @@ func EnemyRadarDetectsSurface(ship, target *world.Entity, gameTime, dt float64) 
 	if !world.RadarBeamPassed(ship, gameTime, dt, ship.BearingDegTo(target)) {
 		return false
 	}
+	if horizonBlocked(bathy, ship, target) {
+		return false
+	}
 	return ship.RangeYardsTo(target) <= prof.MaxRangeYd
+}
+
+func horizonBlocked(bathy *world.Bathymetry, a, b *world.Entity) bool {
+	if bathy == nil || !bathy.Valid() || a == nil || b == nil {
+		return false
+	}
+	return bathy.HorizonBlocked(a.X, a.Y, b.X, b.Y)
 }

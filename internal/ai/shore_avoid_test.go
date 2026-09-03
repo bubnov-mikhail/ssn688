@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func testCoastBathy() world.Bathymetry {
@@ -24,6 +24,25 @@ func testCoastBathy() world.Bathymetry {
 		OriginX: 0, OriginY: 0,
 		CellSize: 100,
 		Depths:   depths,
+	}
+}
+
+func TestSubTerrainAvoidance(t *testing.T) {
+	b := testCoastBathy()
+	for j := range b.Depths {
+		if b.Depths[j] > 0 {
+			b.Depths[j] = 260
+		}
+	}
+	sub := &world.Entity{
+		Kind: world.KindSubmarine, DepthFt: 160, OrderedDepth: 160,
+		X: 1500, Y: 600, HeadingDeg: 270, OrderedHead: 270,
+		AIState: "PATROL",
+	}
+	applyShoreAvoidance(sub, &b)
+	relWest := math.Abs(normalizeRel(sub.OrderedHead - 270))
+	if relWest < 20 {
+		t.Fatalf("sub still ordered toward land at %.0f°", sub.OrderedHead)
 	}
 }
 

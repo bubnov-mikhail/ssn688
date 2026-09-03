@@ -3,7 +3,7 @@ package sim
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
 )
 
 func TestCloseDoorAfterWireCutKeepsFishInEngine(t *testing.T) {

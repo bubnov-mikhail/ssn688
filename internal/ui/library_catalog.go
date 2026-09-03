@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // libraryAllegiance groups catalog entries for the LIBRARY object table.
@@ -12,6 +12,7 @@ const (
 	libHostile libraryAllegiance = iota
 	libNeutral
 	libFriendly
+	libWeapons
 )
 
 type libraryEntry struct {
@@ -222,7 +223,7 @@ var libraryCatalog = []libraryEntry{
 		Credit:    i18n.T("Photo: U.S. DoD / DPLA / public domain (Wikimedia)", "Фото: U.S. DoD / DPLA / общественное достояние (Wikimedia)"),
 		Summary: []i18n.TranslatedText{
 			i18n.T("Diesel-electric attack boat with strong low-frequency shaft/diesel lines when snorkeling or high-rate charging. Quiet on the battery relative to older diesels, but still classifiable on SPECTRUM.", "Дизель-электрическая атакующая лодка с яркими НЧ валовыми/дизельными линиями на РДП или зарядке. На батареях тише старых дизелей, но всё ещё классифицируема на SPECTRUM."),
-			i18n.T("Primary weapon threat is heavy 53-series fish at modest cruise speed.", "Главная угроза — тяжёлые торпеды серии 53 на умеренной крейсерской скорости."),
+			i18n.T("Primary weapon threat is heavy 53-series fish at modest cruise speed; Klub-S ASCM from 533 mm tubes at periscope depth.", "Главная угроза — тяжёлые торпеды серии 53 на умеренной крейсерской скорости; ПКР «Клуб-С» из 533-мм ТА на глубине перископа."),
 		},
 		Specs: []i18n.TranslatedText{
 			i18n.T("Displacement ~3,000 t submerged", "Водоизмещение ~3 000 т подводное"),
@@ -232,6 +233,7 @@ var libraryCatalog = []libraryEntry{
 		},
 		Offense: []i18n.TranslatedText{
 			i18n.T("53-65 heavy torpedoes — cruise ~48 kn in sim", "Тяжёлые 53-65 — крейсер ~48 уз в симе"),
+			i18n.T("Klub-S (3M-54) ASCM — tube launch ≤~130 ft, mag ~4 in sim", "ПКР «Клуб-С» (3М-54) — пуск из ТА ≤~130 фут, БК ~4 в симе"),
 			i18n.T("Passive/active seeker fish; can force CM expenditure", "Пассивный/активный самонаводящийся аппарат; может вынудить расход ПМ"),
 		},
 		Defense: []i18n.TranslatedText{
@@ -319,16 +321,18 @@ var libraryCatalog = []libraryEntry{
 		Summary: []i18n.TranslatedText{
 			i18n.T("Newest Russian multipurpose nuclear boat: pump-jet quieting, sparse plant tonals, and a deep mixed magazine. Harder to classify than Victor III and closer to a 688 acoustic problem.", "Новейшая российская многоцелевая АПЛ: водомётное заглушение, редкие тоналы установки и глубокий смешанный БК. Труднее классифицировать, чем «Виктор-III», ближе к акустике 688."),
 			i18n.T("Not in the demo mission yet — treat as a future peer threat once spawned in custom scenarios.", "Пока нет в демо — считайте будущей равноценной угрозой в пользовательских сценариях."),
+			i18n.T("UKSK VLS carries Oniks and Kalibr-PL anti-ship missiles in addition to heavy torpedoes.", "УКСК УВП несёт «Оникс» и противокорабельный «Калибр-ПЛ» в дополнение к тяжёлым торпедам."),
 		},
 		Specs: []i18n.TranslatedText{
 			i18n.T("Displacement ~13,800 t submerged (class figures)", "Водоизмещение ~13 800 т подводное (по классу)"),
 			i18n.T("Length ~139 m  |  Speed ~31 kn submerged (sim)", "Длина ~139 м  |  Скорость ~31 уз подводная (сим)"),
 			i18n.T("Tubes: 10 × 533 mm  |  Mag ~24 heavy fish  |  Cruise ~55 kn", "ТА: 10 × 533 мм  |  БК ~24 тяжёлых  |  Крейсер ~55 уз"),
+			i18n.T("UKSK: Oniks + Kalibr-PL ASCM — mag ~16 in sim", "УКСК: «Оникс» + «Калибр-ПЛ» — БК ~16 в симе"),
 			i18n.T("Acoustic: quiet nuclear + pump-jet; blade ~2.4 Hz", "Акустика: тихая АЭУ + водомёт; лопастной ~2,4 Гц"),
-			i18n.T("UKSK VLS (Kalibr/Oniks/Zircon) — not modeled as AI weapons in this build", "УКСК УВП (Калибр/Оникс/Циркон) — как оружие ИИ в этой сборке не моделируются"),
 		},
 		Offense: []i18n.TranslatedText{
 			i18n.T("UGST / Fizik-class heavy torpedoes — peer speed, large magazine", "Тяжёлые УГСТ / «Физик» — равноценная скорость, большой БК"),
+			i18n.T("Oniks (3M-55) supersonic + Kalibr-PL subsonic ASCM from UKSK", "Сверхзвуковой «Оникс» (3М-55) + дозвуковой «Калибр-ПЛ» с УКСК"),
 			i18n.T("Sticky prosecute AI once contact is held", "Настойчивое преследование ИИ после удержания контакта"),
 		},
 		Defense: []i18n.TranslatedText{
@@ -513,6 +517,11 @@ func libraryEntryByID(id string) *libraryEntry {
 			return &libraryCatalog[i]
 		}
 	}
+	for i := range libraryWeaponCatalog {
+		if libraryWeaponCatalog[i].ID == id {
+			return &libraryWeaponCatalog[i]
+		}
+	}
 	return nil
 }
 
@@ -554,6 +563,12 @@ func libraryTableRows() []libraryTableRow {
 			out = append(out, libraryTableRow{Label: e.Title, EntryID: e.ID})
 		}
 		for _, e := range subs {
+			out = append(out, libraryTableRow{Label: e.Title, EntryID: e.ID})
+		}
+	}
+	if len(libraryWeaponCatalog) > 0 {
+		out = append(out, libraryTableRow{Header: true, Label: i18n.UIWeaponsSection})
+		for _, e := range libraryWeaponCatalog {
 			out = append(out, libraryTableRow{Label: e.Title, EntryID: e.ID})
 		}
 	}

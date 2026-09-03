@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // SoundSpeedYdPerSec is nominal sound speed in seawater (~1480 m/s).
@@ -27,7 +27,11 @@ func TwoWayTravelSec(rangeYd float64) float64 {
 }
 
 // Propagate applies spreading, absorption, layer, and water-column effects to a source spectrum.
-func Propagate(env Environment, source Spectrum, emitter, listener *world.Entity) Spectrum {
+// When bathy is set, dry land along the horizontal path blocks propagation.
+func Propagate(env Environment, source Spectrum, emitter, listener *world.Entity, bathy *world.Bathymetry) Spectrum {
+	if pathBlockedByLand(bathy, emitter, listener) {
+		return silentSpectrum()
+	}
 	rangeYd := emitter.RangeYardsTo(listener)
 	rangeKy := rangeYd / 1000
 	spread := passiveSpreadingLossDB(rangeYd)
@@ -44,7 +48,10 @@ func Propagate(env Environment, source Spectrum, emitter, listener *world.Entity
 }
 
 // PropagateActive models outbound ping + echo return (two-way loss).
-func PropagateActive(env Environment, emitter, target *world.Entity, sourceLevelDB float64) Spectrum {
+func PropagateActive(env Environment, emitter, target *world.Entity, sourceLevelDB float64, bathy *world.Bathymetry) Spectrum {
+	if pathBlockedByLand(bathy, emitter, target) {
+		return silentSpectrum()
+	}
 	rangeYd := emitter.RangeYardsTo(target)
 	rangeKy := rangeYd / 1000
 	spread := spreadingLossDB(rangeYd) * 2
@@ -81,4 +88,17 @@ func PingSourceLevel(power01 float64) float64 {
 		power01 = 0.05
 	}
 	return 210 + 20*math.Log10(power01)
+}
+
+func pathBlockedByLand(bathy *world.Bathymetry, a, b *world.Entity) bool {
+	if bathy == nil || !bathy.Valid() || a == nil || b == nil {
+		return false
+	}
+	return bathy.AcousticPathBlocked(a.X, a.Y, b.X, b.Y)
+}
+
+func silentSpectrum() Spectrum {
+	var s Spectrum
+	s.Clear()
+	return s
 }

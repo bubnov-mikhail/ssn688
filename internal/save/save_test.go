@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
@@ -95,6 +95,7 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 		TMACourseDeg: 78, TMASpeedKts: 16, TMAAccuracy: 0.82,
 		Identified: true, IdentifiedBy: "acoustic", HarmonicMatch: 0.88, HarmonicHoldSec: 130, IdentifiedAt: 118,
 	}}
+	eng.Sonar.SetContactSeq(1)
 
 	eng.FireControl.MagazineLeft = 17
 	eng.FireControl.SelectedTube = 2
@@ -145,6 +146,18 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	got, err := LoadClean(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if len(got.Scenario.Routes) == 0 {
+		t.Fatal("routes not restored from mission after load")
+	}
+	m := campaign.MissionByID(campaign.DemoScenarioID, campaign.DemoMissionTraining)
+	if m == nil || len(got.Scenario.Routes) != len(m.Routes) {
+		want := 0
+		if m != nil {
+			want = len(m.Routes)
+		}
+		t.Fatalf("routes count=%d want %d", len(got.Scenario.Routes), want)
 	}
 
 	gp := got.Scenario.Player
@@ -207,6 +220,9 @@ func TestSaveLoadRoundTripPlatformsAndTorpedoes(t *testing.T) {
 	assertNear(t, "sonar.ping", got.Sonar.LastPingTime, 100.5)
 	if len(got.Sonar.Contacts) != 1 || got.Sonar.Contacts[0].SourceEntityID != "enemy_foxtrot" {
 		t.Fatalf("contacts %#v", got.Sonar.Contacts)
+	}
+	if got.Sonar.ContactSeq() < 1 {
+		t.Fatalf("contact_seq=%d want >= 1 so new IDs do not collide", got.Sonar.ContactSeq())
 	}
 	assertNear(t, "contact.activeFix", got.Sonar.Contacts[0].LastActiveFixAt, 110)
 	assertNear(t, "contact.tmaCourse", got.Sonar.Contacts[0].TMACourseDeg, 78)

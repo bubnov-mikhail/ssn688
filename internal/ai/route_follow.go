@@ -3,7 +3,7 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // followAssignedRoute steers toward the current waypoint. Returns false if no route.
@@ -18,7 +18,11 @@ func followAssignedRoute(e *world.Entity, routes []*world.Route, state string, s
 		return false
 	}
 	if e.RouteNeedResume {
-		e.RouteWP, e.RouteDir = r.ResumeWaypoint(e.X, e.Y)
+		if r.PingPong || r.Looped {
+			e.RouteWP, e.RouteDir = r.ResumeWaypoint(e.X, e.Y)
+		} else {
+			e.RouteWP, e.RouteDir = r.ResumeWaypointForward(e.X, e.Y, e.RouteWP)
+		}
 		e.RouteNeedResume = false
 	}
 	e.RouteDir = world.NormalizeRouteDir(e.RouteDir)

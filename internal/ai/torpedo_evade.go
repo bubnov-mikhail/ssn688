@@ -3,9 +3,9 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -58,7 +58,7 @@ func mostThreateningTorpedo(e *world.Entity, torps []*weapons.Torpedo) *weapons.
 	var best *weapons.Torpedo
 	bestScore := 0.0
 	for _, t := range torps {
-		if t == nil || !t.Alive || t.Side != world.HostileTorpedoSide(e) {
+		if t == nil || !t.Alive || !t.EscalatesDefcon() || t.Side != world.HostileTorpedoSide(e) {
 			continue
 		}
 		d := math.Hypot(t.X-e.X, t.Y-e.Y)

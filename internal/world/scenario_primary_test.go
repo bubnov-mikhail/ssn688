@@ -13,7 +13,7 @@ func TestPrimaryObjectivesComplete(t *testing.T) {
 			e.Status = StatusSunk
 		}
 	}
-	sc.NoteIdentified("enemy_grisha")
+	sc.NoteIdentified("enemy_grisha", 0)
 	sc.CheckObjectives()
 	if !sc.PrimaryObjectivesComplete() {
 		t.Fatal("primaries should complete after sink + ID")

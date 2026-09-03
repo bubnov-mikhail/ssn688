@@ -2,6 +2,8 @@
 .tts_tmp/
 ssn688
 ssn688.exe
+ssn688-player
+ssn688-player.exe
 dist/
 .DS_Store
 *.test
@@ -10,5 +12,8 @@ saves/
 *.sav
 # Portable generated campaigns (import via IMPORT SCENARIO; regenerate via tools/).
 scenarios_generated/*.json
+scenarios_generated/theater_previews/
+scenarios_generated/theater_bathy/
+scenarios_generated/sim_replays/
 # 3D source meshes live under ~/ssn688/tools/vendor/ (not in-repo).
 tools/vendor/

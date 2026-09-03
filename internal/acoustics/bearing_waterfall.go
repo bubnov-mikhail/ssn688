@@ -3,9 +3,9 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/fastmath"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/fastmath"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // BearingWaterfallBins is angular resolution for the passive bearing waterfall (1° per bin).

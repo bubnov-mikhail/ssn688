@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestComposeMissionDebriefVariants(t *testing.T) {
@@ -87,8 +87,8 @@ func TestSnapshotObjectiveOutcomes(t *testing.T) {
 			e.Status = world.StatusSunk
 		}
 	}
-	sc.NoteIdentified("enemy_grisha")
-	sc.NoteIdentified("civ_tanker")
+	sc.NoteIdentified("enemy_grisha", 0)
+	sc.NoteIdentified("civ_tanker", 0)
 	got := SnapshotObjectiveOutcomes(sc)
 	byID := map[string]ObjectiveOutcome{}
 	for _, o := range got {

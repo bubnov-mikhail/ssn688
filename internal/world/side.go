@@ -23,6 +23,17 @@ func IsHostile(e *Entity) bool {
 	return e != nil && e.Side == SideEnemy
 }
 
+// IsEnemyQuarryTarget is a friendly platform enemy AI may prosecute (ownship or ally).
+func IsEnemyQuarryTarget(e, player *Entity) bool {
+	if e == nil || !e.Alive() || !IsFriendly(e) {
+		return false
+	}
+	if e.Kind != KindSubmarine && e.Kind != KindSurfaceShip {
+		return false
+	}
+	return IsOwnship(e, player) || IsAllyAI(e, player)
+}
+
 // HostileTorpedoSide is the side whose fish threaten this platform.
 func HostileTorpedoSide(e *Entity) Side {
 	if e != nil && e.Side == SidePlayer {

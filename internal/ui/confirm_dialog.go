@@ -6,8 +6,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
 type confirmKind int
@@ -32,6 +32,7 @@ func (a *App) confirmActive() bool {
 
 func (a *App) showConfirm(kind confirmKind, title, message string) {
 	a.confirm = confirmDialog{Kind: kind, Title: title, Message: message}
+	a.markScenarioUIDirty()
 }
 
 func (a *App) dismissConfirm() {

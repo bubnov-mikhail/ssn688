@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // Contact is a sonar detection track.
@@ -128,6 +128,22 @@ func NewSonarState() SonarState {
 		PingInterval:    12.0,
 		SpectrumBearing: 0,
 	}
+}
+
+// ContactSeq is the last assigned contact number (Cxx / Exx share this counter).
+func (s *SonarState) ContactSeq() int {
+	if s == nil {
+		return 0
+	}
+	return s.contactSeq
+}
+
+// SetContactSeq raises the counter if n is greater (used on save reload).
+func (s *SonarState) SetContactSeq(n int) {
+	if s == nil || n <= s.contactSeq {
+		return
+	}
+	s.contactSeq = n
 }
 
 // UpdatePassive processes passive detections for the listener.
@@ -270,7 +286,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 			}
 			updateContactTMA(c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(c)))
 			TryAutoClassifyTorpedo(c, class)
-			tryAcousticIdentify(c, classifySig, em, gameTime-prevUpdate, gameTime)
+			tryAcousticIdentify(c, classifySig, em, gameTime-prevUpdate, gameTime, CountSpectrumMixContacts(sonar, c.BearingDeg))
 			if c.ConfirmedClass == "" {
 				if k := KindFromMatch(class); k >= 0 {
 					c.Kind = k
@@ -306,7 +322,7 @@ func UpdatePassive(model Model, listener *world.Entity, emitters []*world.Entity
 		initContactUncertainty(&c)
 		updateContactTMA(&c, sampleTMAPosition(listener, c.BearingDeg, c.EstimatedRangeYd, gameTime, contactSampleQuality(&c)))
 		TryAutoClassifyTorpedo(&c, class)
-		tryAcousticIdentify(&c, classifySig, em, 0.1, gameTime)
+		tryAcousticIdentify(&c, classifySig, em, 0.1, gameTime, CountSpectrumMixContacts(sonar, c.BearingDeg))
 		if baseline >= 80 {
 			relHull := AngleDiffDeg(listener.BearingDegTo(em), listener.HeadingDeg)
 			ApplyTriangulationBonus(&c, baseline, c.EstimatedRangeYd, relHull)
@@ -606,7 +622,7 @@ func SpectrumAtBearingInto(dst []float64, model Model, listener *world.Entity, e
 			continue
 		}
 		src := SourceSpectrum(em)
-		recv := Propagate(model.Env, src, em, acoustic)
+		recv := Propagate(model.Env, src, em, acoustic, model.Bathy)
 		snr := recv.SubNoise(selfNoise)
 		bonus := sonar.passiveSNRBonusDB()
 		// Beampattern relative to tow/hull axis (ownship heading).
@@ -668,7 +684,7 @@ func ContaminateClassifySignal(signal Spectrum, model Model, listener *world.Ent
 			continue
 		}
 		src := SourceSpectrum(em)
-		recv := Propagate(model.Env, src, em, acoustic)
+		recv := Propagate(model.Env, src, em, acoustic, model.Bathy)
 		other := recv.SubNoise(ambient)
 		wDB := 10 * math.Log10(w)
 		for i := range other {

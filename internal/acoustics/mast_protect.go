@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const mastExposeEpsilon = 0.05

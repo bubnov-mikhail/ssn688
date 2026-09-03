@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"math/rand"
@@ -8,11 +9,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/layout"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -37,15 +38,32 @@ func (a *App) selectContact(sonar *acoustics.SonarState, c *acoustics.Contact) {
 	a.selectedPlotMarkerID = ""
 	a.waterfallChipCacheKey = 0
 	sonar.SpectrumBearing = c.BearingDeg
-	if c.BestMatchID != "" {
-		for i, p := range world.SignatureLibrary {
-			if p.ID == c.BestMatchID {
-				a.referenceProfileIdx = i
-				break
-			}
+	a.syncReferenceToContact(c)
+	a.engagePeriLockOnContact(c)
+}
+
+// syncReferenceToContact points the SPECTRUM reference plate at the contact's
+// confirmed class, or the live BestMatchID when still unclassified.
+func (a *App) syncReferenceToContact(c *acoustics.Contact) {
+	if c == nil {
+		return
+	}
+	id := c.ConfirmedID
+	if id == "" {
+		id = classifiedLibraryID(c)
+	}
+	if id == "" {
+		id = c.BestMatchID
+	}
+	if id == "" {
+		return
+	}
+	for i, p := range world.SignatureLibrary {
+		if p.ID == id {
+			a.referenceProfileIdx = i
+			return
 		}
 	}
-	a.engagePeriLockOnContact(c)
 }
 
 // engagePeriLockOnContact trains the optic onto the contact and holds lock while
@@ -351,6 +369,7 @@ func (a *App) drawPolarBearingField(screen *ebiten.Image, sonar *acoustics.Sonar
 		return
 	}
 	if a.passivePPI == nil || a.passivePPI.Bounds().Dx() != size {
+		disposeImage(&a.passivePPI)
 		a.passivePPI = ebiten.NewImage(size, size)
 		a.passivePPIPixels = make([]byte, size*size*4)
 		a.buildPPILUT(size)
@@ -364,11 +383,9 @@ func (a *App) drawPolarBearingField(screen *ebiten.Image, sonar *acoustics.Sonar
 		a.passivePPIStamp = a.lastWaterfallSample
 	}
 
-	op := &ebiten.DrawImageOptions{}
-	op.Filter = ebiten.FilterLinear
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(cx-radius, cy-radius)
-	screen.DrawImage(a.passivePPI, op)
+	dest := int(radius * 2)
+	slotKey := fmt.Sprintf("passive:ppi:%.3f:%d", a.passivePPIStamp, size)
+	render.DrawImageSlot(screen, slotKey, a.passivePPI, int(cx-radius), int(cy-radius), dest, dest)
 }
 
 func (a *App) buildPPILUT(size int) {

@@ -44,6 +44,10 @@ var (
 		"Unable to transmit — primary objectives not complete.",
 		"Передача невозможна — основные задачи не выполнены.",
 	)
+	StatusTransmitNeedEvent = T(
+		"Unable to transmit — remain on station; higher authority traffic pending.",
+		"Передача невозможна — оставайтесь на станции; ожидается донесение командования.",
+	)
 	StatusTransmitDone = T(
 		"Mission status transmitted on COMM — END MISSION enabled.",
 		"Статус миссии передан по COMM — доступно ЗАВЕРШИТЬ МИССИЮ.",

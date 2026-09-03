@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // TestLandRayHitsCatalinaNearOrigin verifies the demo scenario chart has dry land

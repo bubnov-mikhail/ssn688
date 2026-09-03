@@ -1,8 +1,8 @@
 package campaign
 
 import (
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // EventWhen triggers an event (extensible for sim-time dispatch).
@@ -16,6 +16,8 @@ type EventWhen struct {
 	Value       string  `json:"value,omitempty"`
 	RequireVar  string  `json:"require_var,omitempty"`
 	UnlessVar   string  `json:"unless_var,omitempty"`
+	RequireEvent string `json:"require_event,omitempty"`
+	UnlessEvent  string `json:"unless_event,omitempty"`
 }
 
 // VarTruthy reports campaign vars used as booleans ("true").
@@ -62,17 +64,24 @@ func FilterEvents(events []EventDef, vars map[string]string) []EventDef {
 
 // EventAction is one side-effect when an event fires.
 type EventAction struct {
-	Type string `json:"type"` // comm_schedule, set_defcon, set_ai_state, set_var, reveal_objective
+	Type string `json:"type"` // comm_schedule, set_defcon, set_ai_state, reveal_objective, fire_weapon, destroy_unit, plot_marker, ally_sub_assist
 
 	ID          string  `json:"id,omitempty"`
 	Text        LocText `json:"text,omitempty"`
 	AtSec       float64 `json:"at_sec,omitempty"`
 	UnitID      string  `json:"unit_id,omitempty"`
+	ShooterID   string  `json:"shooter_id,omitempty"`
+	AttributedTo string `json:"attributed_to,omitempty"` // destroy_unit: credited perpetrator
+	TargetID    string  `json:"target_id,omitempty"`
+	Weapon      string  `json:"weapon,omitempty"`
 	Defcon      int     `json:"defcon,omitempty"`
 	AIState     string  `json:"ai_state,omitempty"`
 	Var         string  `json:"var,omitempty"`
 	Value       string  `json:"value,omitempty"`
 	ObjectiveID string  `json:"objective_id,omitempty"`
+	X           float64 `json:"x,omitempty"`
+	Y           float64 `json:"y,omitempty"`
+	Name        LocText `json:"name,omitempty"`
 }
 
 // EventDef is a declarative when/then rule (stored on mission; runtime dispatch TBD).

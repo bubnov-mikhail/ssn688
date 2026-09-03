@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // SourceSpectrum computes the radiated noise spectrum of a platform.

@@ -3,8 +3,8 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // ApplyDetonationDeaf blinds the listener within blast radius and stamps washout.

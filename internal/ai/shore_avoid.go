@@ -3,7 +3,7 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -11,33 +11,68 @@ const (
 	shoreLookAheadYd = 2400.0
 )
 
-// applyShoreAvoidance steers surface units away from coast when look-ahead
-// shows the ordered course would violate the 800 yd clearance band.
-func applyShoreAvoidance(ship *world.Entity, bathy *world.Bathymetry) {
-	if ship == nil || bathy == nil || !bathy.Valid() {
+// applyShoreAvoidance steers units away from coast/shallow water when look-ahead
+// shows the ordered course would ground or violate the surface clearance band.
+func applyShoreAvoidance(e *world.Entity, bathy *world.Bathymetry) {
+	if e == nil || bathy == nil || !bathy.Valid() || !e.Alive() {
 		return
 	}
-	if !ship.Alive() || ship.Kind != world.KindSurfaceShip || ship.DepthFt > 1 {
+	// Scripted civilian routes are already shore-stitched; helm avoidance fights the track.
+	if e.Side == world.SideNeutral {
 		return
 	}
-	head, avoid := shoreAvoidHeading(bathy, ship)
+	var head float64
+	var avoid bool
+	switch e.Kind {
+	case world.KindSurfaceShip:
+		if e.DepthFt > 1 {
+			return
+		}
+		head, avoid = surfaceShoreAvoidHeading(bathy, e)
+	case world.KindSubmarine:
+		head, avoid = subTerrainAvoidHeading(bathy, e)
+	default:
+		return
+	}
 	if !avoid {
 		return
 	}
-	ship.OrderedHead = head
-	if ship.AIState != "SHORE_AVOID" {
-		world.InterruptRoute(ship)
+	e.OrderedHead = head
+	if e.Side == world.SideNeutral {
+		if routeCruiseAIState(e.AIState) {
+			e.AIState = "SHORE_AVOID"
+		}
+		return
 	}
-	if ship.AIState == "TRANSIT" || ship.AIState == "CRUISE" || ship.AIState == "SEARCH" || ship.AIState == "PATROL" || ship.AIState == "SHORE_AVOID" {
-		ship.AIState = "SHORE_AVOID"
+	if e.AIState != "SHORE_AVOID" {
+		world.InterruptRoute(e)
+	}
+	if routeCruiseAIState(e.AIState) {
+		e.AIState = "SHORE_AVOID"
 	}
 }
 
-func shoreAvoidHeading(b *world.Bathymetry, ship *world.Entity) (float64, bool) {
+func routeCruiseAIState(state string) bool {
+	switch state {
+	case "TRANSIT", "CRUISE", "SEARCH", "PATROL", "SHORE_AVOID":
+		return true
+	default:
+		return false
+	}
+}
+
+func surfaceShoreAvoidHeading(b *world.Bathymetry, ship *world.Entity) (float64, bool) {
 	if courseThreatensShore(b, ship.X, ship.Y, ship.OrderedHead) {
 		return headingToOpenWater(b, ship), true
 	}
 	return ship.OrderedHead, false
+}
+
+func subTerrainAvoidHeading(b *world.Bathymetry, sub *world.Entity) (float64, bool) {
+	if courseThreatensTerrain(b, sub, sub.OrderedHead) {
+		return headingToOpenTerrain(b, sub), true
+	}
+	return sub.OrderedHead, false
 }
 
 func courseThreatensShore(b *world.Bathymetry, x, y, headingDeg float64) bool {
@@ -59,9 +94,23 @@ func courseThreatensShore(b *world.Bathymetry, x, y, headingDeg float64) bool {
 			minAhead = dist
 		}
 	}
-	// Closing on shore inside the 800 yd band (parallel coast-keeping is OK).
 	if minAhead < shoreClearanceYd && minAhead < cur*0.85 {
 		return true
+	}
+	return false
+}
+
+func courseThreatensTerrain(b *world.Bathymetry, e *world.Entity, headingDeg float64) bool {
+	depth := world.NavDepthFt(e)
+	rad := headingDeg * math.Pi / 180
+	sinH := math.Sin(rad)
+	cosH := math.Cos(rad)
+	for d := 200.0; d <= shoreLookAheadYd; d += 200 {
+		px := e.X + sinH*d
+		py := e.Y + cosH*d
+		if !b.NavigableFor(px, py, e.Kind, depth) {
+			return true
+		}
 	}
 	return false
 }
@@ -95,6 +144,31 @@ func headingToOpenWater(b *world.Bathymetry, ship *world.Entity) float64 {
 	return best
 }
 
+func headingToOpenTerrain(b *world.Bathymetry, e *world.Entity) float64 {
+	base := e.OrderedHead
+	best := base
+	bestScore := -1e9
+	for delta := -180; delta <= 180; delta += 10 {
+		h := normalizeHead(base + float64(delta))
+		score := terrainHeadingScore(b, e, h)
+		score -= math.Abs(float64(delta)) * 0.4
+		if score > bestScore {
+			bestScore = score
+			best = h
+		}
+	}
+	if bestScore < -500 {
+		shoreBrg := b.NearestShoreBearingDeg(e.X, e.Y)
+		rel := normalizeRel(shoreBrg - e.HeadingDeg)
+		turn := 90.0
+		if rel >= 0 {
+			turn = -90
+		}
+		return normalizeHead(e.HeadingDeg + turn)
+	}
+	return best
+}
+
 func normalizeRel(d float64) float64 {
 	for d > 180 {
 		d -= 360
@@ -119,6 +193,27 @@ func shoreHeadingScore(b *world.Bathymetry, x, y, headingDeg float64) float64 {
 		dist := b.DistanceToShoreYd(px, py)
 		if dist < worst {
 			worst = dist
+		}
+	}
+	return worst
+}
+
+func terrainHeadingScore(b *world.Bathymetry, e *world.Entity, headingDeg float64) float64 {
+	depth := world.NavDepthFt(e)
+	rad := headingDeg * math.Pi / 180
+	sinH := math.Sin(rad)
+	cosH := math.Cos(rad)
+	worst := 1e9
+	for _, d := range []float64{400, 800, 1200, 2000} {
+		px := e.X + sinH*d
+		py := e.Y + cosH*d
+		if !b.NavigableFor(px, py, e.Kind, depth) {
+			return -1000
+		}
+		bottom := b.DepthAtFt(px, py)
+		margin := bottom - depth - 40
+		if margin < worst {
+			worst = margin
 		}
 	}
 	return worst

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // COMMMastOrder is the commanded HF/VLF comm mast position.
@@ -107,7 +107,7 @@ func (c *COMMState) SeedBriefing(text i18n.TranslatedText) {
 	if len(c.Inbox) > 0 {
 		return
 	}
-	c.Inbox = append(c.Inbox, world.CommInboxEntry{TimeSec: 0, Body: text})
+	c.Inbox = append(c.Inbox, world.CommInboxEntry{TimeSec: 0, Body: text, SourceID: "briefing"})
 }
 
 // AppendLocalTraffic adds an ownship-generated line (e.g. REPORT) to the inbox.
@@ -240,8 +240,9 @@ func UpdateCOMM(comm *COMMState, scenario *world.Scenario, player *world.Entity,
 			stamp = 0
 		}
 		comm.Inbox = append(comm.Inbox, world.CommInboxEntry{
-			TimeSec: stamp,
-			Body:    msg.Text,
+			TimeSec:  stamp,
+			Body:     msg.Text,
+			SourceID: msg.ID,
 		})
 		deliveredNow++
 	}

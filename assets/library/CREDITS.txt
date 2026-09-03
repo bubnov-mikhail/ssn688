@@ -47,3 +47,19 @@ tanker.jpg
 fishing.jpg
   File:Trawler Port en Bessin.jpg — © Jebulon, CC BY-SA 3.0 (copyleft).
   https://commons.wikimedia.org/wiki/File:Trawler_Port_en_Bessin.jpg
+
+Weapon handbook images (assets/library/wpn_*.jpg) — Wikimedia Commons / public domain unless noted.
+  wpn_mk48.jpg — File:Mk-48 torpedo.jpg (U.S. Navy, public domain)
+  wpn_harpoon.jpg — File:Harpoon missile aboard USS Monterey.jpg (U.S. Navy, public domain)
+  wpn_klub.jpg — File:3M-54E1.svg (Vitaly V. Kuzmin, CC BY-SA 4.0) — rendered PNG
+  wpn_oniks.jpg — File:P-800 Oniks.jpg (Allocer, CC BY 3.0)
+  wpn_kalibr.jpg — File:3M-14.svg (Vitaly V. Kuzmin, CC BY-SA 4.0) — rendered PNG
+  wpn_53_65.jpg — File:Torpedo 53-65.jpg (U.S. Navy / DoD, public domain)
+  wpn_umgt1.jpg — File:Mk46 torpedo.jpg (U.S. Navy, public domain) — lightweight ASW stand-in
+  wpn_rastrub.jpg — Metel/Rastrub launcher photo (U.S. DoD, public domain)
+  wpn_rbu.jpg — File:RBU-6000.jpg (U.S. DoD, public domain)
+  wpn_sam.jpg — File:RIM-7 Sea Sparrow.jpg (U.S. Navy, public domain)
+  wpn_ciws.jpg — File:Phalanx CIWS.jpg (U.S. Navy, public domain)
+  wpn_adc.jpg — File:Mk36 SRBOC.jpg (U.S. Navy, public domain) — expendable decoy stand-in
+  wpn_jitter.jpg — File:U.S._Navy_..._lower_an_SLQ-25-25A_Nixie_..._130816-N-KE148-068.jpg (U.S. Navy, public domain)
+  wpn_nixie.jpg — File:SLQ-25_Nixie_aboard_USS_Iowa_(BB-61).jpg (U.S. Navy, public domain)

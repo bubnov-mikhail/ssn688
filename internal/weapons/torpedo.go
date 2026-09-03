@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // Spec-derived / gameplay constants (Mk48 ADCAP + 688-class doctrine).
@@ -123,6 +123,16 @@ type Torpedo struct {
 	DisableSearch bool
 }
 
+// EscalatesDefcon reports whether this fish should raise combat alert levels.
+// Exercise / signal-only and silent decoy rounds are audible but must not
+// trigger weapons-free ROE.
+func (t *Torpedo) EscalatesDefcon() bool {
+	if t == nil {
+		return false
+	}
+	return t.TerminalMode == TerminalExplode
+}
+
 // Detonation describes a warhead event for the sim (blast, deaf, sinking).
 type Detonation struct {
 	X, Y         float64
@@ -159,8 +169,11 @@ type FireControl struct {
 	HarpoonRadarRange   string // MIN / SHORT / MEDIUM / LONG
 	HarpoonDestructRange string // MEDIUM / LONG / MAX
 	EnemyMagazine    map[string]int // hostile sub heavy fish
+	EnemyASCMMag     map[string]int // hostile sub Klub/Oniks/Kalibr
+	AllyHarpoonMag   map[string]int // allied 688 Sub-Harpoon rounds
 	EnemyRastrub     map[string]int // URPK-5 Rastrub ASW rockets
 	EnemyShipTube    map[string]int // ship torpedo tubes (UMGT-1 / SET-40)
+	EnemyExerciseTube map[string]int // exercise signal fish (practice hulks)
 	EnemyRBU         map[string]int // RBU-6000 salvos (Grisha)
 	EnemySAM         map[string]int     // Kinzhal / Osa-M rounds
 	EnemyCIWS        map[string]int     // AK-630 burst magazine
@@ -218,8 +231,11 @@ func NewFireControl() FireControl {
 		HarpoonRadarRange:    HarpoonSRCHMedium,
 		HarpoonDestructRange: HarpoonDSTRLong,
 		EnemyMagazine:        map[string]int{},
+		EnemyASCMMag:         map[string]int{},
+		AllyHarpoonMag:       map[string]int{},
 		EnemyRastrub:         map[string]int{},
 		EnemyShipTube:        map[string]int{},
+		EnemyExerciseTube:    map[string]int{},
 		EnemyRBU:             map[string]int{},
 		EnemySAM:             map[string]int{},
 		EnemyCIWS:            map[string]int{},

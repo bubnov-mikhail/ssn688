@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // Documented SSN-688 #1 attack-scope height of eye above the keel (ft), from

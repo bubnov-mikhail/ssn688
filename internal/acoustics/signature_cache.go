@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // Per-band data derived from a static signature profile. Avoids recomputing

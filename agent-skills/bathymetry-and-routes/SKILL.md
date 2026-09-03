@@ -131,20 +131,42 @@ API: [`internal/world/route.go`](../../internal/world/route.go), хелперы 
 
 Для демо-транзитов и союзных патрулей используй **PingPong**, не Looped.
 
+### Разнообразие геометрии (обязательно)
+
+**Не** штамповать пачку почти параллельных диагоналей NW↔SE (`BuildNWSETransit` с разными offset) — на PLOT это выглядит как «рельсы» вдоль одной оси и часто параллельно берегу.
+
+В одной миссии смешивай **разные оси и формы**:
+
+| Паттерн | Когда |
+|---------|--------|
+| **N↔S / E↔W коридор** | торговцы, танкеры, «фарватер» |
+| **Ломаная / зигзаг** (3–5 опорных точек) | прибрежный ПЛО, траулеры — не прямая вдоль берега |
+| **Дуга / coastal band** (`BuildCoastalLoop` с clearance ≥ **2000–2800 yd**) | эскорт у берега; не жать к суше |
+| **Подход с края** (`BuildApproachFromNE` или open-lane с моря) | надводные боевые |
+| **Патруль по *водному* краю карты** | союзники: восточный/южный край, **не** по суше |
+| **Глубоководная диагональ** | ПЛ — **одна-две** на миссию, не весь трафик |
+
+Правила:
+
+1. Clearance от берега: минимум **`transitMinClearanceYd` (1000)**; у береговой карты (Тайвань и т.п.) цель **≥ 2500–2800 yd**; проверяй **сегменты**, не только WP.
+2. Соседние маршруты не должны быть визуально параллельны друг другу и береговой линии на всём протяжении.
+3. `BuildNWSETransit` — один из инструментов, не дефолт для всех юнитов.
+
 ### Алгоритм для новой линии
 
-1. Задать опорные точки в **ярдах** (X восток, Y север) внутри `BoundsYards()`.
-2. Каждую точку прогнать через **`snapNavigableClear(bathy, x, y, transitMinClearanceYd)`** — сдвиг на воду с зазором от берега.
+1. Задать опорные точки в **ярдах** (X восток, Y север) внутри `BoundsYards()` — форма по таблице выше, не «все по одной диагонали».
+2. Каждую точку прогнать через **`snapNavigableClear(bathy, x, y, clearance)`** — сдвиг на воду с зазором от берега.
 3. **`dedupeWaypoints`** — убрать дубликаты ближе **120 yd**.
-4. Для **каждого сегмента** между соседними WP: выборка каждые ~**250 yd** — все точки `NavigableFor` + `DistanceToShoreYd >= clearance`.
+4. Для **каждого сегмента** между соседними WP: выборка каждые ~**200–250 yd** — все точки `NavigableFor` + `DistanceToShoreYd >= clearance`; при нарушении — midpoints + push offshore.
 5. Для **PingPong**: проверить, что **обратный проход** по тем же WP не ближе к берегу (особенно у мыса).
 6. В `MissionDef.Routes` указать `RouteSpec`; юнитам — `UnitSpec.RouteID` / `PlaceOnRouteFraction` через инстанциатор.
 
 ### Готовые паттерны в коде
 
-- **`BuildNWSETransit`** — NW→SE транзит с lateral offset (гражданские/вражеские коридоры).
-- **`BuildAllyEdgePatrol`** — SE → SW по низу карты → NW по западному краю.
-- **`BuildCoastalLoop`** — дуга вдоль берега с `NearestShoreBearingDeg` + `projectToShoreBand`.
+- **`BuildNWSETransit`** — NW→SE транзит с lateral offset (использовать **точечно**, не для всего трафика).
+- **`BuildAllyEdgePatrol`** — SE → SW → NW по краю; на картах с сушей на западе предпочитай **свой** N↔S патруль по восточному краю воды.
+- **`BuildCoastalLoop`** — дуга вдоль берега с `NearestShoreBearingDeg` + `projectToShoreBand` (задай достаточный `shoreDistYd`).
+- **`BuildApproachFromNE`** — заход с востока/северо-востока к OP AREA.
 
 ### Расстановка юнитов на маршруте
 
@@ -175,11 +197,14 @@ API: [`internal/world/route.go`](../../internal/world/route.go), хелперы 
 ## Чеклист перед сдачей карты/маршрутов
 
 - [ ] `python tools/gen_hormuz_bathy.py` → промежуточный BATH, затем inline `data_b64` в `scenarios/*.json`
-- [ ] Маршруты в JSON: явные `waypoints` + `mode`; WP проходят `NavigableFor` + `DistanceToShoreYd >= 1000`
+- [ ] Маршруты в JSON: явные `waypoints` + `mode`; WP **и сегменты** проходят `NavigableFor` + достаточный shore clearance
+- [ ] Геометрия **разнообразна** (N/S, E/W, ломаные, дуги) — не пачка параллельных диагоналей
 - [ ] PingPong: нет сегментов через сушу; loop: closing chord тоже водный
 - [ ] `go test ./internal/world/...` — bathy, routes, scenario placement
 - [ ] На PLOT видны **глубины** и **береговая линия**
 - [ ] ПЛ на патруле (если не мелководный сценарий): **`OrderedDepth >= 800`**, дно **`>= ~900 ft`**
+- [ ] Для сценария в `scenarios_generated/`: `go run ./tools/render_theater_routes.go` → **0** shore hits; превью в `scenarios_generated/theater_previews/` (см. [scenario-authoring](../scenario-authoring/SKILL.md) §«Валидация карт»)
+- [ ] Промежуточные `.bin` зон (если собирались): `scenarios_generated/theater_bathy/` — не в git, inline в JSON перед импортом
 - [ ] `go build -o ssn688 .`
 
 ## Связанные тесты
@@ -195,3 +220,4 @@ go test ./internal/ai/ -run Shore -count=1
 - Не использовать **`Looped: true`** через сушу — только замкнутые **водные** петли или PingPong.
 - Не полагаться только на bilinear глубину для «можно ли пройти» — используй **`NavigableFor`** / **`IsShoreBlocked`**.
 - Не ставить ПЛ на **`DepthAtFt < 900`** для «глубокого» патруля без явного сценарного повода.
+- Не делать весь трафик миссии вариантами одной диагонали `BuildNWSETransit`.

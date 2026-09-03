@@ -3,7 +3,7 @@ package weapons
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // landStripBathy: water on the west edge, land toward +X.

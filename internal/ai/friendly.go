@@ -3,9 +3,9 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // UpdateFriendlyAI drives SidePlayer allies (not ownship) against hostile units.
@@ -47,9 +47,11 @@ func UpdateFriendlyAI(entities []*world.Entity, player *world.Entity, gameTime, 
 				}
 				subPatrol(e, routes)
 				e.ActiveSonar = false
+				applyShoreAvoidance(e, bathy)
 				continue
 			}
 			updateSubAI(e, quarry, gameTime, dt, model, torps, evade, routes)
+			applyShoreAvoidance(e, bathy)
 		}
 	}
 }
@@ -96,6 +98,27 @@ func TriggerAllySurfaceAssist(entities []*world.Entity, player *world.Entity) {
 		e.RouteID = ""
 		if e.OrderedSpeed < 18 {
 			e.OrderedSpeed = 18
+		}
+	}
+}
+
+// TriggerAllySubAssist sends allied subs toward a datum (e.g. strait rendezvous).
+func TriggerAllySubAssist(entities []*world.Entity, player *world.Entity, datumX, datumY float64) {
+	for _, e := range entities {
+		if !world.IsAllyAI(e, player) || !e.Alive() || e.Kind != world.KindSubmarine {
+			continue
+		}
+		if e.AIState == "ASSIST" || e.AIState == "INTERCEPT" {
+			continue
+		}
+		e.AIState = "INTERCEPT"
+		e.RaiseDefcon(world.DefconWeaponsFree)
+		e.AIProsecuting = true
+		world.InterruptRoute(e)
+		e.RouteID = ""
+		e.OrderedHead = world.BearingDegToWaypoint(e.X, e.Y, world.Waypoint{X: datumX, Y: datumY})
+		if e.OrderedSpeed < 8 {
+			e.OrderedSpeed = 8
 		}
 	}
 }

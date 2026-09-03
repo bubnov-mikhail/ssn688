@@ -61,7 +61,8 @@ var (
 	VoiceCommTrafficWaiting = T("Flash traffic waiting. Raise the communications mast.", "Ожидается срочная связь. Поднимите мачту связи.")
 
 	UIThreatLibrary    = T("THREAT LIBRARY", "СПРАВКА ПО УГРОЗАМ")
-	UIPlatformTypes    = T("PLATFORM TYPES", "ТИПЫ ПЛАТФОРМ")
+	UIPlatformTypes    = T("HANDBOOK", "СПРАВОЧНИК")
+	UIWeaponsSection   = T("WEAPONS", "ОРУЖИЕ")
 	UIContacts         = T("CONTACTS", "КОНТАКТЫ")
 	UIOverview         = T("OVERVIEW", "ОБЗОР")
 	UICharacteristics  = T("CHARACTERISTICS", "ХАРАКТЕРИСТИКИ")

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // TheaterChart returns the shared bathymetry for a theater. Missions store only
@@ -89,27 +89,17 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, ctx BuildContext) *world.Sce
 		return nil
 	}
 
-	routes := make([]*world.Route, 0, len(m.Routes))
-	clearance := make([]*world.Route, 0, len(m.Routes))
-	for _, spec := range m.Routes {
-		r := buildRoute(spec)
-		if r == nil {
-			continue
-		}
-		routes = append(routes, r)
-		if spec.PlayerClearance {
-			clearance = append(clearance, r)
-		}
-	}
+	routes, clearance := RuntimeRoutes(m.Routes)
 
 	player := spawnEntity(rng, m.Player)
 	if player == nil {
 		return nil
 	}
-	placePlayer(rng, player, bathy, clearance, m.Player)
+	placePlayer(rng, player, bathy, routes, clearance, m.Player)
 	world.ClampSubToBottom(player, bathy)
 
 	ents := make([]*world.Entity, 0, len(m.Units))
+	placed := []*world.Entity{player}
 	for _, spec := range m.Units {
 		if !specMatchesVars(spec.RequireVar, spec.UnlessVar, vars) {
 			continue
@@ -118,12 +108,13 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, ctx BuildContext) *world.Sce
 		if e == nil {
 			continue
 		}
-		placeUnit(rng, e, player, bathy, routes, spec)
+		placeUnit(rng, e, placed, bathy, routes, spec)
 		world.ClampSubToBottom(e, bathy)
 		if spec.Combatant {
 			world.InitCombatantDamage(e)
 		}
 		ents = append(ents, e)
+		placed = append(placed, e)
 	}
 
 	if m.Player.Combatant {
@@ -150,6 +141,7 @@ func Instantiate(scDef *ScenarioDef, m *MissionDef, ctx BuildContext) *world.Sce
 		CommSchedule:  schedule,
 		StartTimeSec:  m.StartTimeSec,
 		MissionEvents: ToWorldEvents(events),
+		EndAfterEventID: m.EndAfterEvent,
 	}
 }
 
@@ -243,17 +235,96 @@ func ExpandUnitPlaceholders(text string, byID map[string]*world.Entity) string {
 func ToWorldEvents(events []EventDef) []world.MissionEvent {
 	out := make([]world.MissionEvent, 0, len(events))
 	for _, ev := range events {
-		we := world.MissionEvent{ID: ev.ID, WhenType: ev.When.Type, ObjectiveID: ev.When.ObjectiveID, UnitID: ev.When.UnitID}
+		we := world.MissionEvent{
+			ID: ev.ID, WhenType: ev.When.Type, WhenAtSec: ev.When.AtSec,
+			ObjectiveID: ev.When.ObjectiveID, UnitID: ev.When.UnitID,
+			RequireEventID: ev.When.RequireEvent, UnlessEventID: ev.When.UnlessEvent,
+		}
 		for _, act := range ev.Actions {
 			we.Actions = append(we.Actions, world.MissionEventAction{
 				Type: act.Type, ID: act.ID, Text: act.Text.TT(), AtSec: act.AtSec,
-				UnitID: act.UnitID, Defcon: act.Defcon, AIState: act.AIState,
+				UnitID: act.UnitID, ShooterID: act.ShooterID, AttributedTo: act.AttributedTo,
+				TargetID: act.TargetID, Weapon: act.Weapon,
+				Defcon: act.Defcon, AIState: act.AIState,
 				Var: act.Var, Value: act.Value, ObjectiveID: act.ObjectiveID,
+				X: act.X, Y: act.Y, Name: act.Name.TT(),
 			})
 		}
 		out = append(out, we)
 	}
 	return out
+}
+
+// RuntimeRoutes builds world routes from mission specs. Second return is the
+// subset marked player_clearance (for spawn placement). Used by Instantiate and
+// save reload — route geometry is not persisted in .sav files.
+func RuntimeRoutes(specs []RouteSpec) (all, clearance []*world.Route) {
+	all = make([]*world.Route, 0, len(specs))
+	clearance = make([]*world.Route, 0)
+	for _, spec := range specs {
+		r := buildRoute(spec)
+		if r == nil {
+			continue
+		}
+		all = append(all, r)
+		if spec.PlayerClearance {
+			clearance = append(clearance, r)
+		}
+	}
+	return all, clearance
+}
+
+// RuntimeComm builds briefing + schedule (with event merges and placeholders)
+// for the given entities. Used by Instantiate and save reload.
+func RuntimeComm(m *MissionDef, player *world.Entity, ents []*world.Entity, vars map[string]string) (briefing i18n.TranslatedText, schedule []world.CommScheduledMessage) {
+	if m == nil {
+		return nil, nil
+	}
+	events := FilterEvents(m.Events, vars)
+	schedule = ApplyCommEvents(m.CommSchedule, events)
+	byID := entityMap(append([]*world.Entity{player}, ents...))
+	start := m.StartTimeSec
+	schedule = expandCommPlaceholders(schedule, byID, start)
+	briefing = ExpandPlaceholdersTT(m.CommBriefing.TT(), byID, start, 0)
+	return briefing, schedule
+}
+
+// AppendFiredEventComm re-applies comm_schedule actions from already-fired
+// mission events so late traffic stays on the runtime schedule after load.
+func AppendFiredEventComm(schedule []world.CommScheduledMessage, events []world.MissionEvent, fired map[string]bool, player *world.Entity, ents []*world.Entity, startSec float64) []world.CommScheduledMessage {
+	if len(events) == 0 || len(fired) == 0 {
+		return schedule
+	}
+	byID := entityMap(append([]*world.Entity{player}, ents...))
+	have := map[string]bool{}
+	for _, m := range schedule {
+		if m.ID != "" {
+			have[m.ID] = true
+		}
+	}
+	for _, ev := range events {
+		if ev.ID == "" || !fired[ev.ID] {
+			continue
+		}
+		for _, act := range ev.Actions {
+			if act.Type != "comm_schedule" {
+				continue
+			}
+			id := act.ID
+			if id == "" {
+				id = ev.ID
+			}
+			if id == "" || have[id] {
+				continue
+			}
+			at := act.AtSec
+			schedule = append(schedule, world.CommScheduledMessage{
+				ID: id, AtSec: at, Text: ExpandPlaceholdersTT(act.Text, byID, startSec, at),
+			})
+			have[id] = true
+		}
+	}
+	return schedule
 }
 
 func buildRoute(spec RouteSpec) *world.Route {
@@ -299,7 +370,8 @@ func spawnEntity(rng *rand.Rand, spec UnitSpec) *world.Entity {
 		LengthFt:     spec.LengthFt,
 		AIState:      spec.AIState,
 		Defcon:       spec.Defcon,
-		AllyIgnore:   spec.AllyIgnore,
+		AllyIgnore:     spec.AllyIgnore,
+		ExerciseTarget: spec.ExerciseTarget,
 	}
 	if spec.CrewSkill > 0 || spec.CrewJitter > 0 {
 		e.CrewSkill = world.RandomCrewSkill(spec.CrewSkill, spec.CrewJitter, rng.Float64())
@@ -307,25 +379,44 @@ func spawnEntity(rng *rand.Rand, spec UnitSpec) *world.Entity {
 	return e
 }
 
-func placePlayer(rng *rand.Rand, player *world.Entity, bathy *world.Bathymetry, routes []*world.Route, spec UnitSpec) {
-	corner := spec.Corner
-	if corner == "" {
-		corner = "SW"
-	}
-	if world.PlaceNearChartCorner(player, bathy, corner, routes, spec.MinRouteYd, spec.MaxRouteYd) {
-		return
+func placePlayer(rng *rand.Rand, player *world.Entity, bathy *world.Bathymetry, allRoutes, clearance []*world.Route, spec UnitSpec) {
+	switch spec.Spawn {
+	case SpawnOnRoute:
+		var route *world.Route
+		for _, r := range allRoutes {
+			if r != nil && r.ID == spec.RouteID {
+				route = r
+				break
+			}
+		}
+		if route != nil && world.PlaceOnRouteFraction(player, route, spec.RouteFrac, bathy) {
+			return
+		}
+		if spec.FallbackCorner != "" {
+			if world.PlaceNearChartCorner(player, bathy, spec.FallbackCorner, clearance, spec.FallbackMinYd, spec.FallbackMaxYd, 0) {
+				return
+			}
+		}
+	case SpawnChartCorner, "":
+		corner := spec.Corner
+		if corner == "" {
+			corner = "SW"
+		}
+		if world.PlaceNearChartCorner(player, bathy, corner, clearance, spec.MinRouteYd, spec.MaxRouteYd, spec.CornerInsetYd) {
+			return
+		}
 	}
 	placeOnWater(rng, player, spec.MinRouteYd, spec.MaxRouteYd, nil, bathy)
 }
 
-func placeUnit(rng *rand.Rand, e *world.Entity, player *world.Entity, bathy *world.Bathymetry, routes []*world.Route, spec UnitSpec) {
+func placeUnit(rng *rand.Rand, e *world.Entity, placed []*world.Entity, bathy *world.Bathymetry, routes []*world.Route, spec UnitSpec) {
 	switch spec.Spawn {
 	case SpawnChartCorner:
 		corner := spec.Corner
 		if corner == "" {
 			corner = "SW"
 		}
-		if world.PlaceNearChartCorner(e, bathy, corner, routes, spec.MinRouteYd, spec.MaxRouteYd) {
+		if world.PlaceNearChartCorner(e, bathy, corner, routes, spec.MinRouteYd, spec.MaxRouteYd, spec.CornerInsetYd) {
 			return
 		}
 	case SpawnOnRoute, "":
@@ -341,14 +432,18 @@ func placeUnit(rng *rand.Rand, e *world.Entity, player *world.Entity, bathy *wor
 		}
 		if spec.FallbackCorner != "" {
 			minYd, maxYd := spec.FallbackMinYd, spec.FallbackMaxYd
-			if world.PlaceNearChartCorner(e, bathy, spec.FallbackCorner, routes, minYd, maxYd) {
+			if world.PlaceNearChartCorner(e, bathy, spec.FallbackCorner, routes, minYd, maxYd, 0) {
 				return
 			}
 		}
 	}
-	placeOnWater(rng, e, 2000, 12000, []*world.Entity{player}, bathy)
+	placeOnWater(rng, e, 2000, 12000, placed, bathy)
 }
 
-func placeOnWater(rng *rand.Rand, e *world.Entity, minR, maxR float64, others []*world.Entity, bathy *world.Bathymetry) {
-	world.PlaceAwayFrom(rng, e, &world.Entity{}, minR, maxR, others, bathy)
+func placeOnWater(rng *rand.Rand, e *world.Entity, minR, maxR float64, placed []*world.Entity, bathy *world.Bathymetry) {
+	ref := &world.Entity{}
+	if len(placed) > 0 && placed[0] != nil {
+		ref = placed[0]
+	}
+	world.PlaceAwayFrom(rng, e, ref, minR, maxR, placed, bathy)
 }

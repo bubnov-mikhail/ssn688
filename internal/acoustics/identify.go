@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -22,22 +22,31 @@ const (
 )
 
 // HarmonicMatchFraction is how many of profile's эталон tonals are visible
-// in the received classify spectrum (0..1).
+// in the received classify spectrum (0..1). Uses peak SNR for clarity scaling.
 func HarmonicMatchFraction(signal Spectrum, profile world.SignatureProfile) float64 {
+	return HarmonicMatchFractionClarity(signal, profile, SpectrumClarity01(signal.Peak()))
+}
+
+// HarmonicMatchFractionClarity matches tonals with clarity-dependent margins
+// (same regime as SPECTRUM classify / observed peaks).
+func HarmonicMatchFractionClarity(signal Spectrum, profile world.SignatureProfile, clarity float64) float64 {
 	refs := ProfileReferencePeaks(profile)
 	if len(refs) == 0 {
 		return 0
 	}
 	matched := 0
 	for _, peak := range refs {
-		if tonalPresentInSignal(signal, peak.FreqHz) {
+		if tonalPresentInSignal(signal, peak.FreqHz, clarity) {
 			matched++
 		}
 	}
 	return float64(matched) / float64(len(refs))
 }
 
-func tonalPresentInSignal(signal Spectrum, freqHz float64) bool {
+func tonalPresentInSignal(signal Spectrum, freqHz float64, clarity float64) bool {
+	if clarity < ClassifyClarityMin {
+		return false
+	}
 	if freqHz < MinFreqHz || freqHz > MaxFreqHz {
 		return false
 	}
@@ -53,7 +62,35 @@ func tonalPresentInSignal(signal Spectrum, freqHz float64) bool {
 		return false
 	}
 	med := spectrumMedian(signal)
-	return v >= med+2.0
+	margin := 2.0 + (1-clarity)*3.0
+	return v >= med+margin
+}
+
+func identifySpectrumFrom(signal Spectrum) Spectrum {
+	out := signal.Clone()
+	DegradeSpectrumBinsForClarity(out[:])
+	return out
+}
+
+func peakSNRForIdentify(c *Contact, signal Spectrum) float64 {
+	peak := signal.Peak()
+	if c != nil && c.SNR > peak {
+		peak = c.SNR
+	}
+	return peak
+}
+
+// acousticIdentifyEligible mirrors SPECTRUM gating: weak/muddy spectra and
+// overlapping contacts on the bearing cannot lock a harmonic fingerprint.
+func acousticIdentifyEligible(signal Spectrum, clarity float64, mixContacts int) bool {
+	if clarity < ClassifyClarityMin {
+		return false
+	}
+	if mixContacts >= 2 {
+		return false
+	}
+	prep := identifySpectrumFrom(signal)
+	return AnalyzeClassifyFilter(prep[:], mixContacts) != ClassifyIndistinct
 }
 
 func spectrumMedian(signal Spectrum) float64 {
@@ -101,7 +138,7 @@ func IdentifyContact(c *Contact, em *world.Entity, by string, gameTime float64) 
 	return true
 }
 
-func tryAcousticIdentify(c *Contact, signal Spectrum, em *world.Entity, dt, gameTime float64) {
+func tryAcousticIdentify(c *Contact, signal Spectrum, em *world.Entity, dt, gameTime float64, mixContacts int) {
 	if c == nil || em == nil || c.Identified {
 		return
 	}
@@ -112,10 +149,18 @@ func tryAcousticIdentify(c *Contact, signal Spectrum, em *world.Entity, dt, game
 	if !ok {
 		return
 	}
-	frac := HarmonicMatchFraction(signal, p)
+	clarity := SpectrumClarity01(peakSNRForIdentify(c, signal))
+	prep := identifySpectrumFrom(signal)
+	frac := HarmonicMatchFractionClarity(prep, p, clarity)
 	c.HarmonicMatch = frac
 	if dt <= 0 || dt > 1 {
 		dt = 0.1
+	}
+	if !acousticIdentifyEligible(signal, clarity, mixContacts) {
+		if c.HarmonicHoldSec > 0 {
+			c.HarmonicHoldSec = 0
+		}
+		return
 	}
 	if frac >= HarmonicIdentifyMatchFrac {
 		c.HarmonicHoldSec += dt

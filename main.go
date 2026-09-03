@@ -13,11 +13,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	ebitenaudio "github.com/hajimehoshi/ebiten/v2/audio"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/ui"
-	"github.com/ssn688/sim/internal/version"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/ui"
+	"github.com/bubnov-mikhail/ssn688/internal/version"
 )
 
 const sampleRate = 44100

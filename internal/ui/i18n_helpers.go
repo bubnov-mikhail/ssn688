@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 // Lang returns the active UI/scenario language from settings.

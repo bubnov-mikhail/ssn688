@@ -3,9 +3,9 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // UpdateEnemyAI drives hostile unit behavior using the unified acoustic model.
@@ -15,15 +15,114 @@ func UpdateEnemyAI(entities []*world.Entity, player *world.Entity, gameTime, dt 
 		if !e.Alive() || e.Side != world.SideEnemy {
 			continue
 		}
+		quarry := selectEnemyQuarry(e, entities, player, model, gameTime)
+		if quarry == nil && e.AIProsecuting && e.Track.Valid {
+			quarry = e.Track.GhostTarget("enemy-datum-"+e.ID, world.SidePlayer)
+		}
 		switch e.Kind {
 		case world.KindSurfaceShip:
-			updateSurfaceAI(e, player, gameTime, dt, model, torps, evade, routes)
+			if quarry == nil {
+				if e.Defcon < world.DefconAware {
+					e.AIProsecuting = false
+					e.AILostContactSec = 0
+				}
+				surfacePatrol(e, routes)
+				e.ActiveSonar = false
+				applyColregsTraffic(e, all)
+				applyShoreAvoidance(e, bathy)
+				continue
+			}
+			updateSurfaceAI(e, quarry, gameTime, dt, model, torps, evade, routes)
 			applyColregsTraffic(e, all)
 			applyShoreAvoidance(e, bathy)
 		case world.KindSubmarine:
-			updateSubAI(e, player, gameTime, dt, model, torps, evade, routes)
+			if quarry == nil {
+				if e.Defcon < world.DefconAware {
+					e.AIProsecuting = false
+					e.AILostContactSec = 0
+				}
+				subPatrol(e, routes)
+				e.ActiveSonar = false
+				applyShoreAvoidance(e, bathy)
+				continue
+			}
+			updateSubAI(e, quarry, gameTime, dt, model, torps, evade, routes)
+			applyShoreAvoidance(e, bathy)
 		}
 	}
+}
+
+func selectEnemyQuarry(hunter *world.Entity, entities []*world.Entity, player *world.Entity, model acoustics.Model, gameTime float64) *world.Entity {
+	if hunter == nil {
+		return nil
+	}
+	var best *world.Entity
+	bestScore := -1.0
+	aswShip := hunter.Kind == world.KindSurfaceShip && weapons.SurfaceHasRastrub(hunter.SignatureID)
+	for _, e := range enemyQuarryCandidates(entities, player) {
+		rangeYd := hunter.RangeYardsTo(e)
+		score := math.Max(0, 25000-rangeYd)
+		detected := false
+		if hunter.Damage.Operational(world.SysPassiveHull) || hunter.Damage.Operational(world.SysTowed) {
+			detected = model.CanDetectPlayerPassive(hunter, e, gameTime)
+		}
+		if hunter.ActiveSonar && hunter.Damage.Operational(world.SysActive) && model.CanDetectActive(hunter, e, 0.65) {
+			detected = true
+		}
+		if e.Kind == world.KindSurfaceShip {
+			if acoustics.EnemyRadarDetectsSurface(hunter, e, gameTime, 0.1, model.Bathy) {
+				detected = true
+				score += 4000
+			}
+		}
+		if detected {
+			score += 12000
+		} else if !hunter.AIProsecuting {
+			if rangeYd > 14000 {
+				continue
+			}
+			score *= 0.15
+		}
+		if hunter.Track.Valid {
+			d := math.Hypot(e.X-hunter.Track.X, e.Y-hunter.Track.Y)
+			if d < 2000 {
+				score += 8000
+			}
+		}
+		if aswShip && e.Kind == world.KindSubmarine {
+			score += 3500
+		}
+		if world.IsOwnship(e, player) {
+			score += 1500
+		}
+		if score > bestScore {
+			bestScore = score
+			best = e
+		}
+	}
+	return best
+}
+
+// SelectEnemyQuarry picks the best friendly combatant for a hostile hunter to prosecute.
+func SelectEnemyQuarry(hunter *world.Entity, entities []*world.Entity, player *world.Entity, model acoustics.Model, gameTime float64) *world.Entity {
+	return selectEnemyQuarry(hunter, entities, player, model, gameTime)
+}
+
+func enemyQuarryCandidates(entities []*world.Entity, player *world.Entity) []*world.Entity {
+	out := make([]*world.Entity, 0, len(entities)+1)
+	if player != nil && world.IsEnemyQuarryTarget(player, player) {
+		out = append(out, player)
+	}
+	for _, e := range entities {
+		if e == nil || !world.IsEnemyQuarryTarget(e, player) {
+			continue
+		}
+		if player != nil && e.ID == player.ID {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model acoustics.Model, torps []*weapons.Torpedo, evade EvadeContext, routes []*world.Route) {
@@ -32,6 +131,15 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 		return
 	}
 	ship.EnsureDamage()
+
+	// Practice hulks are passive targets — no ASW prosecution geometry.
+	if world.IsExerciseTarget(ship) {
+		ship.AIProsecuting = false
+		ship.AILostContactSec = 0
+		surfacePatrol(ship, routes)
+		ship.ActiveSonar = false
+		return
+	}
 
 	// DEFCON 0 — patrol route only; ignore player.
 	if ship.Defcon < world.DefconAware {
@@ -48,11 +156,11 @@ func updateSurfaceAI(ship, player *world.Entity, gameTime, dt float64, model aco
 	// Mast paints only apply when the quarry is ownship (player peri/ESM/COMM).
 	radarMast := false
 	if evade.Ownship != nil && player == evade.Ownship {
-		radarMast = acoustics.EnemyRadarDetectsMast(ship, player, evade.Weather, evade.ESM, evade.COMM, evade.Peri, gameTime)
+		radarMast = acoustics.EnemyRadarDetectsMast(ship, player, evade.Weather, evade.ESM, evade.COMM, evade.Peri, gameTime, model.Bathy)
 	}
 	radarSurface := false
 	if player.Kind == world.KindSurfaceShip {
-		radarSurface = acoustics.EnemyRadarDetectsSurface(ship, player, gameTime, dt)
+		radarSurface = acoustics.EnemyRadarDetectsSurface(ship, player, gameTime, dt, model.Bathy)
 	}
 	radarCue := radarMast || radarSurface
 
@@ -513,8 +621,8 @@ const (
 	subStandoffMinYd   = 2200.0 // inside → open range (no ramming)
 	subStandoffIdealYd = 3200.0
 	subStandoffMaxYd   = 5000.0 // outside → close toward flank station
-	subFireMinYd       = 1600.0
-	subFireMaxYd       = 3400.0
+	subFireMinYd       = 1400.0
+	subFireMaxYd       = 3600.0
 )
 
 // applySubShadowTactics keeps a safe trail, holds a flank station, and only marks
@@ -605,7 +713,11 @@ func applySubShadowTactics(sub, player *world.Entity, gameTime, rangeYd, bearing
 	goodGeom := rangeYd >= subFireMinYd && rangeYd <= subFireMaxYd && rel >= 20 && rel <= 160
 	if goodGeom && sub.CanDefconAttack() && TrackClassified(sub) {
 		sub.AIState = "ATTACK"
-		if int(gameTime*10)%90 == 0 {
+		cadence := 90
+		if sub.CrewSkill01() >= 0.85 {
+			cadence = 40
+		}
+		if int(gameTime*10)%cadence == 0 {
 			sub.AIState = "FIRING"
 		}
 	}
@@ -642,7 +754,7 @@ func PlayerDetectedByEnemy(entities []*world.Entity, player *world.Entity, model
 		if model.CanDetectPlayerPassive(e, player, gameTime) {
 			return true
 		}
-		if acoustics.EnemyRadarDetectsMast(e, player, weather, esm, comm, peri, gameTime) {
+		if acoustics.EnemyRadarDetectsMast(e, player, weather, esm, comm, peri, gameTime, model.Bathy) {
 			return true
 		}
 	}

@@ -12,16 +12,16 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/layout"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/sim"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 type AppMode int
@@ -158,6 +158,21 @@ type App struct {
 	ScenarioListIndex       int
 	scenarioBackstoryScroll int
 	scenarioBriefDescScroll int
+	scenarioBriefMDKey      string
+	scenarioBriefMDLines    []render.MDLine
+	scenarioListMDKey       string
+	scenarioListMDLines     []render.MDLine
+	briefMapCacheKey        string
+	briefProgressID         campaign.ScenarioID
+	briefProgress           campaign.Progress
+	briefProgressOK         bool
+	scenarioListDetailKey   string
+	scenarioListDetailImg   *ebiten.Image
+	scenarioBriefDetailKey  string
+	scenarioBriefDetailImg   *ebiten.Image
+	scenarioScreenActive     bool
+	scenarioUIDirty          bool
+	scenarioUIHoverKey       string
 	briefDebrief            bool
 	briefMissionID          campaign.MissionID
 	LoadoutMix              float64

@@ -3,7 +3,7 @@ package audio
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 func TestLoadVoiceClips(t *testing.T) {

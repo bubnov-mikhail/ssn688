@@ -5,7 +5,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // UGM-84 Sub-Harpoon — gameplay ranges from published 75 nm max / programmable SRCH.
@@ -88,6 +88,8 @@ type HarpoonMissile struct {
 	VisibleOnWEPS   bool
 	ExpectedArrival float64 // game time when straight-line flight reaches programmed range
 	LockedTargetID  string  // surface contact locked after radar search
+	Variant         ASCMVariant
+	CruiseKts       float64 // cruise-phase speed (set at launch)
 }
 
 func HarpoonRadarRangeYd(setting string) float64 {
@@ -251,6 +253,8 @@ func (fc *FireControl) ShootHarpoon(sub *world.Entity, tubeNum int) *HarpoonMiss
 		DestructRangeYd: destructYd,
 		Alive:           true,
 		VisibleOnWEPS:   true,
+		Variant:         ASCMHarpoon,
+		CruiseKts:       HarpoonCruiseKts,
 	}
 	flightSec := destructYd / (HarpoonCruiseKts * world.KnotsToYPS)
 	h.ExpectedArrival = flightSec // filled by engine with game time on launch
@@ -287,7 +291,10 @@ func (h *HarpoonMissile) Advance(dt float64, targets []*world.Entity) *Detonatio
 		h.advanceAssumed(dt)
 		if h.UnderwaterLeft <= 0 {
 			h.Phase = HarpoonCruise
-			h.SpeedKts = HarpoonCruiseKts
+			if h.CruiseKts <= 0 {
+				h.CruiseKts = h.Variant.cruiseKts()
+			}
+			h.SpeedKts = h.CruiseKts
 		}
 		return nil
 	}
@@ -330,7 +337,10 @@ func (h *HarpoonMissile) Advance(dt float64, targets []*world.Entity) *Detonatio
 // advanceAssumed steps the WEPS-only straight-line track (no seeker turn).
 func (h *HarpoonMissile) advanceAssumed(dt float64) {
 	uwDist := HarpoonUnderwaterSec * HarpoonUnderwaterKts * world.KnotsToYPS
-	spd := HarpoonCruiseKts
+	spd := h.CruiseKts
+	if spd <= 0 {
+		spd = h.Variant.cruiseKts()
+	}
 	if h.AssumedDistanceYd < uwDist {
 		spd = HarpoonUnderwaterKts
 	}
@@ -359,7 +369,7 @@ func (h *HarpoonMissile) updateSeeker(dt float64, targets []*world.Entity) {
 	}
 	want := bearing(h.X, h.Y, lock.X, lock.Y)
 	diff := shortestAngleDiff(h.HeadingDeg, want)
-	maxTurn := HarpoonTurnRateDegPerSec * dt
+	maxTurn := h.Variant.turnRateDegPerSec() * dt
 	h.HeadingDeg = normalizeAngle(h.HeadingDeg + clamp(diff, -maxTurn, maxTurn))
 }
 
@@ -568,4 +578,38 @@ func (fc *FireControl) CheckHarpoonBlastHeard(gameTime, blastX, blastY, blastAt 
 			h.VisibleOnWEPS = false
 		}
 	}
+}
+
+func (fc *FireControl) allyHarpoonAmmo(sub *world.Entity) int {
+	if fc == nil || sub == nil {
+		return 0
+	}
+	if fc.AllyHarpoonMag == nil {
+		fc.AllyHarpoonMag = map[string]int{}
+	}
+	if v, ok := fc.AllyHarpoonMag[sub.ID]; ok {
+		return v
+	}
+	n := AllyHarpoonMagazineFor(sub.SignatureID)
+	fc.AllyHarpoonMag[sub.ID] = n
+	return n
+}
+
+// AllyHarpoonLeft returns remaining Sub-Harpoon rounds for an AI platform.
+func (fc *FireControl) AllyHarpoonLeft(subID string) int {
+	if fc == nil || fc.AllyHarpoonMag == nil {
+		return 0
+	}
+	return fc.AllyHarpoonMag[subID]
+}
+
+func pseudoNoise(a, b string) float64 {
+	h := 0
+	for _, c := range a + b {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return float64(h%1000) / 1000.0
 }

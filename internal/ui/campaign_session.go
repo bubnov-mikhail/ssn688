@@ -3,11 +3,11 @@ package ui
 import (
 	"path/filepath"
 
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/config"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/save"
-	"github.com/ssn688/sim/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/save"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
 )
 
 func (a *App) continueScenario() {
@@ -174,6 +174,8 @@ func (a *App) acknowledgeDebriefAndSelectNext() {
 	a.briefDebrief = false
 	a.briefMissionID = next.ID
 	a.scenarioBriefDescScroll = 0
+	a.ensureScenarioBriefMap(next)
+	a.markScenarioUIDirty()
 }
 
 func (a *App) saveCampaignAutosave(prev campaign.RuntimeMeta, nextEngine *sim.Engine, scenarioDone bool) {
@@ -215,5 +217,5 @@ func (a *App) missionEndEligible() bool {
 	if a.Engine == nil || a.Engine.Scenario == nil {
 		return false
 	}
-	return a.Engine.Campaign.ReportEligible && a.Engine.Scenario.PrimaryObjectivesComplete()
+	return a.Engine.Campaign.ReportEligible && a.Engine.Scenario.PrimaryObjectivesComplete() && a.Engine.Scenario.MissionReportAllowed()
 }

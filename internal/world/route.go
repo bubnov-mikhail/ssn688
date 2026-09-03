@@ -178,6 +178,25 @@ func (r *Route) ResumeWaypoint(x, y float64) (index, dir int) {
 	return best, dir
 }
 
+// ResumeWaypointForward resumes an open route without backtracking to earlier waypoints.
+func (r *Route) ResumeWaypointForward(x, y float64, minIndex int) (index, dir int) {
+	n := r.UniqueCount()
+	if n == 0 {
+		return 0, 1
+	}
+	if minIndex < 0 {
+		minIndex = 0
+	}
+	if minIndex >= n {
+		return n - 1, 1
+	}
+	wp := r.Waypoints[minIndex]
+	if RangeYdToWaypoint(x, y, wp) <= WaypointVisitYd && minIndex+1 < n {
+		return minIndex + 1, 1
+	}
+	return minIndex, 1
+}
+
 // ResumeWaypointIndex picks a waypoint near the unit and nearer the route end.
 func (r *Route) ResumeWaypointIndex(x, y float64) int {
 	idx, _ := r.ResumeWaypoint(x, y)

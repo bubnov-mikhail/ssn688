@@ -3,7 +3,7 @@ package weapons
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // CruiseSpeedKts maps fire-control speed setting to ordered Mk48 run speed.

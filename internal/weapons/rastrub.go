@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // Lightweight ASW (UMGT-1) + Udaloy/Krivak delivery (Rastrub rocket / ship tubes).
@@ -79,6 +79,9 @@ func (fc *FireControl) rastrubAmmo(ship *world.Entity) int {
 	if ship == nil {
 		return 0
 	}
+	if world.IsExerciseTarget(ship) {
+		return 0
+	}
 	if fc.EnemyRastrub == nil {
 		fc.EnemyRastrub = map[string]int{}
 	}
@@ -94,6 +97,9 @@ func (fc *FireControl) shipTubeAmmo(ship *world.Entity) int {
 	if ship == nil {
 		return 0
 	}
+	if world.IsExerciseTarget(ship) {
+		return 0
+	}
 	if fc.EnemyShipTube == nil {
 		fc.EnemyShipTube = map[string]int{}
 	}
@@ -105,10 +111,31 @@ func (fc *FireControl) shipTubeAmmo(ship *world.Entity) int {
 	return n
 }
 
+func (fc *FireControl) exerciseTubeAmmo(ship *world.Entity) int {
+	if ship == nil || !world.IsExerciseTarget(ship) {
+		return 0
+	}
+	if fc.EnemyExerciseTube == nil {
+		fc.EnemyExerciseTube = map[string]int{}
+	}
+	if v, ok := fc.EnemyExerciseTube[ship.ID]; ok {
+		return v
+	}
+	return 0
+}
+
+// ExerciseTubeAmmo returns remaining Mk48 EX rounds for a practice hulk.
+func (fc *FireControl) ExerciseTubeAmmo(ship *world.Entity) int {
+	return fc.exerciseTubeAmmo(ship)
+}
+
 // CanEmploySurfaceASW reports whether the ship still has RBU, Rastrub, or tube ASW rounds.
 func (fc *FireControl) CanEmploySurfaceASW(ship *world.Entity) bool {
 	if fc == nil || ship == nil {
 		return false
+	}
+	if world.IsExerciseTarget(ship) {
+		return fc.exerciseTubeAmmo(ship) > 0
 	}
 	ship.EnsureDamage()
 	if SurfaceHasRBU(ship.SignatureID) && fc.rbuAmmo(ship) > 0 {
@@ -130,6 +157,9 @@ func (fc *FireControl) CanEmploySurfaceASW(ship *world.Entity) bool {
 // LaunchRastrub fires a rocket toward a lead point near the target. Returns nil if dry.
 func (fc *FireControl) LaunchRastrub(ship, target *world.Entity, gameTime float64) *RastrubFlight {
 	if ship == nil || target == nil || !ship.Alive() || !target.Alive() {
+		return nil
+	}
+	if world.IsExerciseTarget(ship) {
 		return nil
 	}
 	if !SurfaceHasRastrub(ship.SignatureID) {
@@ -187,6 +217,9 @@ func (fc *FireControl) LaunchRastrub(ship, target *world.Entity, gameTime float6
 // LaunchShipTube drops a short-range lightweight ASW fish from ship tubes.
 func (fc *FireControl) LaunchShipTube(ship, target *world.Entity) *Torpedo {
 	if ship == nil || target == nil || !ship.Alive() || !target.Alive() {
+		return nil
+	}
+	if world.IsExerciseTarget(ship) {
 		return nil
 	}
 	left := fc.shipTubeAmmo(ship)

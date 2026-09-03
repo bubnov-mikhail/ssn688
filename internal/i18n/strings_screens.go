@@ -74,6 +74,7 @@ var (
 	UITitleMast      = T("MAST — ESM / COMM / SCOPE", "МАЧТЫ — ESM / COMM / ПЕРИСКОП")
 	UITitleDamage    = T("DAMAGE CONTROL", "ПОВРЕЖДЕНИЯ")
 	UITitlePlot      = T("TACTICAL PLOT", "ТАКТ. ПЛАНШЕТ")
+	UILand           = T("LAND", "СУША")
 
 	// --- Shared table / status bits ---
 	UIColID         = T("ID", "ID")

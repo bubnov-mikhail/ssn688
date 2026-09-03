@@ -7,11 +7,11 @@ import (
 	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/layout"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -211,6 +211,16 @@ func (a *App) disposeWaterfallImages() {
 	a.waterfallPix = nil
 }
 
+func (a *App) scrollWaterfallPix(pix []byte, w, h int) {
+	rowBytes := w * 4 * waterfallRowH
+	rows := h / waterfallRowH
+	if rows <= 1 {
+		return
+	}
+	copy(pix[rowBytes:], pix[:rowBytes*(rows-1)])
+	fillWaterfallMonitorBG(pix[:rowBytes])
+}
+
 func (a *App) ensureWaterfallImage() {
 	w, h := waterfallPlotW, waterfallPlotH
 	if a.waterfallImg == nil || a.waterfallImg.Bounds().Dx() != w || a.waterfallImg.Bounds().Dy() != h {
@@ -231,10 +241,6 @@ func (a *App) waterfallRNG() *rand.Rand {
 	seed := int64(a.lastWaterfallSample*1000) ^ int64(a.waterfallArray)*0x51f0
 	a.waterfallRng.Seed(seed)
 	return a.waterfallRng
-}
-
-func (a *App) clearWaterfallRowPix(rowPix []byte) {
-	fillWaterfallMonitorBG(rowPix)
 }
 
 func (a *App) paintWaterfallRow(pix []byte, w, py int, row *acoustics.BearingWaterfallRow, rng *rand.Rand) {
@@ -299,23 +305,12 @@ func (a *App) paintWaterfallRow(pix []byte, w, py int, row *acoustics.BearingWat
 	}
 }
 
-func (a *App) scrollWaterfallPix(pix []byte, w, h int) {
-	rowBytes := w * 4 * waterfallRowH
-	rows := h / waterfallRowH
-	if rows <= 1 {
-		return
-	}
-	copy(pix[rowBytes:], pix[:rowBytes*(rows-1)])
-	a.clearWaterfallRowPix(pix[:rowBytes])
-}
-
 func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
 	a.ensureWaterfallImage()
 	w, h := waterfallPlotW, waterfallPlotH
 	pix := a.waterfallPix
 	wf := a.bearingWaterfalls.ForArray(sonar.PassiveArray)
 	rng := a.waterfallRNG()
-	changed := false
 
 	if a.waterfallFullRebuild || a.waterfallArray != sonar.PassiveArray {
 		fillWaterfallMonitorBG(pix)
@@ -327,15 +322,10 @@ func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
 			a.paintWaterfallRow(pix, w, ri, wf.Row(ri), rng)
 		}
 		a.waterfallFullRebuild = false
-		changed = true
+		a.waterfallImg.WritePixels(pix)
 	} else if a.waterfallPendingScroll {
-		// CPU scroll — GPU alpha-blend would stack semi-transparent rows on every frame.
 		a.scrollWaterfallPix(pix, w, h)
 		a.paintWaterfallRow(pix, w, 0, wf.Latest(), rng)
-		changed = true
-	}
-
-	if changed {
 		a.waterfallImg.WritePixels(pix)
 	}
 
@@ -359,9 +349,7 @@ func (a *App) drawBearingWaterfall(screen *ebiten.Image, sonar *acoustics.SonarS
 		a.rebuildWaterfallImage(sonar)
 	}
 	if a.waterfallImg != nil {
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(float64(plotX), float64(plotY))
-		screen.DrawImage(a.waterfallImg, op)
+		render.DrawImageAt(screen, a.waterfallImg, plotX, plotY)
 	}
 
 	totalMin := float64(plotH*waterfallRowH) * waterfallSampleSec / 60

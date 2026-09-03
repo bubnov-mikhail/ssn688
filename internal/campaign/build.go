@@ -1,6 +1,9 @@
 package campaign
 
-import "github.com/ssn688/sim/internal/world"
+import (
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
+)
 
 // NextMission returns the mission after id, or nil if id is last / unknown.
 func NextMission(sc *ScenarioDef, id MissionID) *MissionDef {
@@ -46,6 +49,51 @@ func MissionCover(sc *ScenarioDef, m *MissionDef) ([]byte, string) {
 		return sc.CoverData, key
 	}
 	return nil, ""
+}
+
+// MissionBriefMap returns the regional brief map image for a mission, if inlined.
+// After WarmMissionBriefMap, bytes are nil but the cache key remains.
+func MissionBriefMap(m *MissionDef) ([]byte, string) {
+	if m == nil {
+		return nil, ""
+	}
+	key := m.BriefMapCacheKey
+	if key == "" && len(m.BriefMapData) == 0 {
+		return nil, ""
+	}
+	if key == "" {
+		key = "brief_map:" + string(m.ID)
+	}
+	return m.BriefMapData, key
+}
+
+// WarmMissionBriefMap decodes the brief map once and drops inlined PNG bytes.
+func WarmMissionBriefMap(m *MissionDef) string {
+	data, key := MissionBriefMap(m)
+	if key == "" {
+		return ""
+	}
+	if len(data) > 0 {
+		render.EnsureScenarioCoverImage(key, data)
+		m.BriefMapData = nil
+	}
+	return key
+}
+
+// WarmScenarioCover decodes cover art into the GPU cache if not already loaded.
+func WarmScenarioCover(sc *ScenarioDef, m *MissionDef) string {
+	data, key := MissionCover(sc, m)
+	if len(data) == 0 || key == "" {
+		if m != nil && m.CoverCacheKey != "" {
+			return m.CoverCacheKey
+		}
+		if sc != nil && sc.CoverCacheKey != "" {
+			return sc.CoverCacheKey
+		}
+		return ""
+	}
+	render.EnsureScenarioCoverImage(key, data)
+	return key
 }
 
 // MissionCoverFile is legacy fallback for embedded JPG paths.

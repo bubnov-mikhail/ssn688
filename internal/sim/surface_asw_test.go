@@ -3,8 +3,8 @@ package sim
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestEnemyGrishaRBUAtOverlapRange(t *testing.T) {

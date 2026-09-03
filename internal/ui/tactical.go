@@ -2,18 +2,19 @@ package ui
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/audio"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -85,6 +86,20 @@ func (v tacticalMapView) containsScreen(sx, sy int) bool {
 	return inRect(sx, sy, v.mapX, v.mapY, v.mapW, v.mapH)
 }
 
+func quantizeTacticalMapCenter(view tacticalMapView) tacticalMapView {
+	const step = 4
+	q := float64(step) / view.zoom
+	if q < 25 {
+		q = 25
+	}
+	if q > 250 {
+		q = 250
+	}
+	view.centerX = math.Round(view.centerX/q) * q
+	view.centerY = math.Round(view.centerY/q) * q
+	return view
+}
+
 type tacticalMapOpts struct {
 	minimap       bool
 	debugOverlay  bool
@@ -108,6 +123,8 @@ type tacticalState struct {
 	fitPending         bool
 	coastBathy         *world.Bathymetry
 	coastSegments      []coastSegment
+	bakedBathy         *world.Bathymetry // chart the baked RGBA was built from
+	bakedBathyRGBA     []byte           // Width×Height RGBA, blurred once
 	bathyImg           *ebiten.Image
 	bathyPix           []byte
 	bathyKey           bathyViewKey
@@ -196,7 +213,6 @@ func (a *App) updateTacticalUI() {
 			a.tactical.panX -= float64(dx) / a.tactical.zoom
 			a.tactical.panY += float64(dy) / a.tactical.zoom
 			a.tactical.panLastMX, a.tactical.panLastMY = mx, my
-			a.invalidateTacticalBathy()
 		}
 	} else {
 		a.tactical.panDragging = false
@@ -261,9 +277,9 @@ func (a *App) updateTacticalUI() {
 		} else {
 			a.tactical.zoom = math.Max(tacticalZoomMin, a.tactical.zoom/tacticalZoomStep)
 		}
-		a.tactical.panX = wx - player.X - (float64(mx)-float64(tacticalPanelX+tacticalPanelW/2))/a.tactical.zoom
-		a.tactical.panY = wy - player.Y + (float64(my)-float64(tacticalPanelY+tacticalPanelH/2))/a.tactical.zoom
-		a.invalidateTacticalBathy()
+		mapX, mapY, mapW, mapH := tacticalMapRect()
+		a.tactical.panX = wx - player.X - (float64(mx)-float64(mapX+mapW/2))/a.tactical.zoom
+		a.tactical.panY = wy - player.Y + (float64(my)-float64(mapY+mapH/2))/a.tactical.zoom
 	}
 
 	if a.tactical.fitPending {
@@ -389,10 +405,8 @@ func (a *App) handleTacticalButton(id string) {
 	switch id {
 	case "tac_zoom_in":
 		a.tactical.zoom = math.Min(tacticalZoomMax, a.tactical.zoom*tacticalZoomStep)
-		a.invalidateTacticalBathy()
 	case "tac_zoom_out":
 		a.tactical.zoom = math.Max(tacticalZoomMin, a.tactical.zoom/tacticalZoomStep)
-		a.invalidateTacticalBathy()
 	case "tac_fit":
 		a.tacticalFitAll()
 	}
@@ -405,15 +419,17 @@ func (a *App) tacticalViewCenter() (cx, cy float64) {
 
 func (a *App) tacticalWorldToScreen(wx, wy float64) (sx, sy float64) {
 	cx, cy := a.tacticalViewCenter()
-	sx = float64(tacticalPanelX+tacticalPanelW/2) + (wx-cx)*a.tactical.zoom
-	sy = float64(tacticalPanelY+tacticalPanelH/2) - (wy-cy)*a.tactical.zoom
+	mapX, mapY, mapW, mapH := tacticalMapRect()
+	sx = float64(mapX+mapW/2) + (wx-cx)*a.tactical.zoom
+	sy = float64(mapY+mapH/2) - (wy-cy)*a.tactical.zoom
 	return
 }
 
 func (a *App) tacticalScreenToWorld(sx, sy int) (wx, wy float64) {
 	cx, cy := a.tacticalViewCenter()
-	wx = cx + (float64(sx)-float64(tacticalPanelX+tacticalPanelW/2))/a.tactical.zoom
-	wy = cy - (float64(sy)-float64(tacticalPanelY+tacticalPanelH/2))/a.tactical.zoom
+	mapX, mapY, mapW, mapH := tacticalMapRect()
+	wx = cx + (float64(sx)-float64(mapX+mapW/2))/a.tactical.zoom
+	wy = cy - (float64(sy)-float64(mapY+mapH/2))/a.tactical.zoom
 	return
 }
 
@@ -429,7 +445,8 @@ func (a *App) tacticalFitAll() {
 			maxR = r
 		}
 	}
-	usable := math.Min(float64(tacticalPanelW), float64(tacticalPanelH)) - 80
+	_, _, mapW, mapH := tacticalMapRect()
+	usable := math.Min(float64(mapW), float64(mapH)) - 40
 	zoom := usable / (maxR * 2.2)
 	if zoom < tacticalZoomMin {
 		zoom = tacticalZoomMin
@@ -438,7 +455,6 @@ func (a *App) tacticalFitAll() {
 		zoom = tacticalZoomMax
 	}
 	a.tactical.zoom = zoom
-	a.invalidateTacticalBathy()
 }
 
 // contactPlotRaw returns the instantaneous polar estimate (no display averaging).
@@ -599,7 +615,8 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 
 	mapX, mapY, mapW, mapH := tacticalMapRect()
 	render.DrawMonitor(screen, mapX, mapY, mapW, mapH)
-	a.drawTacticalMap(screen, mapX, mapY, mapW, mapH, tacticalMapOpts{
+	clip := screen.SubImage(image.Rect(mapX, mapY, mapX+mapW, mapY+mapH)).(*ebiten.Image)
+	a.drawTacticalMap(clip, mapX, mapY, mapW, mapH, tacticalMapOpts{
 		showSelection: true,
 		showChrome:    true,
 		debugOverlay:  a.Settings.Debug,
@@ -621,24 +638,23 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int, 
 
 	var view tacticalMapView
 	if opts.minimap {
-		view = tacticalMapView{mapX, mapY, mapW, mapH, player.X, player.Y, a.tactical.zoom}
+		view = quantizeTacticalMapCenter(tacticalMapView{mapX, mapY, mapW, mapH, player.X, player.Y, a.tactical.zoom})
 	} else {
 		cx, cy := a.tacticalViewCenter()
 		view = tacticalMapView{mapX, mapY, mapW, mapH, cx, cy, a.tactical.zoom}
 	}
 
-	render.FillRect(screen, mapX, mapY, mapW, mapH, color.RGBA{4, 18, 28, 255})
+	render.FillPlotBackground(screen, mapX, mapY, mapW, mapH)
 	a.drawTacticalBathymetry(screen, view, bathy, opts.minimap)
-	a.drawTacticalCoastline(screen, view, bathy)
 
 	px, py := view.worldToScreen(player.X, player.Y)
-	ringLabelClr := color.RGBA{0, 150, 120, 210}
+	ringLabelClr := color.RGBA{120, 175, 158, 220}
 	for _, rYd := range []float64{2000, 4000, 8000, 12000} {
 		rad := rYd * view.zoom
 		if rad < 12 || rad > float64(mapW) {
 			continue
 		}
-		drawCircle(screen, px, py, rad, color.RGBA{0, 70, 55, 160})
+		drawCircle(screen, px, py, rad, color.RGBA{100, 155, 140, 175})
 		if !opts.minimap {
 			drawMapRangeRingLabel(screen, px, py, rad, rYd, ringLabelClr)
 		}
@@ -729,10 +745,14 @@ func (a *App) drawTacticalMap(screen *ebiten.Image, mapX, mapY, mapW, mapH int, 
 		kyd := 2000.0
 		bar := kyd * view.zoom
 		bx := mapX + 16
-		by := mapY + mapH - 34
-		render.DrawLine(screen, float64(bx), float64(by), float64(bx)+bar, float64(by), render.ColorPhosphor)
-		render.DrawText(screen, "2 KYD", bx, by-4, render.ColorPhosphorDim, true)
-		a.drawTacticalNavCoords(screen, bx, by+14, mapX, mapY, mapW, mapH, player)
+		coordsY := mapY + mapH - 14
+		const navPad = 5
+		plateTop := coordsY - render.SmallLabelHeight() - navPad + 2
+		scaleY := plateTop - 12
+		scaleClr := color.RGBA{255, 255, 255, 255}
+		render.DrawLine(screen, float64(bx), float64(scaleY), float64(bx)+bar, float64(scaleY), scaleClr)
+		render.DrawText(screen, "2 KYD", bx, scaleY-4, scaleClr, true)
+		a.drawTacticalNavCoords(screen, bx, coordsY, mapX, mapY, mapW, mapH, player)
 	}
 }
 
@@ -786,7 +806,31 @@ func (a *App) drawTacticalNavCoords(screen *ebiten.Image, x, y, mapX, mapY, mapW
 		wx, wy := a.tacticalScreenToWorld(mx, my)
 		clat, clon := world.WorldToLatLon(wx, wy)
 		line += " | " + world.FormatNavLatLon(clat, clon)
+		depthFt := 0.0
+		if a.Engine != nil && a.Engine.Scenario != nil && a.Engine.Scenario.Bathy != nil {
+			depthFt = a.Engine.Scenario.Bathy.DepthAtFt(wx, wy)
+		}
+		if depthFt <= 0 {
+			line += " | " + a.L(i18n.UILand)
+		} else {
+			line += fmt.Sprintf(" | %.0f ft", depthFt)
+		}
 	}
+	const pad = 5
+	tw := render.SmallLabelWidth(line)
+	th := render.SmallLabelHeight()
+	if tw < 1 {
+		tw = 1
+	}
+	if th < 1 {
+		th = 12
+	}
+	// DrawText uses (x,y) as baseline; plate hugs the glyph box with pad on all sides.
+	plateX := x - pad
+	plateY := y - th - pad + 2
+	plateW := tw + 2*pad
+	plateH := th + 2*pad
+	render.FillRect(screen, plateX, plateY, plateW, plateH, color.RGBA{12, 12, 14, 210})
 	render.DrawText(screen, line, x, y, render.ColorPhosphorDim, true)
 }
 
@@ -812,7 +856,7 @@ func (a *App) drawTacticalPlotMarkers(screen *ebiten.Image, view tacticalMapView
 		render.DrawLine(screen, x0, y0, x1, y1, clr)
 		render.DrawLine(screen, x1, y0, x0, y1, clr)
 		if !opts.minimap {
-			render.DrawText(screen, m.ID, int(sx)+int(halfPx)+4, int(sy)-2, clr, true)
+			render.DrawText(screen, m.DisplayLabel(a.Lang()), int(sx)+int(halfPx)+4, int(sy)-2, clr, true)
 		}
 	}
 }
@@ -841,15 +885,30 @@ func (a *App) drawTacticalBathymetry(screen *ebiten.Image, view tacticalMapView,
 	if bathy == nil || !bathy.Valid() {
 		return
 	}
-	img := a.ensureTacticalBathyImage(view, bathy, minimap)
+	img, dirty := a.ensureTacticalBathyImage(view, bathy, minimap)
 	if img == nil {
 		return
 	}
 	const step = 4
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(step, step)
-	op.GeoM.Translate(float64(view.mapX), float64(view.mapY))
-	screen.DrawImage(img, op)
+	var cached bathyViewKey
+	if minimap {
+		cached = a.tactical.minimapBathyKey
+	} else {
+		cached = a.tactical.bathyKey
+	}
+	dstW := img.Bounds().Dx() * step
+	dstH := img.Bounds().Dy() * step
+	if dstW < 1 || dstH < 1 {
+		return
+	}
+	dstX := view.mapX + int((cached.centerX-view.centerX)*view.zoom)
+	dstY := view.mapY + int((view.centerY-cached.centerY)*view.zoom)
+	// Stable key: pan/zoom must not allocate a new Metal texture per quantized center.
+	slotKey := fmt.Sprintf("bathy:%t:%d", minimap, step)
+	if dirty {
+		render.RefreshBlitSlot(slotKey, img, dstW, dstH)
+	}
+	render.DrawImageSlot(screen, slotKey, img, dstX, dstY, dstW, dstH)
 }
 
 func (a *App) invalidateTacticalBathy() {
@@ -857,9 +916,32 @@ func (a *App) invalidateTacticalBathy() {
 	a.tactical.minimapBathyKey = bathyViewKey{}
 }
 
-func (a *App) ensureTacticalBathyImage(view tacticalMapView, bathy *world.Bathymetry, minimap bool) *ebiten.Image {
+func (a *App) ensureBakedBathyRGBA(bathy *world.Bathymetry) []byte {
+	if bathy == nil || !bathy.Valid() {
+		return nil
+	}
+	if a.tactical.bakedBathy == bathy && len(a.tactical.bakedBathyRGBA) == bathy.Width*bathy.Height*4 {
+		return a.tactical.bakedBathyRGBA
+	}
+	a.tactical.bakedBathyRGBA = render.BakeBathyRGBA(bathy.Width, bathy.Height, bathy.Depths)
+	a.tactical.bakedBathy = bathy
+	return a.tactical.bakedBathyRGBA
+}
+
+func (a *App) ensureTacticalBathyImage(view tacticalMapView, bathy *world.Bathymetry, minimap bool) (*ebiten.Image, bool) {
+	// Quantize center so gentle ownship motion does not rebuild every frame.
+	const step = 4
+	q := float64(step) / view.zoom
+	if q < 25 {
+		q = 25
+	}
+	if q > 250 {
+		q = 250
+	}
 	key := bathyViewKey{
-		zoom: view.zoom, centerX: view.centerX, centerY: view.centerY,
+		zoom: view.zoom,
+		centerX: math.Round(view.centerX/q) * q,
+		centerY: math.Round(view.centerY/q) * q,
 		mapX: view.mapX, mapY: view.mapY, mapW: view.mapW, mapH: view.mapH,
 	}
 	var img **ebiten.Image
@@ -875,34 +957,38 @@ func (a *App) ensureTacticalBathyImage(view tacticalMapView, bathy *world.Bathym
 		cachedKey = &a.tactical.bathyKey
 	}
 	if *img != nil && *cachedKey == key {
-		return *img
+		return *img, false
 	}
 
-	const step = 4
 	w := (view.mapW + step - 1) / step
 	h := (view.mapH + step - 1) / step
 	if w < 1 || h < 1 {
-		return nil
+		return nil, false
 	}
 	need := w * h * 4
 	if *pix == nil || len(*pix) != need {
 		*pix = make([]byte, need)
-		if *img == nil {
-			*img = ebiten.NewImage(w, h)
-		} else if (*img).Bounds().Dx() != w {
-			*img = ebiten.NewImage(w, h)
-		}
-	} else if *img == nil || (*img).Bounds().Dx() != w {
+	}
+	if *img == nil || (*img).Bounds().Dx() != w || (*img).Bounds().Dy() != h {
+		disposeImage(img)
 		*img = ebiten.NewImage(w, h)
 	}
 
+	// Render with the quantized center so cache key matches pixels.
+	qView := view
+	qView.centerX = key.centerX
+	qView.centerY = key.centerY
+	baked := a.ensureBakedBathyRGBA(bathy)
 	buf := *pix
 	for py := 0; py < h; py++ {
-		sy := view.mapY + py*step
+		sy := qView.mapY + py*step
 		for px := 0; px < w; px++ {
-			sx := view.mapX + px*step
-			wx, wy := view.screenToWorld(sx, sy)
-			clr := bathyColor(bathy.DepthAtFt(wx, wy))
+			sx := qView.mapX + px*step
+			wx, wy := qView.screenToWorld(sx, sy)
+			clr := render.SampleBathyChart(
+				baked, bathy.Width, bathy.Height, bathy.Depths,
+				bathy.OriginX, bathy.OriginY, bathy.CellSize, wx, wy,
+			)
 			off := (py*w + px) * 4
 			buf[off] = clr.R
 			buf[off+1] = clr.G
@@ -912,7 +998,7 @@ func (a *App) ensureTacticalBathyImage(view tacticalMapView, bathy *world.Bathym
 	}
 	(*img).WritePixels(buf)
 	*cachedKey = key
-	return *img
+	return *img, true
 }
 
 func (a *App) drawTacticalCoastline(screen *ebiten.Image, view tacticalMapView, bathy *world.Bathymetry) {
@@ -928,7 +1014,7 @@ func (a *App) drawTacticalCoastline(screen *ebiten.Image, view tacticalMapView, 
 	right := float64(view.mapX + view.mapW - 1)
 	bottom := float64(view.mapY + view.mapH - 1)
 	shadow := color.RGBA{5, 10, 12, 220}
-	shore := color.RGBA{226, 232, 214, 235}
+	shore := render.BathyLandColor
 	for _, seg := range a.tactical.coastSegments {
 		x0, y0 := view.worldToScreen(seg.X0, seg.Y0)
 		x1, y1 := view.worldToScreen(seg.X1, seg.Y1)
@@ -1000,22 +1086,6 @@ func clipLineToRect(x0, y0, x1, y1, left, top, right, bottom float64) (float64, 
 		}
 	}
 }
-
-func bathyColor(depthFt float64) color.RGBA {
-	if depthFt <= 0 {
-		return color.RGBA{42, 58, 38, 255}
-	}
-	// Log scale keeps both shelf water and Catalina basin depths readable.
-	t := math.Log1p(depthFt) / math.Log1p(6000)
-	if t > 1 {
-		t = 1
-	}
-	r := uint8(3 + (1-t)*18)
-	g := uint8(22 + (1-t)*52 + t*4)
-	b := uint8(34 + t*105)
-	return color.RGBA{r, g, b, 255}
-}
-
 func buildCoastSegments(bathy *world.Bathymetry) []coastSegment {
 	if bathy == nil || !bathy.Valid() || bathy.Width < 2 || bathy.Height < 2 {
 		return nil

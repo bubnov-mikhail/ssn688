@@ -35,6 +35,7 @@ type missionJSON struct {
 	Title        LocText           `json:"title"`
 	Description  LocText           `json:"description"`
 	Cover        *assetBlobJSON    `json:"cover,omitempty"`
+	BriefMap     *assetBlobJSON    `json:"brief_map,omitempty"`
 	TheaterID    string            `json:"theater_id"`
 	Routes       []routeJSON       `json:"routes"`
 	Player       unitJSON          `json:"player"`
@@ -47,6 +48,7 @@ type missionJSON struct {
 	DebriefLead  LocText           `json:"debrief_lead,omitempty"`
 	DebriefLines []debriefLineJSON `json:"debrief_lines,omitempty"`
 	Events       []EventDef        `json:"events,omitempty"`
+	EndAfterEvent string           `json:"end_after_event,omitempty"`
 }
 
 type routeJSON struct {
@@ -79,6 +81,7 @@ type unitJSON struct {
 	Combatant      bool             `json:"combatant,omitempty"`
 	Spawn          string           `json:"spawn"`
 	Corner         string           `json:"corner,omitempty"`
+	CornerInsetYd  float64          `json:"corner_inset_yd,omitempty"`
 	MinRouteYd     float64          `json:"min_route_yd,omitempty"`
 	MaxRouteYd     float64          `json:"max_route_yd,omitempty"`
 	RouteID        string           `json:"route_id,omitempty"`
@@ -89,13 +92,17 @@ type unitJSON struct {
 	RequireVar     string           `json:"require_var,omitempty"`
 	UnlessVar      string           `json:"unless_var,omitempty"`
 	AllyIgnore     bool             `json:"ally_ignore,omitempty"`
+	ExerciseTarget bool             `json:"exercise_target,omitempty"`
 	Payload        *unitPayloadJSON `json:"payload,omitempty"`
 }
 
 type unitPayloadJSON struct {
 	Torpedoes  *int `json:"torpedoes,omitempty"`
-	ASWRockets *int `json:"asw_rockets,omitempty"`
+	Harpoons       *int `json:"harpoons,omitempty"`
+	CruiseMissiles *int `json:"cruise_missiles,omitempty"`
+	ASWRockets     *int `json:"asw_rockets,omitempty"`
 	ShipTubes  *int `json:"ship_tubes,omitempty"`
+	ExerciseTorpedoes *int `json:"exercise_torpedoes,omitempty"`
 	RBU        *int `json:"rbu,omitempty"`
 	SAM        *int `json:"sam,omitempty"`
 	CIWS       *int `json:"ciws,omitempty"`

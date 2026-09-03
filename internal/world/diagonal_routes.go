@@ -247,6 +247,120 @@ func PlaceOnRouteFraction(e *Entity, r *Route, t float64, bathy *Bathymetry) boo
 			continue
 		}
 	}
+	if bathy != nil && bathy.Valid() {
+		if placeAlongRoutePolyline(e, r, t, bathy) {
+			AssignRoute(e, r)
+			return true
+		}
+	}
+	return false
+}
+
+// placeAlongRoutePolyline marches from fraction t along the route until a navigable point.
+func placeAlongRoutePolyline(e *Entity, r *Route, t float64, bathy *Bathymetry) bool {
+	n := r.UniqueCount()
+	if n == 0 {
+		return false
+	}
+	if n == 1 {
+		wp := r.Waypoints[0]
+		return tryRouteSpawnAt(e, wp.X, wp.Y, bathy)
+	}
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	segs := make([]float64, n-1)
+	total := 0.0
+	for i := 0; i < n-1; i++ {
+		a, b := r.Waypoints[i], r.Waypoints[i+1]
+		segs[i] = math.Hypot(b.X-a.X, b.Y-a.Y)
+		total += segs[i]
+	}
+	if total < 1 {
+		return tryRouteSpawnAt(e, r.Waypoints[0].X, r.Waypoints[0].Y, bathy)
+	}
+	dist := t * total
+	acc := 0.0
+	startSeg := 0
+	startX, startY := r.Waypoints[0].X, r.Waypoints[0].Y
+	for i, sl := range segs {
+		if dist <= acc+sl || i == len(segs)-1 {
+			startSeg = i
+			local := dist - acc
+			if local < 0 {
+				local = 0
+			}
+			if sl > 0 && local > sl {
+				local = sl
+			}
+			a, b := r.Waypoints[i], r.Waypoints[i+1]
+			if sl > 0 {
+				frac := local / sl
+				startX = a.X + (b.X-a.X)*frac
+				startY = a.Y + (b.Y-a.Y)*frac
+			} else {
+				startX, startY = a.X, a.Y
+			}
+			break
+		}
+		acc += sl
+	}
+	if tryRouteSpawnAt(e, startX, startY, bathy) {
+		return true
+	}
+	step := bathy.CellSize * 0.5
+	if step < 200 {
+		step = 200
+	}
+	for seg := startSeg; seg < n-1; seg++ {
+		a, b := r.Waypoints[seg], r.Waypoints[seg+1]
+		if walkRouteSegment(e, a, b, step, bathy) {
+			return true
+		}
+	}
+	for seg := startSeg; seg >= 0; seg-- {
+		a, b := r.Waypoints[seg], r.Waypoints[seg+1]
+		if walkRouteSegment(e, b, a, step, bathy) {
+			return true
+		}
+	}
+	return false
+}
+
+func walkRouteSegment(e *Entity, from, to Waypoint, step float64, bathy *Bathymetry) bool {
+	dx, dy := to.X-from.X, to.Y-from.Y
+	length := math.Hypot(dx, dy)
+	if length < 1 {
+		return tryRouteSpawnAt(e, from.X, from.Y, bathy)
+	}
+	steps := int(length/step) + 1
+	for i := 0; i <= steps; i++ {
+		frac := float64(i) / float64(steps)
+		x := from.X + dx*frac
+		y := from.Y + dy*frac
+		if tryRouteSpawnAt(e, x, y, bathy) {
+			return true
+		}
+	}
+	return false
+}
+
+func tryRouteSpawnAt(e *Entity, x, y float64, bathy *Bathymetry) bool {
+	if e == nil || bathy == nil || !bathy.Valid() {
+		return false
+	}
+	if bathy.NavigableFor(x, y, e.Kind, e.DepthFt) {
+		e.X, e.Y = x, y
+		return true
+	}
+	sx, sy := snapNavigableClear(bathy, x, y, transitMinClearanceYd)
+	if bathy.NavigableFor(sx, sy, e.Kind, e.DepthFt) {
+		e.X, e.Y = sx, sy
+		return true
+	}
 	return false
 }
 
@@ -304,12 +418,16 @@ func distPointToSegYd(px, py float64, a, b Waypoint) float64 {
 // PlaceNearChartCorner puts e on navigable water near a chart corner.
 // corner: "SW" lower-left, "NW" upper-left, "SE" lower-right, "NE" upper-right.
 // Route distance must be in [minRouteYd, maxRouteYd]; maxRouteYd<=0 disables the upper bound.
-func PlaceNearChartCorner(e *Entity, bathy *Bathymetry, corner string, routes []*Route, minRouteYd, maxRouteYd float64) bool {
+// cornerInsetYd is yards inward from the corner (0 uses transitCornerMarginYd).
+func PlaceNearChartCorner(e *Entity, bathy *Bathymetry, corner string, routes []*Route, minRouteYd, maxRouteYd, cornerInsetYd float64) bool {
 	if e == nil || bathy == nil || !bathy.Valid() {
 		return false
 	}
 	minX, minY, maxX, maxY := bathy.BoundsYards()
 	m := transitCornerMarginYd
+	if cornerInsetYd > 0 {
+		m = cornerInsetYd
+	}
 	tx, ty := minX+m, minY+m // SW default
 	switch corner {
 	case "NW":
@@ -340,12 +458,16 @@ func PlaceNearChartCorner(e *Entity, bathy *Bathymetry, corner string, routes []
 			if maxRouteYd > 0 && dRoute > maxRouteYd {
 				continue
 			}
-			// Prefer SW corner, then closer to the band mid (~half of max clear).
+			// Prefer the inset corner target, then closer to the band mid (~half of max clear).
 			targetBand := minRouteYd
 			if maxRouteYd > minRouteYd {
 				targetBand = (minRouteYd + maxRouteYd) * 0.5
 			}
-			prox := math.Hypot(x-tx, y-ty) + math.Abs(dRoute-targetBand)*0.35
+			prox := math.Hypot(x-tx, y-ty)
+			// No clearance routes → MinDistToRoutesYd is +Inf; do not poison the score.
+			if dRoute < 1e12 {
+				prox += math.Abs(dRoute-targetBand) * 0.35
+			}
 			if prox < bestScore {
 				bestScore = prox
 				bestX, bestY = x, y
@@ -356,7 +478,10 @@ func PlaceNearChartCorner(e *Entity, bathy *Bathymetry, corner string, routes []
 		return false
 	}
 	e.X, e.Y = bestX, bestY
-	e.HeadingDeg = 45
-	e.OrderedHead = e.HeadingDeg
+	// Keep scenario heading if already set; otherwise face into the chart.
+	if e.HeadingDeg == 0 && e.OrderedHead == 0 {
+		e.HeadingDeg = 45
+		e.OrderedHead = e.HeadingDeg
+	}
 	return true
 }

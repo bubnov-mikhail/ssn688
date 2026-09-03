@@ -4,7 +4,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // UpdateContactsFromPeriscope refines (or creates) surface tracks from what the

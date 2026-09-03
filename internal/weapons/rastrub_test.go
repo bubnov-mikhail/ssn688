@@ -3,8 +3,27 @@ package weapons
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
+
+func TestExerciseTargetCannotLaunchRastrub(t *testing.T) {
+	fc := NewFireControl()
+	ship := &world.Entity{
+		ID: "ex_hulk_a", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "exercise_hulk", ExerciseTarget: true,
+		X: 0, Y: 0,
+	}
+	tgt := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 5000, DepthFt: 200,
+	}
+	if fc.LaunchRastrub(ship, tgt, 10) != nil {
+		t.Fatal("exercise hulk must not launch Rastrub")
+	}
+	if fc.rastrubAmmo(ship) != 0 {
+		t.Fatalf("rastrub ammo=%d", fc.rastrubAmmo(ship))
+	}
+}
 
 func TestLaunchRastrubSpawnsUMGT1AfterFlight(t *testing.T) {
 	fc := NewFireControl()

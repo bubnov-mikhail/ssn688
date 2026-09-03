@@ -5,11 +5,12 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/ai"
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/ai"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const TickRate = 10.0
@@ -60,6 +61,7 @@ func NewEngine(scenario *world.Scenario) *Engine {
 		CM:          weapons.NewCountermeasureSystem(),
 	}
 	if scenario != nil {
+		e.Acoustics.Bathy = scenario.Bathy
 		e.COMM.SeedBriefing(scenario.CommBriefing)
 		if scenario.Player != nil {
 			e.CM.EnsureMagazine(scenario.Player.ID)
@@ -164,16 +166,19 @@ func (e *Engine) tick(dt float64) {
 	t := e.Clock.GameTime
 	player := e.Scenario.Player
 
+	prevX, prevY := player.X, player.Y
 	player.Advance(dt)
+	world.RevertMoveIfBlocked(player, prevX, prevY, e.Scenario.Bathy)
 	player.Damage.AdvanceRepair(dt)
 	e.syncDamageSideEffects(player)
 	for _, ent := range e.Scenario.Entities {
 		if ent.InWater() {
+			px, py := ent.X, ent.Y
 			ent.Advance(dt)
+			world.RevertMoveIfBlocked(ent, px, py, e.Scenario.Bathy)
 		}
 	}
 	e.expireTransientNoise(t)
-	e.clampToSeafloor()
 	e.processCookOffs(t)
 	e.finalizeSunkWrecks(t)
 	e.checkCatastrophicDamage(t)
@@ -189,7 +194,7 @@ func (e *Engine) tick(dt float64) {
 		if evs, sheared := e.ESM.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
 			e.Events = append(e.Events, evs...)
 		}
-		acoustics.UpdateESM(&e.Sonar, &e.ESM, player, e.Scenario.Entities, e.Scenario.Weather, t, dt)
+		acoustics.UpdateESM(&e.Sonar, &e.ESM, player, e.Scenario.Entities, e.Scenario.Weather, t, dt, e.Scenario.Bathy)
 		if evs, sheared := e.COMM.AdvanceMastMotion(dt, t, player); sheared || len(evs) > 0 {
 			e.Events = append(e.Events, evs...)
 		}
@@ -209,6 +214,7 @@ func (e *Engine) tick(dt float64) {
 		Torps:    e.FireControl.ActiveTorpedoes,
 		Harpoons: e.FireControl.ActiveHarpoons,
 		Model:    e.Acoustics,
+		Bathy:    e.Scenario.Bathy,
 		Weather:  e.Scenario.Weather,
 		ESM:      &e.ESM,
 		COMM:     &e.COMM,
@@ -220,9 +226,12 @@ func (e *Engine) tick(dt float64) {
 	ai.UpdateAllAI(e.Scenario.Entities, player, t, dt, e.Acoustics, e.FireControl.ActiveTorpedoes, &e.CM, e.Scenario.Weather, &e.ESM, &e.COMM, &e.Periscope, e.Scenario.Bathy, e.Scenario.Routes)
 	e.guideAIWireTorpedoes(player, t)
 	e.tryEnemyTorpedoShots(player, t)
+	e.tryEnemyASCMShots(player, t)
 	e.tryEnemySurfaceWeapons(player, t)
 	e.tryFriendlyTorpedoShots(player, t)
+	e.tryFriendlyHarpoonShots(player, t)
 	e.tryFriendlySurfaceWeapons(player, t)
+	e.clampToSeafloor()
 
 	e.FireControl.UpdateTubes(t)
 	e.CM.Advance(dt, t, e.AllEntities())
@@ -277,6 +286,7 @@ func (e *Engine) tick(dt float64) {
 	e.FireControl.ActiveTorpedoes = alive
 
 	e.syncIdentifications(t)
+	e.syncObjectiveProgress()
 	e.Scenario.CheckObjectives()
 	e.dispatchMissionEvents(t)
 	e.Acoustics.Env.UpdateLayerSurvey(t)
@@ -305,7 +315,7 @@ func (e *Engine) syncIdentifications(gameTime float64) {
 	for i := range e.Sonar.Contacts {
 		c := &e.Sonar.Contacts[i]
 		if c.Identified && c.SourceEntityID != "" {
-			e.Scenario.NoteIdentified(c.SourceEntityID)
+			e.Scenario.NoteIdentified(c.SourceEntityID, gameTime)
 		}
 	}
 }
@@ -943,9 +953,6 @@ func (e *Engine) SeekerTargets() []*world.Entity {
 }
 
 func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
-	if player == nil || !player.Alive() {
-		return
-	}
 	for _, ent := range e.Scenario.Entities {
 		if ent == nil || !ent.Alive() || ent.Side != world.SideEnemy || ent.Kind != world.KindSubmarine {
 			continue
@@ -954,6 +961,10 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 			continue
 		}
 		if ent.AIState != "FIRING" && ent.AIState != "ATTACK" {
+			continue
+		}
+		quarry := e.enemyQuarry(ent, player)
+		if quarry == nil || !quarry.Alive() {
 			continue
 		}
 		ent.EnsureDamage()
@@ -968,18 +979,22 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 		if !canTube {
 			continue
 		}
-		rangeYd := ent.RangeYardsTo(player)
+		rangeYd := ent.RangeYardsTo(quarry)
 		if ent.Track.Valid {
 			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
 		}
 		// Prefer standoff shots — no point-blank / collision-range launches.
-		if rangeYd > 3400 || rangeYd < 1400 {
+		minFire, maxFire, shotGap := 1400.0, 3400.0, 70.0
+		if ent.Side == world.SideEnemy {
+			minFire, maxFire, shotGap = 1200.0, 4000.0, 42.0
+		}
+		if rangeYd > maxFire || rangeYd < minFire {
 			continue
 		}
 		if !ai.TrackClassified(ent) {
 			continue
 		}
-		aim := ai.TrackAimEntity(ent, player)
+		aim := ai.TrackAimEntity(ent, quarry)
 		if e.FireControl.EnemyTubeOpenAt != nil {
 			if openAt, ok := e.FireControl.EnemyTubeOpenAt[ent.ID]; ok {
 				if gameTime-openAt < enemyTubeOpenLeadSec {
@@ -995,10 +1010,14 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 			}
 		}
 		// Longer pause between salvos so the fish can open / re-flank.
-		if e.FireControl.HasRecentShotFrom(ent.ID, 70) {
+		if e.FireControl.HasRecentShotFrom(ent.ID, shotGap) {
 			continue
 		}
-		if ent.AIState == "ATTACK" && int(gameTime*10)%110 != 0 {
+		attackCadence := 110
+		if ent.Side == world.SideEnemy {
+			attackCadence = 55
+		}
+		if ent.AIState == "ATTACK" && int(gameTime*10)%attackCadence != 0 {
 			continue
 		}
 		if e.FireControl.EnemyTubeOpenAt == nil {
@@ -1010,11 +1029,99 @@ func (e *Engine) tryEnemyTorpedoShots(player *world.Entity, gameTime float64) {
 	}
 }
 
+func (e *Engine) tryEnemyASCMShots(player *world.Entity, gameTime float64) {
+	const ascmMinYd = 5000.0
+	for _, ent := range e.Scenario.Entities {
+		if ent == nil || !ent.Alive() || ent.Side != world.SideEnemy || ent.Kind != world.KindSubmarine {
+			continue
+		}
+		if weapons.EnemyASCMMagazineFor(ent.SignatureID) == 0 && e.FireControl.EnemyASCMLeft(ent.ID) <= 0 {
+			continue
+		}
+		if !ent.CanDefconAttack() {
+			continue
+		}
+		stateOK := ent.AIState == "ATTACK" || ent.AIState == "FIRING" || ent.AIState == "SHADOW"
+		if !stateOK && !ent.AIProsecuting {
+			continue
+		}
+		if !ai.TrackClassified(ent) {
+			continue
+		}
+		quarry := e.enemyASCMQuarry(ent, player)
+		if quarry == nil {
+			continue
+		}
+		rangeYd := ent.RangeYardsTo(quarry)
+		maxYd := weapons.KlubMaxRangeNm * world.YardsPerNM
+		if ent.SignatureID == "yasen_m" {
+			maxYd = weapons.KalibrMaxRangeNm * world.YardsPerNM
+		}
+		if rangeYd < ascmMinYd || rangeYd > maxYd {
+			continue
+		}
+		maxDepth := weapons.EnemyASCMMaxLaunchDepthFt(ent.SignatureID)
+		if maxDepth > 0 && ent.DepthFt > maxDepth {
+			// Shadow AI orders deep each tick; use actual depth for tube/VLS envelope.
+			ent.OrderedDepth = maxDepth * 0.45
+			continue
+		}
+		recent := false
+		for _, h := range e.FireControl.ActiveHarpoons {
+			if h == nil || !h.Alive || h.ParentSubID != ent.ID || h.Age < 90 {
+				continue
+			}
+			if h.Variant != weapons.ASCMHarpoon {
+				recent = true
+				break
+			}
+		}
+		if recent {
+			continue
+		}
+		if int(gameTime*10)%40 != 0 {
+			continue
+		}
+		aim := ai.TrackAimEntity(ent, quarry)
+		if h := e.FireControl.SpawnEnemyASCM(ent, aim); h != nil {
+			e.EmitHarpoonLaunch(ent, gameTime)
+			e.Events = append(e.Events, "Cruise missile launch detected (hostile)")
+			ent.AIState = "SHADOW"
+		}
+	}
+}
+
+// enemyASCMQuarry picks the nearest friendly surface ship for cruise-missile release.
+// Sub hunters prosecute the player boat; ASCM still needs a surface quarry in envelope.
+func (e *Engine) enemyASCMQuarry(hunter, player *world.Entity) *world.Entity {
+	if hunter == nil || e.Scenario == nil {
+		return nil
+	}
+	var best *world.Entity
+	bestYd := 1e12
+	for _, ent := range enemyQuarryPool(e.Scenario.Entities, player) {
+		if ent == nil || !ent.Alive() || ent.Kind != world.KindSurfaceShip || ent.DepthFt > 5 {
+			continue
+		}
+		yd := hunter.RangeYardsTo(ent)
+		if yd < bestYd {
+			bestYd = yd
+			best = ent
+		}
+	}
+	return best
+}
+
+func (e *Engine) enemySurfaceQuarry(hunter, player *world.Entity) *world.Entity {
+	q := e.enemyQuarry(hunter, player)
+	if q == nil || !q.Alive() || q.Kind != world.KindSurfaceShip || q.DepthFt > 5 {
+		return nil
+	}
+	return q
+}
+
 // tryEnemySurfaceWeapons employs class loadouts: Rastrub/tubes or Grisha RBU/tubes.
 func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) {
-	if player == nil || !player.Alive() {
-		return
-	}
 	for _, ent := range e.Scenario.Entities {
 		if ent == nil || !ent.Alive() || ent.Side != world.SideEnemy || ent.Kind != world.KindSurfaceShip {
 			continue
@@ -1028,31 +1135,61 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 		default:
 			continue
 		}
+		quarry := e.enemyQuarry(ent, player)
+		if quarry == nil || !quarry.Alive() {
+			continue
+		}
 		ent.EnsureDamage()
 		if !e.FireControl.CanEmploySurfaceASW(ent) {
 			continue
 		}
-		if e.FireControl.HasRecentSurfaceASW(ent.ID, 48) {
+		aswGap := 48.0
+		if ent.CrewSkill >= 85 {
+			aswGap = 28
+		}
+		if e.FireControl.HasRecentSurfaceASW(ent.ID, aswGap) {
 			continue
 		}
-		rangeYd := ent.RangeYardsTo(player)
+		rangeYd := ent.RangeYardsTo(quarry)
 		if ent.Track.Valid {
 			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
 		}
 		if ent.AIState != "RADAR_TRACK" && !ai.TrackWeaponRelease(ent) {
 			continue
 		}
-		aim := ai.TrackAimEntity(ent, player)
-		targetDepth := player.DepthFt
+		aim := ai.TrackAimEntity(ent, quarry)
+		targetDepth := quarry.DepthFt
 		if aim != nil && aim.DepthFt > 0 {
 			targetDepth = aim.DepthFt
+		}
+
+		// Exercise hulks: signal fish only — never Rastrub/RBU/warshot tubes.
+		if world.IsExerciseTarget(ent) {
+			if e.FireControl.ExerciseTubeAmmo(ent) <= 0 {
+				continue
+			}
+			if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
+				tick := 55
+				if int(gameTime*10)%tick != 0 {
+					continue
+				}
+				if e.FireControl.LaunchExerciseShipTube(ent, aim) != nil {
+					e.Events = append(e.Events, "Exercise torpedo in water")
+					e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "EX>", gameTime)
+				}
+			}
+			continue
 		}
 
 		// Grisha: shallow subs in the rocket envelope get RBU before tubes (overlap 700–2200 yd).
 		if weapons.SurfaceHasRBU(ent.SignatureID) &&
 			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd &&
 			weapons.PreferRBUOverShipTubes(ent, ent.AIState, targetDepth) {
-			if int(gameTime*10)%44 != 0 {
+			tick := 44
+			if ent.CrewSkill >= 85 {
+				tick = 26
+			}
+			if int(gameTime*10)%tick != 0 {
 				continue
 			}
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
@@ -1065,7 +1202,11 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 
 		// Close band: ship torpedo tubes.
 		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
-			if int(gameTime*10)%38 != 0 {
+			tick := 38
+			if ent.CrewSkill >= 85 {
+				tick = 22
+			}
+			if int(gameTime*10)%tick != 0 {
 				continue
 			}
 			if e.FireControl.LaunchShipTube(ent, aim) != nil {
@@ -1078,7 +1219,11 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 		// Grisha: RBU fallback below tube minimum or when target is too deep for tube preference.
 		if weapons.SurfaceHasRBU(ent.SignatureID) &&
 			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd {
-			if int(gameTime*10)%44 != 0 {
+			tick := 44
+			if ent.CrewSkill >= 85 {
+				tick = 26
+			}
+			if int(gameTime*10)%tick != 0 {
 				continue
 			}
 			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
@@ -1092,7 +1237,11 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 		// Standoff: Rastrub rocket → splash lightweight ASW fish.
 		if weapons.SurfaceHasRastrub(ent.SignatureID) &&
 			rangeYd >= weapons.RastrubMinRangeYd && rangeYd <= weapons.RastrubMaxRangeYd {
-			if int(gameTime*10)%52 != 0 {
+			tick := 52
+			if ent.CrewSkill >= 85 {
+				tick = 30
+			}
+			if int(gameTime*10)%tick != 0 {
 				continue
 			}
 			if e.FireControl.LaunchRastrub(ent, aim, gameTime) != nil {
@@ -1171,6 +1320,67 @@ func (e *Engine) tryFriendlyTorpedoShots(player *world.Entity, gameTime float64)
 		e.FireControl.EnemyTubeOpenAt[ent.ID] = gameTime
 		e.EmitTubeTransient(ent, gameTime, true)
 		ent.AIState = "FIRING"
+	}
+}
+
+func (e *Engine) tryFriendlyHarpoonShots(player *world.Entity, gameTime float64) {
+	if player == nil {
+		return
+	}
+	const (
+		harpoonMinYd = 4000.0
+		harpoonMaxYd = 65000.0
+	)
+	for _, ent := range e.Scenario.Entities {
+		if !world.IsAllyAI(ent, player) || ent.Kind != world.KindSubmarine || !ent.Alive() {
+			continue
+		}
+		if weapons.AllyHarpoonMagazineFor(ent.SignatureID) == 0 && e.FireControl.AllyHarpoonLeft(ent.ID) <= 0 {
+			continue
+		}
+		if !ent.CanDefconAttack() || !ent.AIProsecuting {
+			continue
+		}
+		quarry := e.friendlyQuarry(ent)
+		if quarry == nil || quarry.Kind != world.KindSurfaceShip {
+			continue
+		}
+		depth := ent.DepthFt
+		if ent.OrderedDepth > 0 {
+			depth = ent.OrderedDepth
+		}
+		if depth > 90 {
+			continue
+		}
+		rangeYd := ent.RangeYardsTo(quarry)
+		if ent.Track.Valid {
+			rangeYd = ent.Track.RangeYdFrom(ent.X, ent.Y)
+		}
+		if rangeYd < harpoonMinYd || rangeYd > harpoonMaxYd {
+			continue
+		}
+		if !ai.TrackClassified(ent) {
+			continue
+		}
+		recent := false
+		for _, h := range e.FireControl.ActiveHarpoons {
+			if h != nil && h.Alive && h.ParentSubID == ent.ID && h.Age < 120 {
+				recent = true
+				break
+			}
+		}
+		if recent {
+			continue
+		}
+		if int(gameTime*10)%70 != 0 {
+			continue
+		}
+		aim := ai.TrackAimEntity(ent, quarry)
+		if h := e.FireControl.SpawnAIHarpoon(ent, aim); h != nil {
+			e.EmitHarpoonLaunch(ent, gameTime)
+			e.Events = append(e.Events, "Harpoon launch detected (friendly)")
+			ent.AIState = "SHADOW"
+		}
 	}
 }
 
@@ -1253,6 +1463,48 @@ func (e *Engine) tryFriendlySurfaceWeapons(player *world.Entity, gameTime float6
 	}
 }
 
+// enemyQuarry returns the friendly target the hostile is prosecuting for weapon release.
+func (e *Engine) enemyQuarry(hunter *world.Entity, player *world.Entity) *world.Entity {
+	if hunter == nil || e.Scenario == nil {
+		return nil
+	}
+	if player == nil {
+		player = e.Scenario.Player
+	}
+	if hunter.Track.Valid {
+		var best *world.Entity
+		bestD := 1e9
+		for _, ent := range enemyQuarryPool(e.Scenario.Entities, player) {
+			d := math.Hypot(ent.X-hunter.Track.X, ent.Y-hunter.Track.Y)
+			if d < bestD {
+				bestD = d
+				best = ent
+			}
+		}
+		if best != nil && bestD < 4000 {
+			return best
+		}
+	}
+	return ai.SelectEnemyQuarry(hunter, e.Scenario.Entities, player, e.Acoustics, e.Clock.GameTime)
+}
+
+func enemyQuarryPool(entities []*world.Entity, player *world.Entity) []*world.Entity {
+	out := make([]*world.Entity, 0, len(entities)+1)
+	if player != nil && player.Alive() && world.IsEnemyQuarryTarget(player, player) {
+		out = append(out, player)
+	}
+	for _, ent := range entities {
+		if ent == nil || !ent.Alive() || !world.IsEnemyQuarryTarget(ent, player) {
+			continue
+		}
+		if player != nil && ent.ID == player.ID {
+			continue
+		}
+		out = append(out, ent)
+	}
+	return out
+}
+
 // friendlyQuarry returns the best live hostile near the ally track, or nil.
 func (e *Engine) friendlyQuarry(hunter *world.Entity) *world.Entity {
 	if hunter == nil || e.Scenario == nil {
@@ -1332,11 +1584,17 @@ func (e *Engine) EnemyEmitters() []*world.Entity {
 
 // AddPlotMarker places a chart annotation at world yards (east, north).
 func (e *Engine) AddPlotMarker(x, y float64) world.PlotMarker {
-	e.plotMarkerSeq++
+	return e.AddPlotMarkerAt("", x, y, nil)
+}
+
+// AddPlotMarkerAt places a chart annotation with an optional stable ID and label.
+func (e *Engine) AddPlotMarkerAt(id string, x, y float64, label i18n.TranslatedText) world.PlotMarker {
+	if id == "" {
+		e.plotMarkerSeq++
+		id = fmt.Sprintf("MARK-%d", e.plotMarkerSeq)
+	}
 	m := world.PlotMarker{
-		ID: fmt.Sprintf("MARK-%d", e.plotMarkerSeq),
-		X:  x,
-		Y:  y,
+		ID: id, X: x, Y: y, Label: label,
 	}
 	e.PlotMarkers = append(e.PlotMarkers, m)
 	return m

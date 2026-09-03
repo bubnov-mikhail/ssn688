@@ -1,4 +1,4 @@
-module github.com/ssn688/sim
+module github.com/bubnov-mikhail/ssn688
 
 go 1.25.0
 

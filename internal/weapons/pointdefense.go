@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // Udaloy/Krivak point defense vs inbound anti-ship missiles (Kinzhal/Osa-M + AK-630).

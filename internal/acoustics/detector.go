@@ -3,7 +3,7 @@ package acoustics
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // DetectionMode is passive listening or active echo-ranging.
@@ -28,7 +28,8 @@ type DetectionResult struct {
 
 // Model performs unified acoustic detection for any platform.
 type Model struct {
-	Env Environment
+	Env   Environment
+	Bathy *world.Bathymetry // mission chart — land blocks propagation when set
 }
 
 func NewModel(env Environment) Model {
@@ -57,9 +58,9 @@ func (m Model) detect(listener, target *world.Entity, mode DetectionMode, active
 	switch mode {
 	case ModePassive:
 		src := SourceSpectrum(target)
-		received = Propagate(m.Env, src, target, listener)
+		received = Propagate(m.Env, src, target, listener, m.Bathy)
 	case ModeActive:
-		received = PropagateActive(m.Env, listener, target, PingSourceLevel(activePower))
+		received = PropagateActive(m.Env, listener, target, PingSourceLevel(activePower), m.Bathy)
 		// Beam aspect: strong return abeam, weaker bow/stern — never a hard cutoff.
 		aspect := math.Abs(AngleDiffDeg(target.BearingDegTo(listener), target.HeadingDeg))
 		rcsGain := 0.0

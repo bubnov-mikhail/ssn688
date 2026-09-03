@@ -7,7 +7,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/ssn688/sim/assets"
+	"github.com/bubnov-mikhail/ssn688/assets"
 )
 
 const (

@@ -58,3 +58,23 @@ func TestRoutePingPongAdvance(t *testing.T) {
 		t.Fatalf("end reverse got %d/%d want 1/-1", idx, dir)
 	}
 }
+
+func TestResumeWaypointForwardDoesNotBacktrack(t *testing.T) {
+	r := &Route{
+		ID: "open",
+		Waypoints: []Waypoint{
+			{X: 0, Y: 0},
+			{X: 2000, Y: 0},
+			{X: 4000, Y: 0},
+			{X: 6500, Y: -500},
+		},
+	}
+	idx, dir := r.ResumeWaypointForward(3000, 50, 2)
+	if idx != 2 || dir != 1 {
+		t.Fatalf("forward resume idx=%d dir=%d want 2/1", idx, dir)
+	}
+	idx, dir = r.ResumeWaypointForward(3990, 5, 2)
+	if idx != 3 || dir != 1 {
+		t.Fatalf("visited wp2 idx=%d dir=%d want 3/1", idx, dir)
+	}
+}

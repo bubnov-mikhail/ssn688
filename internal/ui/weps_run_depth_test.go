@@ -3,8 +3,8 @@ package ui
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 func TestWepsSuggestedRunDepthSurfaceFromConfirmedID(t *testing.T) {

@@ -7,11 +7,11 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/layout"
-	"github.com/ssn688/sim/internal/render"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/render"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -102,22 +102,10 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 			continue
 		}
 		clr := render.ColorDebugAttack
-		label := "TORP"
-		if t.Class == weapons.ClassUMGT1 {
-			switch t.AcousticSig {
-			case "set40":
-				label = "SET40"
-			case "mk46":
-				label = "MK46"
-			default:
-				label = "LW"
-			}
-		}
+		label := weapons.TorpedoDebugLabel(t)
 		if t.Side == world.SidePlayer {
 			clr = render.ColorActive
-			label = "MK48"
 			if t.WireCut {
-				label = "MK48 AUTO"
 				clr = color.RGBA{0, 180, 200, 255}
 			}
 		}
@@ -132,15 +120,12 @@ func (a *App) drawTacticalDebugOverlay(screen *ebiten.Image, view tacticalMapVie
 		if h.Side != world.SidePlayer {
 			clr = render.ColorDebugAttack
 		}
-		label := "HSM"
+		label := weapons.ASCMDebugLabel(h.Variant, h.Phase, h.LockedTargetID != "", h.RadarOn)
 		switch {
-		case h.Phase == weapons.HarpoonUnderwater:
-			label = "HSM UW"
+		case h.Phase == weapons.HarpoonUnderwater && h.Side == world.SidePlayer:
 			clr = color.RGBA{200, 110, 40, 220}
-		case h.LockedTargetID != "":
-			label = "HSM LCK"
-		case h.RadarOn:
-			label = "HSM RDR"
+		case h.Variant == weapons.ASCMOniks && h.Phase == weapons.HarpoonCruise:
+			clr = color.RGBA{255, 60, 60, 255}
 		}
 		a.drawDebugEntityAt(screen, view, h.X, h.Y, h.HeadingDeg, h.SpeedKts, clr, true, label)
 	}

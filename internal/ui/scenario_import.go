@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 )
 
 // pickScenarioJSON opens a native file picker for a scenario JSON file.
@@ -43,6 +43,7 @@ func (a *App) importScenarioFromOS() {
 		return
 	}
 	a.Statusf(i18n.StatusImported, sc.Title.GetText(a.Lang()), sc.Version.String())
+	a.beginScenarioUI()
 	a.Mode = ModeScenarioList
 	a.ScenarioListIndex = 0
 	for i, d := range a.scenarioDefs() {

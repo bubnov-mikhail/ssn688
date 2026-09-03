@@ -3,9 +3,9 @@ package ai
 import (
 	"math"
 
-	"github.com/ssn688/sim/internal/acoustics"
-	"github.com/ssn688/sim/internal/weapons"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
+	"github.com/bubnov-mikhail/ssn688/internal/weapons"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 const (
@@ -25,6 +25,7 @@ type DefconContext struct {
 	Torps    []*weapons.Torpedo
 	Harpoons []*weapons.HarpoonMissile
 	Model    acoustics.Model
+	Bathy    *world.Bathymetry
 	Weather  world.Weather
 	ESM      *acoustics.ESMState
 	COMM     *acoustics.COMMState
@@ -52,7 +53,7 @@ func UpdateDefcon(ctx DefconContext) {
 		if heardPlayerActiveSonar(ctx.Model.Env, ent, ctx.Player, ctx.GameTime) {
 			ent.RaiseDefcon(world.DefconHostile)
 		}
-		if acoustics.EnemyRadarDetectsMast(ent, ctx.Player, ctx.Weather, ctx.ESM, ctx.COMM, ctx.Peri, ctx.GameTime) {
+		if acoustics.EnemyRadarDetectsMast(ent, ctx.Player, ctx.Weather, ctx.ESM, ctx.COMM, ctx.Peri, ctx.GameTime, ctx.Bathy) {
 			ent.RaiseDefcon(world.DefconHostile)
 		}
 	}
@@ -131,7 +132,7 @@ func checkPlayerTorpedoLaunches(ctx DefconContext) {
 		return
 	}
 	for _, t := range ctx.Torps {
-		if t == nil || !t.Alive || t.Side != player.Side {
+		if t == nil || !t.Alive || !t.EscalatesDefcon() || t.Side != player.Side {
 			continue
 		}
 		if t.Age > ctx.Dt*1.6 {

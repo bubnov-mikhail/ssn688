@@ -2,16 +2,15 @@ package render
 
 import (
 	_ "embed"
-	"image"
 	"image/color"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
-	"golang.org/x/image/math/fixed"
 )
 
 //go:embed fonts/DejaVuSans.ttf
@@ -62,6 +61,15 @@ func SmallLabelWidth(label string) int {
 		return font.MeasureString(faceSmall, label).Ceil()
 	}
 	return len(label) * 6
+}
+
+// SmallLabelHeight returns the pixel height of the small font face.
+func SmallLabelHeight() int {
+	if faceSmall == nil {
+		return 12
+	}
+	m := faceSmall.Metrics()
+	return m.Ascent.Ceil() + m.Descent.Ceil()
 }
 
 // SmallLabelBaseline returns the text baseline Y that vertically centers a
@@ -153,28 +161,9 @@ func DrawScreenTitle(screen *ebiten.Image, txt string, x, y int) {
 }
 
 func drawFace(screen *ebiten.Image, txt string, x, y int, clr color.Color, f font.Face) {
-	d := &font.Drawer{
-		Dst:  screen,
-		Src:  colorSource(clr),
-		Face: f,
-		Dot:  fixed.P(x, y),
-	}
-	d.DrawString(txt)
-}
-
-// colorSource returns a reusable CPU-side uniform image for text glyphs.
-// Never allocate ebiten.Image per draw call — that exhausts Metal drawables on macOS.
-var colorSourceCache sync.Map
-
-func colorSource(clr color.Color) image.Image {
-	r, g, b, a := clr.RGBA()
-	key := uint64(r)<<48 | uint64(g)<<32 | uint64(b)<<16 | uint64(a)
-	if v, ok := colorSourceCache.Load(key); ok {
-		return v.(image.Image)
-	}
-	src := image.NewUniform(clr)
-	colorSourceCache.Store(key, src)
-	return src
+	// ebiten/text caches glyph images and blits with DrawImage — avoids Image.At/ReadPixels
+	// on the destination (font.Drawer + DrawMask reads the screen every glyph on Metal).
+	text.Draw(screen, txt, f, x, y, clr)
 }
 
 func FillRect(screen *ebiten.Image, x, y, w, h int, clr color.Color) {

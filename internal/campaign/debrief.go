@@ -3,8 +3,8 @@ package campaign
 import (
 	"strings"
 
-	"github.com/ssn688/sim/internal/i18n"
-	"github.com/ssn688/sim/internal/world"
+	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
 
 // SnapshotObjectiveOutcomes records identify/destroy/complete for debrief text.

@@ -3,8 +3,8 @@ package sim_test
 import (
 	"testing"
 
-	"github.com/ssn688/sim/internal/campaign"
-	"github.com/ssn688/sim/internal/sim"
+	"github.com/bubnov-mikhail/ssn688/internal/campaign"
+	"github.com/bubnov-mikhail/ssn688/internal/sim"
 )
 
 func BenchmarkEngineTick(b *testing.B) {
