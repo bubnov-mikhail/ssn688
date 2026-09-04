@@ -5,8 +5,8 @@
 #   - Manual workflow_dispatch (reads VERSION, creates/updates release v<VERSION>)
 #
 # Assets (example for VERSION=1.0.0):
-#   ssn688-1.0.0-macos-arm64
-#   ssn688-1.0.0-macos-amd64
+#   ssn688-1.0.0-macos-arm64.zip   (.app with Dock icon)
+#   ssn688-1.0.0-macos-amd64.zip
 #   ssn688-1.0.0-linux-amd64
 #   ssn688-1.0.0-windows-amd64.exe
 #   ssn688-1.0.0-windows-386.exe
@@ -130,26 +130,38 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           OUT="dist/ssn688-${{ matrix.platform }}${{ matrix.ext }}"
+          # rsrc_windows_*.syso (app icon) is committed; go build picks it up.
           go build -trimpath -ldflags="-s -w" -o "$OUT" .
           ls -la "$OUT"
 
-      - name: Build (Unix)
-        if: matrix.goos != 'windows'
+      - name: Build (Linux)
+        if: matrix.goos == 'linux'
         env:
-          GOOS: ${{ matrix.goos }}
+          GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
         run: |
           set -euo pipefail
           mkdir -p dist
-          OUT="dist/ssn688-${{ matrix.platform }}${{ matrix.ext }}"
-          go build -trimpath -ldflags="-s -w" -o "$OUT" .
-          ls -la "$OUT"
+          go build -trimpath -ldflags="-s -w" -o "dist/ssn688-${{ matrix.platform }}" .
+          ls -la "dist/ssn688-${{ matrix.platform }}"
+
+      - name: Build (macOS .app zip)
+        if: matrix.goos == 'darwin'
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/build_macos_app.sh
+          (cd dist && zip -qry "ssn688-${{ matrix.platform }}.zip" SSN688.app)
+          ls -la "dist/ssn688-${{ matrix.platform }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.platform }}
-          path: dist/ssn688-${{ matrix.platform }}${{ matrix.ext }}
+          path: dist/ssn688-${{ matrix.platform }}*
           if-no-files-found: error
 
   release:

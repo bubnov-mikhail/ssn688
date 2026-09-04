@@ -5,6 +5,9 @@ import "embed"
 //go:embed menu_bg.jpg
 var MenuBG []byte
 
+//go:embed app_icon/icon.png
+var AppIconPNG []byte
+
 //go:embed library/*.jpg
 var LibraryPhotos embed.FS
 

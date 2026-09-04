@@ -13,6 +13,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	ebitenaudio "github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/bubnov-mikhail/ssn688/internal/appicon"
 	"github.com/bubnov-mikhail/ssn688/internal/audio"
 	"github.com/bubnov-mikhail/ssn688/internal/config"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
@@ -104,6 +105,7 @@ func main() {
 	ebiten.SetVsyncEnabled(true)
 	ebiten.SetScreenClearedEveryFrame(true)
 	ebiten.SetScreenFilterEnabled(false)
+	appicon.ApplyWindowIcon()
 
 	g := &Game{app: app}
 	player := audioMgr.Stream()
