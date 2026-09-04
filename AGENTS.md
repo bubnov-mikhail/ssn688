@@ -54,12 +54,13 @@ macOS `.app`: `./scripts/build_macos_app.sh` → `open dist/SSN688.app`.
 
 ```
 main.go                 — Ebiten Game, audio context
-assets/                 — embed: menu_bg, bathy.bin
+assets/                 — embed: menu_bg, app_icon/icon.png, peri_ships, library
 scenarios/              — bundled JSON сценарии (*.json), embed через scenarios/embed.go
 internal/
   sim/                  — игровой тик, связка world/AI/weapons/sonar
   world/                — Entity, Kind, батиметрия, signature library, runtime Scenario
   campaign/             — JSON-сценарии, театры, миссии, loadout, debrief, import
+  appicon/              — SetWindowIcon из assets/app_icon/icon.png (Win/Linux taskbar)
   version/              — embed VERSION для semver игры и ScenarioFormatMajor
   acoustics/            — Detect, SNR, waterfall, listen bands, TMA, contacts
   weapons/              — Mk48/Type53, seeker, CM (decoy/jitter/Nixie)
