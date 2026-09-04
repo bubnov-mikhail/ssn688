@@ -1,0 +1,192 @@
+# Build desktop binaries and publish a GitHub Release.
+#
+# Triggers:
+#   - Push tag v* (e.g. git tag v1.0.0 && git push origin v1.0.0)
+#   - Manual workflow_dispatch (reads VERSION, creates/updates release v<VERSION>)
+#
+# Assets (example for VERSION=1.0.0):
+#   ssn688-1.0.0-macos-arm64
+#   ssn688-1.0.0-macos-amd64
+#   ssn688-1.0.0-linux-amd64
+#   ssn688-1.0.0-windows-amd64.exe
+#   ssn688-1.0.0-windows-386.exe
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-].+)?$ ]]; then
+            echo "Invalid VERSION: '$V'" >&2
+            exit 1
+          fi
+          TAG="v${V}"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            REF_TAG="${GITHUB_REF_NAME}"
+            if [[ "$REF_TAG" != "$TAG" ]]; then
+              echo "Git tag '$REF_TAG' does not match VERSION file '$TAG'" >&2
+              exit 1
+            fi
+          fi
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Release ${TAG}"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: macos-14
+            goos: darwin
+            goarch: arm64
+            platform: macos-arm64
+            ext: ""
+          - runs-on: macos-13
+            goos: darwin
+            goarch: amd64
+            platform: macos-amd64
+            ext: ""
+          - runs-on: ubuntu-22.04
+            goos: linux
+            goarch: amd64
+            platform: linux-amd64
+            ext: ""
+          - runs-on: windows-latest
+            goos: windows
+            goarch: amd64
+            platform: windows-amd64
+            ext: ".exe"
+            msystem: MINGW64
+            mingw_pkg: mingw-w64-x86_64-gcc
+          - runs-on: windows-latest
+            goos: windows
+            goarch: "386"
+            platform: windows-386
+            ext: ".exe"
+            msystem: MINGW32
+            mingw_pkg: mingw-w64-i686-gcc
+    runs-on: ${{ matrix.runs-on }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Linux Ebiten deps
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev pkg-config
+
+      - name: Setup MinGW (Windows CGO)
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: ${{ matrix.mingw_pkg }}
+          path-type: inherit
+
+      - name: Sync embedded VERSION
+        run: cp VERSION internal/version/VERSION
+
+      - name: Build (Windows)
+        if: matrix.goos == 'windows'
+        shell: msys2 {0}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          OUT="dist/ssn688-${{ matrix.platform }}${{ matrix.ext }}"
+          go build -trimpath -ldflags="-s -w" -o "$OUT" .
+          ls -la "$OUT"
+
+      - name: Build (Unix)
+        if: matrix.goos != 'windows'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          OUT="dist/ssn688-${{ matrix.platform }}${{ matrix.ext }}"
+          go build -trimpath -ldflags="-s -w" -o "$OUT" .
+          ls -la "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.platform }}
+          path: dist/ssn688-${{ matrix.platform }}${{ matrix.ext }}
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage versioned assets
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # artifacts/bin-<platform>/ssn688-<platform>[.exe]
+          for dir in artifacts/bin-*; do
+            platform="${dir#artifacts/bin-}"
+            src="$(find "$dir" -type f | head -n 1)"
+            base="$(basename "$src")"
+            # ssn688-macos-arm64 -> ssn688-1.0.0-macos-arm64
+            out="dist/${base/ssn688-/ssn688-${VERSION}-}"
+            cp "$src" "$out"
+            echo "staged $out"
+          done
+          ls -la dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: SSN-688 ${{ needs.version.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: dist/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
