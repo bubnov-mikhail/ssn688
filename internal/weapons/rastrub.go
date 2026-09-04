@@ -222,6 +222,10 @@ func (fc *FireControl) LaunchShipTube(ship, target *world.Entity) *Torpedo {
 	if world.IsExerciseTarget(ship) {
 		return nil
 	}
+	// Do not drop fish while sprinting — hull overruns the slow tube exit (replay: Grisha@28kn).
+	if ship.SpeedKts > UMGT1ExitKts {
+		return nil
+	}
 	left := fc.shipTubeAmmo(ship)
 	if left <= 0 {
 		return nil
@@ -234,9 +238,14 @@ func (fc *FireControl) LaunchShipTube(ship, target *world.Entity) *Torpedo {
 
 	brg := bearing(ship.X, ship.Y, target.X, target.Y)
 	rad := brg * math.Pi / 180
-	x := ship.X + math.Sin(rad)*40
-	y := ship.Y + math.Cos(rad)*40
-	return fc.spawnLightweight(ship.ID, ship.SignatureID, ship.Side, target.ID, x, y, brg, target.DepthFt, true)
+	const clearAheadYd = 80.0
+	x := ship.X + math.Sin(rad)*clearAheadYd
+	y := ship.Y + math.Cos(rad)*clearAheadYd
+	fish := fc.spawnLightweight(ship.ID, ship.SignatureID, ship.Side, target.ID, x, y, brg, target.DepthFt, true)
+	if fish != nil && ship.OrderedSpeed > 12 {
+		ship.OrderedSpeed = 12
+	}
+	return fish
 }
 
 // AdvanceRastrub moves rockets and returns newly waterborne lightweight ASW fish.

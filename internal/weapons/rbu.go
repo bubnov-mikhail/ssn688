@@ -22,12 +22,11 @@ const (
 
 // PreferRBUOverShipTubes is true when a Grisha-class ship should bracket with rockets
 // instead of lightweight tubes (overlap band is 700–2200 yd).
-func PreferRBUOverShipTubes(ship *world.Entity, aiState string, targetDepthFt float64) bool {
+// RBU only shocks shallow subs — never prefer rockets vs deep boats or surface ships
+// (depth ≤ 0), even if AIState is already "RBU".
+func PreferRBUOverShipTubes(ship *world.Entity, _ string, targetDepthFt float64) bool {
 	if ship == nil || !SurfaceHasRBU(ship.SignatureID) {
 		return false
-	}
-	if aiState == "RBU" {
-		return true
 	}
 	return targetDepthFt > 0 && targetDepthFt <= RBUMaxTargetDepthFt
 }

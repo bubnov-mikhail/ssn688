@@ -109,8 +109,11 @@ func TestPreferRBUOverShipTubes(t *testing.T) {
 	if PreferRBUOverShipTubes(ship, "TRACKING", 200) {
 		t.Fatal("deep sub should not prefer RBU")
 	}
-	if !PreferRBUOverShipTubes(ship, "RBU", 200) {
-		t.Fatal("explicit RBU state should prefer RBU")
+	if PreferRBUOverShipTubes(ship, "RBU", 200) {
+		t.Fatal("deep sub must not prefer RBU even in RBU AI state")
+	}
+	if PreferRBUOverShipTubes(ship, "RBU", 0) {
+		t.Fatal("surface quarry must not prefer RBU")
 	}
 }
 

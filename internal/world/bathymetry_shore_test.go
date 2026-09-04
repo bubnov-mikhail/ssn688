@@ -43,3 +43,41 @@ func TestNearestShoreBearingDeg(t *testing.T) {
 		t.Fatalf("nearest shore bearing %.0f, want ~270", brg)
 	}
 }
+
+func openOceanBathy() Bathymetry {
+	const w, h = 40, 40
+	depths := make([]float32, w*h)
+	for i := range depths {
+		depths[i] = 2000
+	}
+	return Bathymetry{
+		Width: w, Height: h,
+		OriginX: 0, OriginY: 0,
+		CellSize: 100,
+		Depths:   depths,
+	}
+}
+
+func TestDistanceToShoreYd_ChartEdge(t *testing.T) {
+	b := openOceanBathy()
+	// Near east edge (maxX=4000); no land — edge should read as shore.
+	d := b.DistanceToShoreYd(3700, 2000)
+	if d < 200 || d > 450 {
+		t.Fatalf("distance to chart edge = %.0f yd, want ~300", d)
+	}
+	if !b.IsShoreBlocked(4100, 2000) {
+		t.Fatal("off-chart must count as shore-blocked")
+	}
+	if b.IsShoreBlocked(2000, 2000) {
+		t.Fatal("open ocean cell should not be shore-blocked")
+	}
+}
+
+func TestNearestShoreBearingDeg_ChartEdge(t *testing.T) {
+	b := openOceanBathy()
+	brg := b.NearestShoreBearingDeg(3700, 2000)
+	// East edge is ~90°.
+	if brg < 60 || brg > 120 {
+		t.Fatalf("nearest chart-edge bearing %.0f, want ~90", brg)
+	}
+}

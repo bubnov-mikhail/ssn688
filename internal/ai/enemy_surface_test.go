@@ -106,8 +106,30 @@ func TestSurfaceGrishaRBUAtWeaponsFree(t *testing.T) {
 	}
 	model := acoustics.NewModel(acoustics.DefaultEnvironment())
 	updateSurfaceAI(ship, player, 50, 0.1, model, nil, EvadeContext{}, nil)
-	if ship.AIState != "RBU" && ship.AIState != "SHIP_TUBE" {
-		t.Fatalf("expected weapon band state at 1400 yd / DEFCON 3, got %s", ship.AIState)
+	if ship.AIState != "RBU" {
+		t.Fatalf("expected RBU vs shallow sub at 1400 yd / DEFCON 3, got %s", ship.AIState)
+	}
+}
+
+func TestSurfaceGrishaTubesVsSurfaceQuarry(t *testing.T) {
+	ship := &world.Entity{
+		ID: "grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 0, Y: 0, SpeedKts: 14,
+		Damage: world.NewFullHealth(), LastPingTime: -100, Defcon: world.DefconWeaponsFree,
+		SignatureID: "grisha", CrewSkill: 90,
+		Track: world.AITrack{Valid: true, ClassConf: 0.85, HoldSec: 20, X: 0, Y: 1400, DepthFt: 0},
+	}
+	ally := &world.Entity{
+		ID: "ally", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 1400, DepthFt: 0, SpeedKts: 12,
+	}
+	model := acoustics.NewModel(acoustics.DefaultEnvironment())
+	updateSurfaceAI(ship, ally, 50, 0.1, model, nil, EvadeContext{}, nil)
+	if ship.AIState != "SHIP_TUBE" {
+		t.Fatalf("surface quarry should use ship tubes not RBU, got %s", ship.AIState)
+	}
+	if ship.OrderedSpeed > 14.5 {
+		t.Fatalf("tube attack speed too high (overrun risk): %.1f", ship.OrderedSpeed)
 	}
 }
 

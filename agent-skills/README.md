@@ -6,6 +6,6 @@
 | Навык | Когда читать |
 |-------|----------------|
 | [bathymetry-and-routes](bathymetry-and-routes/SKILL.md) | Новая карта / `bathy.bin`, рельеф на PLOT, маршруты AI, расстановка юнитов у берега, глубины для ПЛ |
-| [scenario-authoring](scenario-authoring/SKILL.md) | Новый сценарий / миссии, JSON, COMM/events, narrative; **оригинальный состав сил и задач** (не клон Catalina); рендер-валидация карт; вывод в `scenarios_generated/` |
+| [scenario-authoring](scenario-authoring/SKILL.md) | Новый сценарий / миссии, JSON, COMM/events, narrative; **оригинальный состав сил и задач** (не клон Catalina); рендер-валидация; **brief map / cover = overview + geo-подписи**; вывод в `scenarios_generated/` |
 
 Общие правила симулятора — в [AGENTS.md](../AGENTS.md). Навыки **не заменяют** AGENTS.md, а углубляют отдельные задачи.

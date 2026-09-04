@@ -93,19 +93,24 @@ func UpdateCrewTrack(hunter, player *world.Entity, detected, active bool, peakSN
 	tr.CourseDeg = lerpAngleDeg(tr.CourseDeg, measCrs, tmaAlpha)
 	tr.SpeedKts += (measSpd - tr.SpeedKts) * tmaAlpha
 
-	// Depth estimate
-	depthSigma := 120*(1-s) + 8*s
-	measDepth := player.DepthFt + pseudoNoise(hunter.ID, gameTime, 5)*depthSigma
-	if measDepth < 40 {
-		measDepth = 40
-	}
-	if measDepth > 900 {
-		measDepth = 900
-	}
-	depthAlpha := 0.05 + 0.4*s
-	tr.DepthFt += (measDepth - tr.DepthFt) * depthAlpha
-	if tr.DepthFt < 40 {
-		tr.DepthFt = 40
+	// Depth estimate — surface contacts stay at keel depth 0 (RBU must not
+	// treat them as shallow subs). Sub floor keeps a plausible TMA band.
+	if player.Kind == world.KindSurfaceShip {
+		tr.DepthFt = 0
+	} else {
+		depthSigma := 120*(1-s) + 8*s
+		measDepth := player.DepthFt + pseudoNoise(hunter.ID, gameTime, 5)*depthSigma
+		if measDepth < 40 {
+			measDepth = 40
+		}
+		if measDepth > 900 {
+			measDepth = 900
+		}
+		depthAlpha := 0.05 + 0.4*s
+		tr.DepthFt += (measDepth - tr.DepthFt) * depthAlpha
+		if tr.DepthFt < 40 {
+			tr.DepthFt = 40
+		}
 	}
 }
 

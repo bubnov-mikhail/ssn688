@@ -22,7 +22,8 @@ func (g *playerGame) commMessageLines() []render.MDLine {
 	if maxW < 80 {
 		maxW = 80
 	}
-	return simreplay.CommLines(g.replay.Comm, g.replay.MissionStartSec, g.curTime, g.lang, maxW)
+	g.syncCommPlayhead()
+	return simreplay.CommLines(g.comm.Inbox(), g.replay.MissionStartSec, g.curTime, g.lang, maxW)
 }
 
 func (g *playerGame) scrollCommWheel(mx, my int) bool {

@@ -378,14 +378,8 @@ func (h *HarpoonMissile) findLocked(targets []*world.Entity) *world.Entity {
 		return nil
 	}
 	for _, ent := range targets {
-		if ent == nil || !ent.Alive() || ent.ID != h.LockedTargetID {
+		if !h.validSeekerContact(ent) || ent.ID != h.LockedTargetID {
 			continue
-		}
-		if ent.DepthFt > 5 {
-			return nil
-		}
-		if ent.Kind != world.KindSurfaceShip && ent.Kind != world.KindSubmarine {
-			return nil
 		}
 		// Keep lock while target is roughly ahead; lose if far behind beam.
 		brg := bearing(h.X, h.Y, ent.X, ent.Y)
@@ -399,10 +393,7 @@ func (h *HarpoonMissile) findLocked(targets []*world.Entity) *world.Entity {
 
 func (h *HarpoonMissile) checkImpact(targets []*world.Entity) *world.Entity {
 	for _, ent := range targets {
-		if ent == nil || !ent.Alive() || ent.DepthFt > 5 {
-			continue
-		}
-		if ent.Kind != world.KindSurfaceShip && ent.Kind != world.KindSubmarine {
+		if !h.validSeekerContact(ent) {
 			continue
 		}
 		if h.LockedTargetID != "" && ent.ID != h.LockedTargetID {
@@ -413,6 +404,25 @@ func (h *HarpoonMissile) checkImpact(targets []*world.Entity) *world.Entity {
 		}
 	}
 	return nil
+}
+
+// validSeekerContact is true for surface/periscope contacts the seeker may paint.
+// Same-side hulls are IFF-filtered so enemy Klub/Oniks/Kalibr do not retarget
+// friendly surface screens between the shooter and the intended quarry.
+func (h *HarpoonMissile) validSeekerContact(ent *world.Entity) bool {
+	if h == nil || ent == nil || !ent.Alive() || ent.DepthFt > 5 {
+		return false
+	}
+	if ent.Kind != world.KindSurfaceShip && ent.Kind != world.KindSubmarine {
+		return false
+	}
+	if h.ParentSubID != "" && ent.ID == h.ParentSubID {
+		return false
+	}
+	if ent.Side == h.Side {
+		return false
+	}
+	return true
 }
 
 // acquireTarget picks the best surface contact in the radar search cone.
@@ -428,10 +438,7 @@ func (h *HarpoonMissile) acquireTarget(targets []*world.Entity) *world.Entity {
 	var best *cand
 	aim := h.HeadingDeg
 	for _, ent := range targets {
-		if ent == nil || !ent.Alive() || ent.DepthFt > 5 {
-			continue
-		}
-		if ent.Kind != world.KindSurfaceShip && ent.Kind != world.KindSubmarine {
+		if !h.validSeekerContact(ent) {
 			continue
 		}
 		brg := bearing(h.X, h.Y, ent.X, ent.Y)

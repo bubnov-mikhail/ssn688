@@ -458,7 +458,7 @@ func (e *Engine) handleDetonation(det *weapons.Detonation, gameTime float64) {
 	acoustics.ApplyDetonationDeaf(&e.Sonar, player, det.X, det.Y, gameTime, det.Hit)
 	e.emitBlastTransient(player, det, gameTime)
 	if !det.Accident {
-		ai.NotifyDefconDetonation(e.Scenario.Entities, e.Acoustics.Env, det, gameTime)
+		ai.NotifyDefconDetonation(e.Scenario.Entities, player, e.Acoustics.Env, det, gameTime)
 	}
 	if det.Hit != nil && det.Hit.Alive() {
 		playerHit := player != nil && det.Hit.ID == player.ID
@@ -1041,14 +1041,9 @@ func (e *Engine) tryEnemyASCMShots(player *world.Entity, gameTime float64) {
 		if !ent.CanDefconAttack() {
 			continue
 		}
-		stateOK := ent.AIState == "ATTACK" || ent.AIState == "FIRING" || ent.AIState == "SHADOW"
-		if !stateOK && !ent.AIProsecuting {
-			continue
-		}
-		if !ai.TrackClassified(ent) {
-			continue
-		}
-		quarry := e.enemyASCMQuarry(ent, player)
+		// ASuW stand-off: Weapons Free + a *sensed* surface quarry in envelope.
+		// Omniscient truth targeting made green PATROL boats fire Kalibr/Oniks.
+		quarry := e.enemyASCMQuarry(ent, player, gameTime)
 		if quarry == nil {
 			continue
 		}
@@ -1062,38 +1057,31 @@ func (e *Engine) tryEnemyASCMShots(player *world.Entity, gameTime float64) {
 		}
 		maxDepth := weapons.EnemyASCMMaxLaunchDepthFt(ent.SignatureID)
 		if maxDepth > 0 && ent.DepthFt > maxDepth {
-			// Shadow AI orders deep each tick; use actual depth for tube/VLS envelope.
+			// Climb into VLS/tube envelope; shadow/patrol AI would otherwise hold deep.
 			ent.OrderedDepth = maxDepth * 0.45
 			continue
 		}
-		recent := false
-		for _, h := range e.FireControl.ActiveHarpoons {
-			if h == nil || !h.Alive || h.ParentSubID != ent.ID || h.Age < 90 {
-				continue
-			}
-			if h.Variant != weapons.ASCMHarpoon {
-				recent = true
-				break
-			}
-		}
-		if recent {
+		if e.FireControl.HasActiveEnemyASCM(ent.ID) {
 			continue
 		}
-		if int(gameTime*10)%40 != 0 {
+		if e.FireControl.EnemyASCMOnCooldown(ent.ID, gameTime) {
 			continue
 		}
-		aim := ai.TrackAimEntity(ent, quarry)
-		if h := e.FireControl.SpawnEnemyASCM(ent, aim); h != nil {
+		// Aim at the surface hull (truth + skill noise inside Spawn) — do not reuse
+		// an ASW crew track that may still be locked on a distant submarine.
+		if h := e.FireControl.SpawnEnemyASCM(ent, quarry); h != nil {
+			e.FireControl.NoteEnemyASCMLaunch(ent.ID, gameTime)
 			e.EmitHarpoonLaunch(ent, gameTime)
 			e.Events = append(e.Events, "Cruise missile launch detected (hostile)")
-			ent.AIState = "SHADOW"
+			ent.AIState = "FIRING"
 		}
 	}
 }
 
-// enemyASCMQuarry picks the nearest friendly surface ship for cruise-missile release.
-// Sub hunters prosecute the player boat; ASCM still needs a surface quarry in envelope.
-func (e *Engine) enemyASCMQuarry(hunter, player *world.Entity) *world.Entity {
+// enemyASCMQuarry picks a friendly surface ship the hunter can actually sense
+// (passive/active sonar, or a classified crew track near the hull). No omniscient
+// long-range Kalibr shots while the boat is still on a quiet PATROL.
+func (e *Engine) enemyASCMQuarry(hunter, player *world.Entity, gameTime float64) *world.Entity {
 	if hunter == nil || e.Scenario == nil {
 		return nil
 	}
@@ -1103,6 +1091,9 @@ func (e *Engine) enemyASCMQuarry(hunter, player *world.Entity) *world.Entity {
 		if ent == nil || !ent.Alive() || ent.Kind != world.KindSurfaceShip || ent.DepthFt > 5 {
 			continue
 		}
+		if !e.enemySensesSurfaceQuarry(hunter, ent, gameTime) {
+			continue
+		}
 		yd := hunter.RangeYardsTo(ent)
 		if yd < bestYd {
 			bestYd = yd
@@ -1110,6 +1101,28 @@ func (e *Engine) enemyASCMQuarry(hunter, player *world.Entity) *world.Entity {
 		}
 	}
 	return best
+}
+
+func (e *Engine) enemySensesSurfaceQuarry(hunter, quarry *world.Entity, gameTime float64) bool {
+	if hunter == nil || quarry == nil {
+		return false
+	}
+	if hunter.Track.Valid && ai.TrackWeaponRelease(hunter) {
+		if math.Hypot(quarry.X-hunter.Track.X, quarry.Y-hunter.Track.Y) <= 3500 {
+			return true
+		}
+	}
+	model := e.Acoustics
+	if hunter.Damage.Operational(world.SysPassiveHull) || hunter.Damage.Operational(world.SysTowed) {
+		if model.CanDetectPlayerPassive(hunter, quarry, gameTime) {
+			return true
+		}
+	}
+	if hunter.ActiveSonar && hunter.Damage.Operational(world.SysActive) &&
+		model.CanDetectActive(hunter, quarry, 0.65) {
+		return true
+	}
+	return false
 }
 
 func (e *Engine) enemySurfaceQuarry(hunter, player *world.Entity) *world.Entity {
@@ -1159,7 +1172,10 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 		}
 		aim := ai.TrackAimEntity(ent, quarry)
 		targetDepth := quarry.DepthFt
-		if aim != nil && aim.DepthFt > 0 {
+		if quarry.Kind == world.KindSurfaceShip {
+			// RBU never engages surface hulls — force tube preference.
+			targetDepth = 0
+		} else if aim != nil && aim.DepthFt > 0 {
 			targetDepth = aim.DepthFt
 		}
 
@@ -1189,19 +1205,25 @@ func (e *Engine) tryEnemySurfaceWeapons(player *world.Entity, gameTime float64) 
 			if ent.CrewSkill >= 85 {
 				tick = 26
 			}
-			if int(gameTime*10)%tick != 0 {
+			if int(gameTime*10)%tick == 0 {
+				if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
+					e.Events = append(e.Events, "RBU barrage detected")
+					e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
+					e.noteEnemySurfaceWeaponFired()
+					continue
+				}
+			} else {
 				continue
 			}
-			if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
-				e.Events = append(e.Events, "RBU barrage detected")
-				e.FireControl.PushDebugMapFlash(ent.X, ent.Y, "RBU>", gameTime)
-				e.noteEnemySurfaceWeaponFired()
-			}
-			continue
+			// RBU dry / rejected — fall through to tubes in the overlap band.
 		}
 
 		// Close band: ship torpedo tubes.
 		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
+			// CLOSING sprints overrun SET-40/UMGT-1 at tube-exit speed — wait for a weapon station.
+			if ent.AIState == "CLOSING" || ent.SpeedKts > weapons.UMGT1ExitKts {
+				continue
+			}
 			tick := 38
 			if ent.CrewSkill >= 85 {
 				tick = 22
@@ -1424,21 +1446,29 @@ func (e *Engine) tryFriendlySurfaceWeapons(player *world.Entity, gameTime float6
 			continue
 		}
 		targetDepth := quarry.DepthFt
-		if aim != nil && aim.DepthFt > 0 {
+		if quarry.Kind == world.KindSurfaceShip {
+			targetDepth = 0
+		} else if aim != nil && aim.DepthFt > 0 {
 			targetDepth = aim.DepthFt
 		}
 
 		if weapons.SurfaceHasRBU(ent.SignatureID) &&
 			rangeYd >= weapons.RBUMinRangeYd && rangeYd <= weapons.RBUMaxRangeYd &&
 			weapons.PreferRBUOverShipTubes(ent, ent.AIState, targetDepth) {
-			if int(gameTime*10)%44 != 0 {
+			if int(gameTime*10)%44 == 0 {
+				if e.FireControl.LaunchRBU(ent, aim, gameTime) != nil {
+					continue
+				}
+			} else {
 				continue
 			}
-			_ = e.FireControl.LaunchRBU(ent, aim, gameTime)
-			continue
+			// RBU dry / rejected — fall through to tubes.
 		}
 
 		if rangeYd >= weapons.ShipTubeMinRangeYd && rangeYd <= weapons.ShipTubeMaxRangeYd {
+			if ent.AIState == "CLOSING" || ent.SpeedKts > weapons.UMGT1ExitKts {
+				continue
+			}
 			if int(gameTime*10)%38 != 0 {
 				continue
 			}

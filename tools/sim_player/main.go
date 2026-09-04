@@ -155,7 +155,9 @@ func main() {
 		mapView: theaterpreview.NewMapView(missionMap),
 		title:   fmt.Sprintf("%s — %s (AFK)", rep.ScenarioID, rep.MissionTitle),
 		lang:    lang,
+		comm:    simreplay.NewCommPlayhead(rep.Comm),
 	}
+	g.comm.Sync(0)
 	ebiten.SetWindowSize(screenW, screenH)
 	ebiten.SetWindowTitle("SSN-688 Sim Player")
 	if err := ebiten.RunGame(g); err != nil {
@@ -201,6 +203,7 @@ type playerGame struct {
 	speedIdx    int
 	curTime     float64
 	scrub       bool
+	comm        *simreplay.CommPlayhead
 	commScroll  int
 	panDragging bool
 	panLastMX   int
@@ -295,7 +298,15 @@ func (g *playerGame) Update() error {
 			g.scrub = false
 		}
 	}
+	g.syncCommPlayhead()
 	return nil
+}
+
+func (g *playerGame) syncCommPlayhead() {
+	if g.comm == nil {
+		g.comm = simreplay.NewCommPlayhead(g.replay.Comm)
+	}
+	g.comm.Sync(g.curTime)
 }
 
 func (g *playerGame) scrubAt(mx int) {
@@ -311,6 +322,7 @@ func (g *playerGame) scrubAt(mx int) {
 		t = 1
 	}
 	g.curTime = t * g.replay.DurationSec
+	g.syncCommPlayhead()
 }
 
 func (g *playerGame) scrubRect() (x, w int) {

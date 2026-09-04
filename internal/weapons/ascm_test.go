@@ -75,3 +75,34 @@ func TestYasenAlternatesASCMVariants(t *testing.T) {
 		t.Fatalf("expected alternate variants got %d %d", h1.Variant, h2.Variant)
 	}
 }
+
+func TestEnemyASCMCooldown(t *testing.T) {
+	fc := NewFireControl()
+	if fc.EnemyASCMOnCooldown("yasen", 10) {
+		t.Fatal("cold start")
+	}
+	fc.NoteEnemyASCMLaunch("yasen", 100)
+	if !fc.EnemyASCMOnCooldown("yasen", 100+EnemyASCMCooldownSec-1) {
+		t.Fatal("should still be cooling down")
+	}
+	if fc.EnemyASCMOnCooldown("yasen", 100+EnemyASCMCooldownSec) {
+		t.Fatal("cooldown elapsed")
+	}
+}
+
+func TestHasActiveEnemyASCM(t *testing.T) {
+	fc := NewFireControl()
+	fc.ActiveHarpoons = []*HarpoonMissile{{
+		ID: "KLBR-1", ParentSubID: "yasen", Alive: true, Variant: ASCMKalibr,
+	}}
+	if !fc.HasActiveEnemyASCM("yasen") {
+		t.Fatal("expected active Kalibr")
+	}
+	if fc.HasActiveEnemyASCM("kilo") {
+		t.Fatal("wrong parent")
+	}
+	fc.ActiveHarpoons[0].Alive = false
+	if fc.HasActiveEnemyASCM("yasen") {
+		t.Fatal("dead missile should not block")
+	}
+}

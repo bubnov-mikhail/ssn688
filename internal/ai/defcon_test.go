@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"math"
 	"testing"
 
 	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
@@ -134,13 +135,74 @@ func TestTorpedoThreatRaisesSurfaceDefcon(t *testing.T) {
 func TestNeutralDetonationHeardRaisesHostile(t *testing.T) {
 	enemy := &world.Entity{
 		ID: "dd", Side: world.SideEnemy, Status: world.StatusActive,
-		X: 0, Y: 0, Defcon: world.DefconAware,
+		X: 0, Y: 0, Defcon: world.DefconAware, Kind: world.KindSurfaceShip,
+		Damage: world.NewFullHealth(),
 	}
 	neutral := &world.Entity{ID: "civ", Side: world.SideNeutral, Kind: world.KindSurfaceShip}
 	det := &weapons.Detonation{X: 500, Y: 0, DepthFt: 0, Hit: neutral}
-	NotifyDefconDetonation([]*world.Entity{enemy}, acoustics.DefaultEnvironment(), det, 20)
+	NotifyDefconDetonation([]*world.Entity{enemy}, nil, acoustics.DefaultEnvironment(), det, 20)
 	if enemy.Defcon < world.DefconHostile {
 		t.Fatalf("expected DEFCON 2 after neutral blast, got %d", enemy.Defcon)
+	}
+}
+
+func TestBlastDatumSteersEnemyAndAlly(t *testing.T) {
+	player := &world.Entity{
+		ID: "player", Kind: world.KindSubmarine, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 0, DepthFt: 200,
+	}
+	yasen := &world.Entity{
+		ID: "rf_yasen", Kind: world.KindSubmarine, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "yasen_m",
+		X: 0, Y: 0, DepthFt: 180, Defcon: world.DefconAware,
+		CrewSkill: 90, Damage: world.NewFullHealth(), AIState: "PATROL",
+	}
+	ally := &world.Entity{
+		ID: "ally_spruance", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, SignatureID: "spruance",
+		X: 8000, Y: 8000, Defcon: world.DefconAware,
+		CrewSkill: 60, Damage: world.NewFullHealth(), AIState: "PATROL",
+	}
+	// Blast ~18 kyd NE of Yasen — old linear model could not hear this.
+	det := &weapons.Detonation{
+		X: 12000, Y: 12000, DepthFt: 40,
+		Hit: &world.Entity{ID: "rf_gorshkov", Side: world.SideEnemy, Kind: world.KindSurfaceShip},
+	}
+	NotifyDefconDetonation([]*world.Entity{yasen, ally, player}, player, acoustics.DefaultEnvironment(), det, 30)
+
+	if !heardExplosion(acoustics.DefaultEnvironment(), yasen, det.X, det.Y, det.DepthFt) {
+		t.Fatal("Yasen should hear 18 kyd blast with new falloff")
+	}
+	if yasen.Defcon < world.DefconWeaponsFree {
+		t.Fatalf("Yasen DEFCON %d after friendly-side hull blast", yasen.Defcon)
+	}
+	if !yasen.AIProsecuting || !yasen.Track.Valid || yasen.AIState != "DATUM" {
+		t.Fatalf("Yasen should prosecute blast datum, state=%s pros=%v track=%v",
+			yasen.AIState, yasen.AIProsecuting, yasen.Track.Valid)
+	}
+	brg := yasen.Track.BearingDegFrom(yasen.X, yasen.Y)
+	if math.Abs(shortestRel(brg-45)) > 35 {
+		t.Fatalf("Yasen track bearing %.0f should aim near NE blast", brg)
+	}
+	if ally.Defcon < world.DefconWeaponsFree {
+		t.Fatalf("ally DEFCON %d after hostile hit", ally.Defcon)
+	}
+	if !ally.AIProsecuting || ally.AIState != "DATUM" {
+		t.Fatalf("ally should investigate blast, state=%s pros=%v", ally.AIState, ally.AIProsecuting)
+	}
+	if player.AIProsecuting || player.AIState == "DATUM" {
+		t.Fatal("ownship must not be steered by blast AI")
+	}
+}
+
+func TestHeardExplosionRangeBand(t *testing.T) {
+	env := acoustics.DefaultEnvironment()
+	listener := &world.Entity{X: 0, Y: 0, DepthFt: 200}
+	if !heardExplosion(env, listener, 0, 15000, 50) {
+		t.Fatal("expected hear at 15 kyd")
+	}
+	if heardExplosion(env, listener, 0, 40000, 50) {
+		t.Fatal("should not hear beyond blastHearYd")
 	}
 }
 

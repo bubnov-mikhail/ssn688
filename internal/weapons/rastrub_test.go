@@ -1,6 +1,7 @@
 package weapons
 
 import (
+	"math"
 	"testing"
 
 	"github.com/bubnov-mikhail/ssn688/internal/world"
@@ -95,5 +96,70 @@ func TestUMGT1ShortSeekAndAge(t *testing.T) {
 	rh, _ := seekAcquireLimitsFor(ClassHeavy, 100, 100, nil)
 	if rh <= r {
 		t.Fatalf("heavy seek should exceed umgt1: %.0f vs %.0f", rh, r)
+	}
+}
+
+// Closing hull stays inside UMGT proximity of its own fresh fish — fuse must ignore ParentSubID
+// and own-side surface hulls for lightweight ASW fish.
+func TestShipTubeFishNeverKillsLauncher(t *testing.T) {
+	fc := NewFireControl()
+	ship := &world.Entity{
+		ID: "plan_grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha",
+		X: 0, Y: 0, HeadingDeg: 0, SpeedKts: 18, DepthFt: 0, // at/under exit speed gate
+	}
+	tgt := &world.Entity{
+		ID: "ally", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 1200, DepthFt: 0,
+	}
+	fish := fc.LaunchShipTube(ship, tgt)
+	if fish == nil {
+		t.Fatal("expected ship-tube fish")
+	}
+	// Sprint after launch (CLOSING doctrine) — still must not fuse on own hull.
+	ship.SpeedKts = 28
+	targets := []*world.Entity{ship, tgt}
+	const dt = 0.1
+	for step := 0; step < 80; step++ {
+		ship.Y += ship.SpeedKts * world.KnotsToYPS * dt
+		det := fish.Advance(dt, float64(step)*dt, targets, nil, nil)
+		if det != nil && det.Hit != nil && det.Hit.ID == ship.ID {
+			t.Fatalf("own fish fused on launcher at age=%.1f dist=%.0f",
+				fish.Age, math.Hypot(ship.X-fish.X, ship.Y-fish.Y))
+		}
+		if det != nil || !fish.Alive {
+			return
+		}
+	}
+}
+
+func TestShipTubeRejectedWhileSprinting(t *testing.T) {
+	fc := NewFireControl()
+	ship := &world.Entity{
+		ID: "plan_grisha", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, SignatureID: "grisha",
+		X: 0, Y: 0, SpeedKts: 28,
+	}
+	tgt := &world.Entity{
+		ID: "ally", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		Status: world.StatusActive, X: 0, Y: 1200,
+	}
+	if fc.LaunchShipTube(ship, tgt) != nil {
+		t.Fatal("ship tube must not launch while faster than UMGT exit speed")
+	}
+}
+
+func TestUMGT1FuseSkipsOwnSideSurface(t *testing.T) {
+	fish := &Torpedo{
+		ID: "SET40-1", ParentSubID: "other", Side: world.SideEnemy, Class: ClassUMGT1,
+		Alive: true, Armed: true, Mode: ModeSearch, Age: 5, ClearDistYd: 100,
+		X: 0, Y: 0, DepthFt: 40, SpeedKts: 40,
+	}
+	friend := &world.Entity{
+		ID: "rf_udaloy", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		Status: world.StatusActive, X: 30, Y: 0, DepthFt: 0,
+	}
+	if fish.validFuseTarget(friend) {
+		t.Fatal("lightweight ASW fish must not fuse on own-side surface")
 	}
 }

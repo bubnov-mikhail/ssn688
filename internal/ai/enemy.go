@@ -339,6 +339,12 @@ func applySurfaceASWDoctrine(ship *world.Entity, rangeYd, bearing float64, class
 	const grishaIdealYd = 1400.0
 	weaponOK := TrackWeaponRelease(ship) || radarMast ||
 		(ship.CanDefconAttack() && heardPing && ship.Track.Valid && ship.Track.HoldSec >= 2)
+	// Track depth drives Grisha RBU vs tubes (rockets only shock shallow subs).
+	trackDepth := 0.0
+	if ship.Track.Valid {
+		trackDepth = ship.Track.DepthFt
+	}
+	rbuOK := trackDepth > 0 && trackDepth <= weapons.RBUMaxTargetDepthFt
 
 	if !hasRastrub {
 		// Grisha: close for RBU / ship tubes — no Metel standoff.
@@ -349,7 +355,7 @@ func applySurfaceASWDoctrine(ship *world.Entity, rangeYd, bearing float64, class
 				ship.OrderedHead = bearing
 			}
 			ship.OrderedSpeed = math.Min(28, maxSpd)
-		case rangeYd >= weapons.RBUMinRangeYd:
+		case rangeYd >= weapons.RBUMinRangeYd && rbuOK:
 			if weaponOK {
 				ship.AIState = "RBU"
 			} else {
@@ -375,6 +381,7 @@ func applySurfaceASWDoctrine(ship *world.Entity, rangeYd, bearing float64, class
 			if steerOK {
 				ship.OrderedHead = bearing
 			}
+			// Keep below lightweight exit speed so the hull cannot overrun its own fish.
 			ship.OrderedSpeed = math.Min(14, maxSpd)
 		default:
 			ship.AIState = "INTERCEPT"

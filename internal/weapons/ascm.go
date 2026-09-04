@@ -32,6 +32,9 @@ const (
 	KalibrMaxRangeNm    = 70.0
 	KalibrCruiseKts     = 500.0
 	KalibrUnderwaterSec = 5.0
+
+	// EnemyASCMCooldownSec — minimum spacing between hostile Klub/Oniks/Kalibr shots.
+	EnemyASCMCooldownSec = 120.0
 )
 
 // ASCMCruiseKts returns cruise speed for a variant (save/load helper).
@@ -179,6 +182,44 @@ func (fc *FireControl) EnemyASCMLeft(subID string) int {
 	return fc.EnemyASCMMag[subID]
 }
 
+// HasActiveEnemyASCM is true while a hostile Klub/Oniks/Kalibr from subID is still in flight.
+func (fc *FireControl) HasActiveEnemyASCM(subID string) bool {
+	if fc == nil || subID == "" {
+		return false
+	}
+	for _, h := range fc.ActiveHarpoons {
+		if h == nil || !h.Alive || h.ParentSubID != subID {
+			continue
+		}
+		if h.Variant != ASCMHarpoon {
+			return true
+		}
+	}
+	return false
+}
+
+// EnemyASCMOnCooldown is true if this boat fired ASCM within EnemyASCMCooldownSec.
+func (fc *FireControl) EnemyASCMOnCooldown(subID string, gameTime float64) bool {
+	if fc == nil || subID == "" || fc.EnemyASCMLastAt == nil {
+		return false
+	}
+	last, ok := fc.EnemyASCMLastAt[subID]
+	if !ok {
+		return false
+	}
+	return gameTime-last < EnemyASCMCooldownSec
+}
+
+func (fc *FireControl) NoteEnemyASCMLaunch(subID string, gameTime float64) {
+	if fc == nil || subID == "" {
+		return
+	}
+	if fc.EnemyASCMLastAt == nil {
+		fc.EnemyASCMLastAt = map[string]float64{}
+	}
+	fc.EnemyASCMLastAt[subID] = gameTime
+}
+
 // SpawnEnemyASCM launches Klub / Oniks / Kalibr at a surface target.
 func (fc *FireControl) SpawnEnemyASCM(sub, target *world.Entity) *HarpoonMissile {
 	if fc == nil || sub == nil || !sub.Alive() || target == nil || !target.Alive() {
@@ -199,8 +240,12 @@ func (fc *FireControl) SpawnEnemyASCM(sub, target *world.Entity) *HarpoonMissile
 
 func (fc *FireControl) spawnASCM(sub, target *world.Entity, variant ASCMVariant, visibleWEPS bool) *HarpoonMissile {
 	aim := target
-	if sub.Track.Valid {
-		aim = sub.Track.GhostTarget(target.ID, target.Side)
+	// Bias with crew track only when it plausibly refers to this hull — otherwise
+	// an ASW track on a distant sub would steer Kalibr/Oniks at the wrong point.
+	if sub.Track.Valid && target != nil {
+		if math.Hypot(sub.Track.X-target.X, sub.Track.Y-target.Y) <= 3500 {
+			aim = sub.Track.GhostTarget(target.ID, target.Side)
+		}
 	}
 	cruise := variant.cruiseKts()
 	gyro := sub.BearingDegTo(aim)

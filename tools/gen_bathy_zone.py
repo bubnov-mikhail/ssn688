@@ -40,6 +40,10 @@ class ZoneSpec:
     center_lat: float
     center_lon: float  # east positive (121 E)
     span_nm: float = 20.0
+    # Extra chart padding beyond the symmetric span (keeps world origin/center).
+    pad_east_nm: float = 0.0
+    pad_south_nm: float = 0.0
+    pad_north_nm: float = 0.0
     land_min: float = 0.10
     land_max: float = 0.30
     depth_offset_ft: float = 0.0
@@ -81,6 +85,8 @@ TAIWAN_ZONES: list[ZoneSpec] = [
         21.97,
         120.92,
         span_nm=9.0,
+        pad_east_nm=5.0,
+        pad_south_nm=5.0,
     ),
     ZoneSpec(
         "taiwan_north",
@@ -90,6 +96,10 @@ TAIWAN_ZONES: list[ZoneSpec] = [
         24.75,
         121.95,
         span_nm=16.0,
+        pad_east_nm=6.0,
+        pad_north_nm=3.0,
+        pad_south_nm=3.0,
+        land_min=0.05,
     ),
     ZoneSpec(
         "taiwan_lanyu",
@@ -98,7 +108,8 @@ TAIWAN_ZONES: list[ZoneSpec] = [
         "одиночный вулканический остров",
         22.05,
         121.55,
-        span_nm=12.0,
+        # Was 12 nm; +3 nm each side (~18 nm) so sides can start opposite of Lanyu.
+        span_nm=18.0,
     ),
     ZoneSpec(
         "taiwan_overview",
@@ -135,13 +146,15 @@ def lon_360(lon_e: float) -> float:
 
 def bbox(spec: ZoneSpec) -> tuple[float, float, float, float]:
     half = spec.span_nm * NM_YD / 2.0
+    west_yd = half
+    east_yd = half + spec.pad_east_nm * NM_YD
+    north_yd = half + spec.pad_north_nm * NM_YD
+    south_yd = half + spec.pad_south_nm * NM_YD
     m_per_deg_lon = M_PER_DEG_LAT * math.cos(math.radians(spec.center_lat))
-    dlat = half / (M_PER_DEG_LAT * YD_PER_M)
-    dlon = half / (m_per_deg_lon * YD_PER_M)
-    lat_min = spec.center_lat - dlat
-    lat_max = spec.center_lat + dlat
-    lon_min = lon_360(spec.center_lon) - dlon
-    lon_max = lon_360(spec.center_lon) + dlon
+    lat_min = spec.center_lat - south_yd / (M_PER_DEG_LAT * YD_PER_M)
+    lat_max = spec.center_lat + north_yd / (M_PER_DEG_LAT * YD_PER_M)
+    lon_min = lon_360(spec.center_lon) - west_yd / (m_per_deg_lon * YD_PER_M)
+    lon_max = lon_360(spec.center_lon) + east_yd / (m_per_deg_lon * YD_PER_M)
     return lat_min, lat_max, lon_min, lon_max
 
 

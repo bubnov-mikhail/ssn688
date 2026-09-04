@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
@@ -19,7 +18,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "image/jpeg"
 
 	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
@@ -74,6 +72,7 @@ func main() {
 	outDir := flag.String("out", defaultPreviewOut, "output directory")
 	missionFilter := flag.String("mission", "", "render only this mission id (e.g. tw_attribution)")
 	coastOnly := flag.Bool("coast-only", false, "shoreline template only — no routes, no bathy shading")
+	coversOnly := flag.Bool("covers", false, "deprecated: mission art is brief_map overview, not theater zoom")
 	flag.Parse()
 
 	data, err := os.ReadFile(*scenarioPath)
@@ -92,6 +91,16 @@ func main() {
 	}
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		panic(err)
+	}
+
+	if *coversOnly {
+		fmt.Fprintln(os.Stderr, "deprecated: do not use -covers / mission_covers/")
+		fmt.Fprintln(os.Stderr, "mission cover art is the regional brief map:")
+		fmt.Fprintln(os.Stderr, "  go run ./tools/render_theater_routes.go")
+		fmt.Fprintln(os.Stderr, "  → scenarios_generated/theater_previews/NN_<mission>__brief_map.png")
+		fmt.Fprintln(os.Stderr, "then after approval:")
+		fmt.Fprintln(os.Stderr, "  go run ./tools/patch_brief_maps.go -scenario <json> -also-cover")
+		os.Exit(2)
 	}
 
 	if *coastOnly {
@@ -178,16 +187,13 @@ func main() {
 	fmt.Printf("%s: missions=%d\n", filepath.Base(overviewPath), len(missions))
 
 	for i, m := range missions {
-		mraw := doc["missions"].([]any)[i].(map[string]any)
-		cover := decodeCoverBlob(mraw)
 		briefPath := filepath.Join(*outDir, fmt.Sprintf("%02d_%s__brief_map.png", m.num, m.id))
-		bStats := renderMissionBriefMap(missions, i, cover, briefPath)
+		bStats := renderMissionBriefMap(missions, i, nil, briefPath)
 		bStats["mission"] = m.id
 		bStats["mission_num"] = m.num
 		bStats["path"] = briefPath
-		bStats["has_cover"] = len(cover) > 0
 		manifest = append(manifest, bStats)
-		fmt.Printf("%s: past=%d current=%d cover=%v\n", filepath.Base(briefPath), i, i+1, len(cover) > 0)
+		fmt.Printf("%s: past=%d current=%d\n", filepath.Base(briefPath), i, i+1)
 	}
 
 	idx := filepath.Join(*outDir, "manifest.json")
@@ -456,82 +462,10 @@ func drawBathyInsetGray(img *image.RGBA, bathy *world.Bathymetry, rect image.Rec
 	}
 }
 
-func drawCoverInset(img *image.RGBA, cover []byte, rect image.Rectangle) bool {
-	if len(cover) == 0 || rect.Dx() <= 0 || rect.Dy() <= 0 {
-		return false
-	}
-	dec, _, err := image.Decode(bytes.NewReader(cover))
-	if err != nil {
-		return false
-	}
-	src := imageToRGBA(dec)
-	dstW, dstH := rect.Dx(), rect.Dy()
-	scaled := resizeCover(src, dstW, dstH)
-	draw.Draw(img, rect, scaled, image.Point{}, draw.Over)
-	return true
-}
-
-func imageToRGBA(src image.Image) *image.RGBA {
-	if r, ok := src.(*image.RGBA); ok {
-		return r
-	}
-	b := src.Bounds()
-	out := image.NewRGBA(b)
-	draw.Draw(out, b, src, b.Min, draw.Src)
-	return out
-}
-
-func resizeCover(src *image.RGBA, w, h int) *image.RGBA {
-	if w <= 0 || h <= 0 {
-		return image.NewRGBA(image.Rect(0, 0, 1, 1))
-	}
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
-	if sw <= 0 || sh <= 0 {
-		return out
-	}
-	scale := math.Max(float64(w)/float64(sw), float64(h)/float64(sh))
-	nw := int(math.Ceil(float64(sw) * scale))
-	nh := int(math.Ceil(float64(sh) * scale))
-	tmp := image.NewRGBA(image.Rect(0, 0, nw, nh))
-	for y := 0; y < nh; y++ {
-		sy := int(float64(y) / scale)
-		if sy >= sh {
-			sy = sh - 1
-		}
-		for x := 0; x < nw; x++ {
-			sx := int(float64(x) / scale)
-			if sx >= sw {
-				sx = sw - 1
-			}
-			tmp.Set(x, y, src.At(src.Bounds().Min.X+sx, src.Bounds().Min.Y+sy))
-		}
-	}
-	offX := (nw - w) / 2
-	offY := (nh - h) / 2
-	draw.Draw(out, out.Bounds(), tmp, image.Point{offX, offY}, draw.Src)
-	return out
-}
-
-func decodeCoverBlob(m map[string]any) []byte {
-	cover, _ := m["cover"].(map[string]any)
-	if cover == nil {
-		return nil
-	}
-	b64, _ := cover["data_b64"].(string)
-	if b64 == "" {
-		return nil
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
-	if err != nil {
-		return nil
-	}
-	return raw
-}
-
 // renderMissionBriefMap draws the mission-brief regional map: gray overview,
-// past missions B&W, current mission colored with cover inset (or color bathy fallback in previews).
-func renderMissionBriefMap(missions []missionPreview, curIdx int, cover []byte, path string) map[string]any {
+// past missions B&W, current mission color theater inset + amber frame.
+// Mission cover art in JSON is this same overview PNG (not a separate theater zoom).
+func renderMissionBriefMap(missions []missionPreview, curIdx int, _ []byte, path string) map[string]any {
 	const imgW, imgH = 880, 1040
 	const headerH = 0
 	img := image.NewRGBA(image.Rect(0, 0, imgW, imgH))
@@ -561,20 +495,88 @@ func renderMissionBriefMap(missions []missionPreview, curIdx int, cover []byte, 
 			drawBathyInsetGray(img, m.bathy, rect)
 			drawRectBorder(img, rect, color.RGBA{210, 210, 210, 255}, 1)
 		} else {
-			if len(cover) > 0 {
-				if !drawCoverInset(img, cover, rect) {
-					drawBathyInset(img, m.bathy, rect)
-				}
-			} else {
-				drawBathyInset(img, m.bathy, rect)
-			}
+			// Always theater color bathy — never nest the overview cover PNG here.
+			drawBathyInset(img, m.bathy, rect)
 			drawRectBorder(img, rect, briefMapAmberBorder, 1)
 		}
 	}
+	drawOverviewGeoCaptions(img, lay, missions)
 	writePNG(path, img)
 	return map[string]any{
 		"kind": "brief_map", "geo": true, "current": cur.id,
-		"past_missions": curIdx, "has_cover": len(cover) > 0,
+		"past_missions": curIdx,
+	}
+}
+
+func drawOverviewGeoCaptions(img *image.RGBA, lay overviewLayout, missions []missionPreview) {
+	if !lay.geoOK || lay.latLonToPx == nil {
+		return
+	}
+	tx, ty := lay.latLonToPx(23.7, 121.0)
+	drawBlackPlateLabel(img, tx-20, ty-6, "TAIWAN", 2)
+
+	// MAINLAND CHINA: always anchor under the M2 (taiwan_strait) box on the
+	// continental shelf — even on M1 brief maps where that box is not drawn yet.
+	const label = "MAINLAND CHINA"
+	const scale = 2
+	x, y := 8, 4
+	for _, m := range missions {
+		if m.id != "tw_twin_exercises" || !m.geoOK {
+			continue
+		}
+		r := missionPreviewRect(m, lay.latLonToPx)
+		x = r.Min.X
+		if x < 4 {
+			x = 4
+		}
+		y = r.Max.Y + 16
+		break
+	}
+	drawBlackPlateLabel(img, x, y, label, scale)
+}
+
+// drawBlackPlateLabel draws white text on an opaque black backplate (scale=1 or 2).
+func drawBlackPlateLabel(img *image.RGBA, x0, y0 int, text string, scale int) {
+	if text == "" {
+		return
+	}
+	if scale < 1 {
+		scale = 1
+	}
+	gw, gh := 6*scale, 7*scale
+	pad := 3 * scale
+	w := len(text)*gw + pad*2
+	h := gh + pad*2
+	bg := image.Rect(x0, y0, x0+w, y0+h)
+	draw.Draw(img, bg, &image.Uniform{color.RGBA{0, 0, 0, 255}}, image.Point{}, draw.Src)
+	drawStringScaled(img, x0+pad, y0+pad, text, color.RGBA{255, 255, 255, 255}, scale)
+}
+
+func drawStringScaled(img *image.RGBA, x0, y0 int, s string, c color.RGBA, scale int) {
+	if scale <= 1 {
+		drawString(img, x0, y0, s, c)
+		return
+	}
+	x := x0
+	for _, ch := range s {
+		glyph, ok := ascii5x7[ch]
+		if !ok {
+			x += 6 * scale
+			continue
+		}
+		for row, bits := range glyph {
+			for col := 0; col < 5; col++ {
+				if bits&(1<<uint(4-col)) == 0 {
+					continue
+				}
+				for dy := 0; dy < scale; dy++ {
+					for dx := 0; dx < scale; dx++ {
+						img.Set(x+col*scale+dx, y0+row*scale+dy, c)
+					}
+				}
+			}
+		}
+		x += 6 * scale
 	}
 }
 

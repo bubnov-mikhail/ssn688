@@ -3,9 +3,11 @@ name: scenario-authoring
 description: >-
   Author portable SSN-688 campaign scenarios and missions (JSON schema, theaters,
   routes, units, objectives, events, COMM, branching vars). Requires original
-  unit/route/objective design (not Catalina clones). Gemini/strong-model pass for
+  unit/route/objective design (not Catalina clones). Mission brief maps / covers
+  are regional overview PNGs with EN geo labels. Gemini/strong-model pass for
   natural Russian loc_string. Use when creating a new scenario, adding missions,
-  writing briefs/debriefs, or generating files under scenarios_generated/.
+  writing briefs/debriefs, mission brief maps, or generating files under
+  scenarios_generated/.
 ---
 
 # Создание сценариев и миссий
@@ -17,6 +19,7 @@ description: >-
 
 - Новый сценарий / новые миссии в существующем
 - Правка `backstory`, mission `description`, COMM, objectives, events
+- Brief map / cover миссий (общая карта сценария + geo-подписи)
 - Генерация JSON в `scenarios_generated/` для ручного импорта в игру
 
 ## Куда класть результат
@@ -24,7 +27,7 @@ description: >-
 | Путь | Назначение |
 |------|------------|
 | [`scenarios_generated/`](../../scenarios_generated/) | Готовые `.json` для импорта (**не в git** — см. `.gitignore`) |
-| `scenarios_generated/theater_previews/` | PNG-превью карт (маршруты, спавны) — **не в git**, только для QA в сессии |
+| `scenarios_generated/theater_previews/` | PNG-превью карт (маршруты, спавны, brief map) — **не в git**, только для QA в сессии |
 | `scenarios_generated/theater_bathy/` | Промежуточные `.bin` до inline в JSON — **не в git** |
 | [`scenarios/`](../../scenarios/) | Только bundled-демо (например `demo_catalina.json`) после явной просьбы |
 | [`scenarios/schema.json`](../../scenarios/schema.json) | Источник правды по полям JSON |
@@ -95,7 +98,7 @@ python tools/gen_bathy_zone.py --preview --scenario scenarios_generated/<scenari
 |------|------------|
 | `scenarios_generated/theater_previews/00_<scenario_id>__overview.png` | Карта региона: все театры миссий (прямоугольники + inset bathy) |
 | `scenarios_generated/theater_previews/NN_<theater>__<mission_id>.png` | Карта миссии: bathy, берег, маршруты, подписи юнитов, зона PLAYER |
-| `scenarios_generated/theater_previews/NN_<mission_id>__brief_map.png` | Brief map для экрана миссии: gray overview, past B&W, current color |
+| `scenarios_generated/theater_previews/NN_<mission_id>__brief_map.png` | **Cover / brief map миссии**: gray overview кампании, past B&W, current color + EN geo-подписи |
 | `scenarios_generated/theater_previews/manifest.json` | `land_pct`, `route_land_hits` по каждому PNG |
 
 Промежуточная батиметрия до inline: `scenarios_generated/theater_bathy/<theater_id>.bin`.  
@@ -103,17 +106,22 @@ Regional overview: `theater_bathy/<scenario>_overview.bin` (для Taiwan — `t
 
 `NN` — порядковый номер миссии (`01`, `02`, …).
 
-### Brief map (экран описания миссии)
+### Brief map / cover миссий (экран описания миссии)
 
-После overview покажи **`NN_<mission_id>__brief_map.png`** — макет regional-карты справа от текста брифинга:
+**Cover миссии = общая карта сценария** (`NN_<mission_id>__brief_map.png`), а не зум отдельного театра.
+
+После overview покажи **`NN_<mission_id>__brief_map.png`**:
 
 - фон — серая regional bathy (как overview);
-- прошлые миссии — ч/б прямоугольники без цветной заливки;
-- текущая — цветная рамка + inset из **`missions[].cover`**;
+- прошлые миссии — ч/б прямоугольники;
+- текущая — янтарная рамка + цветной inset **локальной** bathy театра;
 - будущие миссии не рисуются;
-- **без mission `cover` в игре панель не показывается** (в превью — `NO COVER` + color bathy для layout).
+- EN geo-подписи крупнейших сухопутных масс (`drawOverviewGeoCaptions`);
+- в игре панель справа от брифинга берёт **`missions[].brief_map`**.
 
-Каждая миссия кампании должна иметь свой **`cover`**. Inline brief map в JSON — только после аппрува PNG пользователем.
+**Не** создавай `scenarios_generated/mission_covers/` и **не** используй `-covers` (deprecated).
+
+Inline brief map (и тот же PNG в `missions[].cover`) — только после аппрува PNG пользователем.
 
 ### Сообщение пользователю о превью
 
@@ -122,7 +130,7 @@ Regional overview: `theater_bathy/<scenario>_overview.bin` (для Taiwan — `t
 > **Превью карт** — это не часть игры и не попадает в импорт. PNG в `scenarios_generated/theater_previews/` нужны, чтобы **до импорта** проверить геометрию: берег, глубины, маршруты AI, точки спавна юнитов и зону старта PLAYER.  
 > На каждой карте миссии цветные линии — маршруты (подпись = `unit.id`), голубой круг — зона ownship. **Красные квадраты** на сегменте маршрута означают пересечение суши — такую миссию нельзя сдавать, пока маршруты не исправлены.  
 > Overview (`00_<scenario_id>__overview.png`) показывает, какие театры занимают миссии кампании.  
-> **Brief map** (`NN_<mission_id>__brief_map.png`) — макет regional-карты на экране брифинга (past B&W, current color, future hidden); требует mission `cover` для игры.
+> **Brief map / cover** (`NN_<mission_id>__brief_map.png`) — общая карта сценария на экране брифинга (past B&W, current color, future hidden) + geo-подписи.
 
 Не переходи к «сценарий готов» без визуальной проверки пользователем.
 
@@ -161,10 +169,56 @@ Regional overview: `theater_bathy/<scenario>_overview.bin` (для Taiwan — `t
 
 Покажи пользователю путь к `scenarios_generated/theater_previews/` и PNG по миссиям (см. §«Инспекция и аппрув миссий»).
 
-## Обложка
+## Обложка сценария и cover / brief map миссий
 
-Картинку сценария (`cover`) генерируй **внешней image-моделью** (не текстовым агентом).  
-Учитывай запрос пользователя и тон сценария (театр, эпоха, напряжение). Inline как JPEG/PNG `data_b64` в JSON. Mission-level `cover` обычно не нужен.
+### Cover сценария (`cover` в корне JSON)
+
+Картинку **сценария** (карточка в списке сценариев) генерируй **внешней image-моделью** (не текстовым агентом).  
+Учитывай запрос пользователя и тон сценария (театр, эпоха, напряжение). Inline как JPEG/PNG `data_b64`.
+
+### Cover / brief map миссий (= общая карта кампании)
+
+Это **один и тот же** PNG overview с подсветкой текущей миссии:
+
+| Поле JSON | Где в игре |
+|-----------|------------|
+| `missions[].brief_map` | Панель справа на экране брифинга |
+| `missions[].cover` | Тот же PNG (карточка / `MissionCover`; не зум театра) |
+
+#### Генерация превью
+
+```bash
+go run ./tools/render_theater_routes.go
+# → scenarios_generated/theater_previews/NN_<mission_id>__brief_map.png
+```
+
+Покажи пользователю эти PNG. **Не** клади `data_b64`, пока не аппрувнуты подписи и кадр.
+
+#### Geo-подписи (острова / материк)
+
+На brief map подписывай **крупнейшие** сухопутные массы **на английском**:
+
+| Стиль | Правило |
+|-------|---------|
+| Шрифт | Белый, uppercase (bitmap 5×7 / scale 2) |
+| Подложка | Непрозрачный **чёрный** прямоугольник (`drawBlackPlateLabel`) |
+| Что подписывать | Материк и/или главный остров(а) **видимые на overview** |
+| Язык | **EN** на карте; `loc_string` миссии остаются en+ru |
+
+Примеры: `MAINLAND CHINA`, `TAIWAN`. Позиции — `drawOverviewGeoCaptions` в [`tools/render_theater_routes.go`](../../tools/render_theater_routes.go) (не наезжать на рамку миссии).
+
+После правок координат — снова `go run ./tools/render_theater_routes.go`.
+
+#### Inline в сценарий (после аппрува)
+
+```bash
+go run ./tools/patch_brief_maps.go -scenario scenarios_generated/<id>.json
+# по умолчанию -also-cover: тот же PNG → missions[].brief_map и missions[].cover
+```
+
+Bump `version` (patch), синхронизируй App Support при необходимости.
+
+**Не** коммить `theater_previews/` и не оставляй их после финальной уборки сессии (см. §«Уборка»).
 
 ## Нарратив и спойлеры
 
@@ -249,10 +303,11 @@ Regional overview: `theater_bathy/<scenario>_overview.bin` (для Taiwan — `t
 Task Progress:
 - [ ] Concept: tone, arc, 2–5 missions, branching vars — **не клон Catalina по задачам/юнитам**
 - [ ] Theater: reuse or bathymetry-and-routes
-- [ ] Cover: image model → base64
+- [ ] Scenario cover: image model → base64
 - [ ] Draft JSON per schema (units, routes, objectives, events) — en first; **оригинальный состав сил и задач**
 - [ ] Diversity pass: units / routes / objectives ≠ демо-тройка (Foxtrot+Grisha+tanker)
 - [ ] **Render validation**: `go run ./tools/render_theater_routes.go` → 0 shore hits, spawn zone OK
+- [ ] **Mission covers / brief maps**: overview PNG + EN geo-подписи → аппрув → `patch_brief_maps` (`brief_map` + `cover`)
 - [ ] **Mission review loop**: для каждой миссии — PNG + инспекция → явный аппрув пользователя
 - [ ] RU adaptation pass: Gemini (or other strong model) → apply to JSON
 - [ ] Validate mentally vs schema; bump version
@@ -342,7 +397,7 @@ Cover, bathy и превью для игры уже не нужны на дис�
 |----------------------------------------|---------|
 | Превью карт | `scenarios_generated/theater_previews/*.png`, `scenarios_generated/theater_previews/manifest.json` |
 | Replay AFK (опционально) | `scenarios_generated/sim_replays/<mission_id>.replay.json` — если пользователь не просил оставить |
-| Cover до inline | `tools/<scenario>_cover.png`, `tools/*_cover.jpg` |
+| Cover сценария до inline | `tools/<scenario>_cover.png`, `tools/*_cover.jpg` |
 | Промежуточный bathy | `scenarios_generated/theater_bathy/<theater_id>.bin`, `tools/bathy_<theater>.bin` |
 | Сводка зон | `scenarios_generated/theater_bathy/zones_summary.txt` — если создавалась только для этой работы |
 | Одноразовые генераторы / патчеры | `tools/gen_<scenario>_*.go`, `tools/patch_<scenario>_*.go`, `tools/gen_<theater>_bathy.py`, созданные **только** под этот сценарий |
@@ -396,6 +451,7 @@ Events: `when.type` (`time`, `objective_identified`, `enemy_prosecutes_allies`, 
 - [ ] Вторички влияют на следующую миссию, но оставляют win-path
 - [ ] Маршруты в воде; ПЛ ниже термоклина (если не coastal-special)
 - [ ] **Рендер-валидация**: `tools/render_theater_routes.go` → 0 `route_land_hits`, зона PLAYER на карте ок
+- [ ] **Mission covers / brief maps**: overview PNG, EN geo-подписи, аппрув, `patch_brief_maps` → `brief_map` + `cover`
 - [ ] **Аппрув миссий**: пользователь принял превью **каждой** миссии
 - [ ] Хотя бы несколько reactive COMM / events
 - [ ] Файл в `scenarios_generated/`, не в git

@@ -1,7 +1,9 @@
 // Command patch_brief_maps inlines mission brief_map PNGs from theater_previews
-// into a scenario JSON document.
+// into a scenario JSON document. Optionally copies the same PNG into missions[].cover
+// (regional overview art — not a separate theater zoom).
 //
 //	go run ./tools/patch_brief_maps.go -scenario scenarios_generated/taiwan_formosa_watch.json
+//	go run ./tools/patch_brief_maps.go -scenario … -also-cover
 package main
 
 import (
@@ -17,6 +19,7 @@ import (
 func main() {
 	scenarioPath := flag.String("scenario", "", "path to scenario JSON")
 	previewDir := flag.String("previews", "scenarios_generated/theater_previews", "brief_map PNG directory")
+	alsoCover := flag.Bool("also-cover", true, "also set missions[].cover from the same brief_map PNG")
 	bumpPatch := flag.Bool("bump", true, "increment scenario version patch")
 	flag.Parse()
 	if *scenarioPath == "" {
@@ -54,12 +57,24 @@ func main() {
 			fmt.Fprintf(os.Stderr, "skip %s: %v\n", id, err)
 			continue
 		}
-		m["brief_map"] = map[string]any{
+		blob := map[string]any{
 			"mime":     "image/png",
 			"data_b64": base64.StdEncoding.EncodeToString(png),
 		}
+		m["brief_map"] = blob
+		if *alsoCover {
+			// Same regional overview as cover art (mission list / MissionCover).
+			m["cover"] = map[string]any{
+				"mime":     blob["mime"],
+				"data_b64": blob["data_b64"],
+			}
+		}
 		patched++
-		fmt.Printf("inlined brief_map for %s (%d bytes)\n", id, len(png))
+		extra := ""
+		if *alsoCover {
+			extra = " + cover"
+		}
+		fmt.Printf("inlined brief_map%s for %s (%d bytes)\n", extra, id, len(png))
 	}
 	if patched == 0 {
 		panic("no brief_map PNGs patched")

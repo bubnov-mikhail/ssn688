@@ -170,6 +170,7 @@ type FireControl struct {
 	HarpoonDestructRange string // MEDIUM / LONG / MAX
 	EnemyMagazine    map[string]int // hostile sub heavy fish
 	EnemyASCMMag     map[string]int // hostile sub Klub/Oniks/Kalibr
+	EnemyASCMLastAt  map[string]float64 // gameTime of last hostile ASCM launch (cooldown)
 	AllyHarpoonMag   map[string]int // allied 688 Sub-Harpoon rounds
 	EnemyRastrub     map[string]int // URPK-5 Rastrub ASW rockets
 	EnemyShipTube    map[string]int // ship torpedo tubes (UMGT-1 / SET-40)
@@ -232,6 +233,7 @@ func NewFireControl() FireControl {
 		HarpoonDestructRange: HarpoonDSTRLong,
 		EnemyMagazine:        map[string]int{},
 		EnemyASCMMag:         map[string]int{},
+		EnemyASCMLastAt:      map[string]float64{},
 		AllyHarpoonMag:       map[string]int{},
 		EnemyRastrub:         map[string]int{},
 		EnemyShipTube:        map[string]int{},
@@ -1060,17 +1062,25 @@ func (t *Torpedo) checkGrounding(bathy *world.Bathymetry, prevX, prevY float64) 
 }
 
 // validFuseTarget reports whether proximity fuse may terminate on tgt.
-// All combat/exercise fish may hit any ship or sub (including launcher side /
-// neutrals). Soft-kill decoy fish stay unarmed and never call this.
+// Combat/exercise fish may hit ships/subs (including cross-side blue-on-blue)
+// except: launching platform, and own-side surface hulls for lightweight ASW
+// fish (tube overrun / wake suicide — SET-40/UMGT-1 are not anti-ship).
 func (t *Torpedo) validFuseTarget(tgt *world.Entity) bool {
 	if t == nil || tgt == nil || !tgt.Alive() {
+		return false
+	}
+	if t.ParentSubID != "" && tgt.ID == t.ParentSubID {
+		return false
+	}
+	if t.Class == ClassUMGT1 && tgt.Kind == world.KindSurfaceShip && tgt.Side == t.Side {
 		return false
 	}
 	return tgt.Kind == world.KindSubmarine || tgt.Kind == world.KindSurfaceShip
 }
 
 // validSeekShip reports whether active search may lock a surface/sub target.
-// Countermeasures are handled separately. No IFF — acoustic lock on any hull.
+// Countermeasures are handled separately. No IFF — acoustic lock on any hull
+// except the launching platform.
 func (t *Torpedo) validSeekShip(tgt *world.Entity) bool {
 	return t.validFuseTarget(tgt)
 }
@@ -1132,12 +1142,6 @@ func (t *Torpedo) acquireInCone(targets []*world.Entity, layerAtten LayerAttenFu
 		}
 		if t.RejectedUntil != nil {
 			if until, ok := t.RejectedUntil[tgt.ID]; ok && gameTime < until {
-				continue
-			}
-		}
-		// Do not lock own launcher until safely clear (even after wire cut / pending search).
-		if tgt.ID == t.ParentSubID {
-			if d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y); d < SearchArmMinDistYd {
 				continue
 			}
 		}
@@ -1251,11 +1255,6 @@ func (t *Torpedo) maybeRejectCM(targets []*world.Entity, gameTime float64) {
 		}
 		if tgt.Kind != world.KindSubmarine && tgt.Kind != world.KindSurfaceShip {
 			continue
-		}
-		if tgt.ID == t.ParentSubID {
-			if d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y); d < SearchArmMinDistYd {
-				continue
-			}
 		}
 		d := math.Hypot(tgt.X-t.X, tgt.Y-t.Y)
 		if d > SeekAcquireRangeYd {

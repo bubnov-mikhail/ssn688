@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	blastHearYd          = 12000.0
-	blastHearMinPeakDB   = 72.0
-	torpedoAimConeDeg    = 42.0
+	// Underwater HE is audible across much of a coastal OP AREA (gameplay band).
+	blastHearYd        = 32000.0
+	blastHearMinPeakDB = 58.0
+	torpedoAimConeDeg  = 42.0
 	harpoonLaunchHearYd  = 16000.0
 	harpoonLaunchPeakDB  = 92.0
 	harpoonLaunchMinRecv = 55.0
@@ -62,29 +63,141 @@ func UpdateDefcon(ctx DefconContext) {
 	checkPlayerHarpoonThreats(ctx)
 }
 
-// NotifyDefconDetonation raises DEFCON when enemies hear an underwater blast.
-func NotifyDefconDetonation(entities []*world.Entity, env acoustics.Environment, det *weapons.Detonation, gameTime float64) {
-	if det == nil || det.SelfKill {
+// NotifyDefconDetonation raises DEFCON when combatants hear an underwater blast
+// and steers enemy + allied AI toward the acoustic datum.
+func NotifyDefconDetonation(entities []*world.Entity, player *world.Entity, env acoustics.Environment, det *weapons.Detonation, gameTime float64) {
+	if det == nil || det.SelfKill || det.SignalOnly || det.Intercepted {
 		return
 	}
 	hit := det.Hit
 	for _, ent := range entities {
-		if ent == nil || !ent.Alive() || ent.Side != world.SideEnemy {
+		if !blastReactor(ent, player) {
 			continue
+		}
+		if hit != nil && ent.ID == hit.ID {
+			continue // victim already knows
 		}
 		if !heardExplosion(env, ent, det.X, det.Y, det.DepthFt) {
 			continue
 		}
-		if hit == nil {
-			continue
-		}
-		switch hit.Side {
-		case world.SideNeutral:
-			ent.RaiseDefcon(world.DefconHostile)
-		case world.SideEnemy:
-			ent.RaiseDefcon(world.DefconWeaponsFree)
+		raiseDefconForHeardBlast(ent, hit)
+		steerTowardBlastDatum(ent, det.X, det.Y, det.DepthFt, gameTime)
+	}
+}
+
+func blastReactor(ent, player *world.Entity) bool {
+	if ent == nil || !ent.Alive() {
+		return false
+	}
+	if world.IsOwnship(ent, player) {
+		return false
+	}
+	if ent.Side == world.SideNeutral {
+		return false
+	}
+	return ent.Kind == world.KindSubmarine || ent.Kind == world.KindSurfaceShip
+}
+
+func raiseDefconForHeardBlast(ent *world.Entity, hit *world.Entity) {
+	if ent == nil {
+		return
+	}
+	// Any combat detonation in earshot → at least Hostile; friendly/own-side kill → Weapons Free.
+	ent.RaiseDefcon(world.DefconHostile)
+	if hit == nil {
+		return
+	}
+	sameSide := hit.Side == ent.Side
+	if sameSide || hit.Side == world.SideNeutral {
+		ent.RaiseDefcon(world.DefconWeaponsFree)
+	}
+	// Enemy hears allied/player hull hit → Weapons Free.
+	if ent.Side == world.SideEnemy && (hit.Side == world.SidePlayer) {
+		ent.RaiseDefcon(world.DefconWeaponsFree)
+	}
+	// Ally hears hostile hull hit → Weapons Free.
+	if world.IsFriendly(ent) && hit.Side == world.SideEnemy {
+		ent.RaiseDefcon(world.DefconWeaponsFree)
+	}
+}
+
+// steerTowardBlastDatum seeds a weak crew track on the blast and commits AI to investigate.
+func steerTowardBlastDatum(ent *world.Entity, x, y, depthFt, gameTime float64) {
+	if ent == nil || !shouldSeekBlastDatum(ent, gameTime) {
+		return
+	}
+	dist := math.Hypot(ent.X-x, ent.Y-y)
+	s := ent.CrewSkill01()
+	// Localization error grows with range; veterans stay closer to truth.
+	sigma := (0.12 + 0.22*(1-s)) * dist
+	if sigma < 200 {
+		sigma = 200
+	}
+	if sigma > 4500 {
+		sigma = 4500
+	}
+	n1 := pseudoNoise(ent.ID, gameTime, 21)
+	n2 := pseudoNoise(ent.ID, gameTime, 22)
+	estX := x + (n1*2-1)*sigma
+	estY := y + (n2*2-1)*sigma
+	estDepth := depthFt
+	if estDepth < 40 {
+		// Surface / shallow splash — keep a workable ASW search depth cue.
+		if ent.Kind == world.KindSubmarine {
+			estDepth = 120
+		} else {
+			estDepth = 60
 		}
 	}
+	ent.Track = world.AITrack{
+		Valid: true, X: estX, Y: estY, DepthFt: estDepth,
+		CourseDeg: 0, SpeedKts: 0,
+		ClassConf: 0.20 + 0.12*s, HoldSec: 2.0, UpdatedAt: gameTime,
+	}
+	ent.AIProsecuting = true
+	ent.AILostContactSec = 0
+	ent.AIEngageCooldownUntil = 0
+	markRouteInterrupted(ent)
+	ent.EnsureDamage()
+	ent.AIState = "DATUM"
+	brg := ent.Track.BearingDegFrom(ent.X, ent.Y)
+	if !ent.Damage.Destroyed(world.SysSteering) {
+		ent.OrderedHead = brg
+	}
+	spd := 10.0
+	if ent.Kind == world.KindSurfaceShip {
+		spd = 16.0
+	} else if ent.SignatureID == "yasen_m" || ent.SignatureID == "victor_iii" {
+		spd = 9.0
+	}
+	ent.OrderedSpeed = math.Min(spd, ent.MaxSpeedKts())
+	if ent.Kind == world.KindSubmarine && !ent.Damage.Destroyed(world.SysDepth) {
+		d := estDepth
+		if d < 140 {
+			d = 140
+		}
+		if d > 300 {
+			d = 300
+		}
+		// ASCM boats may already be climbing for a shot — don't yank them deep.
+		if weapons.EnemyASCMMagazineFor(ent.SignatureID) == 0 || ent.DepthFt > 100 {
+			ent.OrderedDepth = d
+		}
+	}
+}
+
+func shouldSeekBlastDatum(ent *world.Entity, gameTime float64) bool {
+	if ent == nil {
+		return false
+	}
+	if !ent.AIProsecuting || !ent.Track.Valid {
+		return true
+	}
+	// Solid live solution — don't abandon for a distant boom.
+	if ent.Track.ClassConf >= 0.35 && ent.Track.HoldSec >= 4 && gameTime-ent.Track.UpdatedAt < 20 {
+		return false
+	}
+	return true
 }
 
 func applyDefconProximity(enemy, player *world.Entity) {
@@ -105,9 +218,10 @@ func heardExplosion(env acoustics.Environment, listener *world.Entity, x, y, dep
 	if dist > blastHearYd {
 		return false
 	}
-	peak := 95.0 * (1 - dist/blastHearYd)
+	// ~20·log10 spherical spreading from a loud HE peak, plus layer/column loss.
+	peak := 112.0 - 18.0*math.Log10(math.Max(dist, 200)/200)
 	layer := env.LayerCrossingLoss(depthFt, listener.DepthFt)
-	column := env.ColumnAttenuationDB(depthFt, listener.DepthFt, 60) * 0.4
+	column := env.ColumnAttenuationDB(depthFt, listener.DepthFt, 60) * 0.35
 	recv := peak - layer - column
 	return recv >= blastHearMinPeakDB
 }

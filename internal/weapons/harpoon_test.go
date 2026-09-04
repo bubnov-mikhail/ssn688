@@ -66,13 +66,35 @@ func TestRequestOrdnanceReload(t *testing.T) {
 func TestHarpoonTargetPriority(t *testing.T) {
 	h := &HarpoonMissile{
 		Alive: true, RadarOn: true, HeadingDeg: 0, BeamHalfDeg: 45,
-		X: 0, Y: 0,
+		X: 0, Y: 0, Side: world.SidePlayer,
 	}
 	dd := &world.Entity{ID: "dd", Kind: world.KindSurfaceShip, Side: world.SideEnemy, X: 0, Y: 500, DepthFt: 0, Status: world.StatusActive}
 	civ := &world.Entity{ID: "civ", Kind: world.KindSurfaceShip, Side: world.SideNeutral, SignatureID: "merchant", X: 0, Y: 400, DepthFt: 0, Status: world.StatusActive}
 	hit := h.acquireTarget([]*world.Entity{dd, civ})
 	if hit == nil || hit.ID != "dd" {
 		t.Fatalf("expected combatant priority, got %v", hit)
+	}
+}
+
+func TestHarpoonSeekerIgnoresFriendlySide(t *testing.T) {
+	h := &HarpoonMissile{
+		Alive: true, RadarOn: true, HeadingDeg: 0, BeamHalfDeg: 45,
+		X: 0, Y: 0, Side: world.SideEnemy, ParentSubID: "rf_yasen",
+	}
+	friendly := &world.Entity{
+		ID: "rf_gorshkov", Kind: world.KindSurfaceShip, Side: world.SideEnemy,
+		X: 0, Y: 400, DepthFt: 0, Status: world.StatusActive,
+	}
+	ally := &world.Entity{
+		ID: "ally_spruance", Kind: world.KindSurfaceShip, Side: world.SidePlayer,
+		X: 0, Y: 900, DepthFt: 0, Status: world.StatusActive,
+	}
+	hit := h.acquireTarget([]*world.Entity{friendly, ally})
+	if hit == nil || hit.ID != "ally_spruance" {
+		t.Fatalf("expected lock on hostile ally, not same-side screen, got %v", hit)
+	}
+	if h.checkImpact([]*world.Entity{friendly}) != nil {
+		t.Fatal("impact must not kill same-side hull")
 	}
 }
 

@@ -75,7 +75,8 @@ func (b Bathymetry) IsSurfaceBlocked(x, y float64) bool {
 	return b.cellDepthBlocked(i, j)
 }
 
-// IsShoreBlocked is land/shoal on-chart only (chart edge is not treated as shore).
+// IsShoreBlocked reports dry land, shoal, or off-chart. Chart edge counts as
+// shore so DistanceToShoreYd / AI helm treat the playable boundary like a coast.
 func (b Bathymetry) IsShoreBlocked(x, y float64) bool {
 	if !b.Valid() {
 		return false
@@ -83,7 +84,7 @@ func (b Bathymetry) IsShoreBlocked(x, y float64) bool {
 	fx := (x - b.OriginX) / b.CellSize
 	fy := (y - b.OriginY) / b.CellSize
 	if fx < 0 || fy < 0 || fx >= float64(b.Width) || fy >= float64(b.Height) {
-		return false
+		return true
 	}
 	return b.cellDepthBlocked(int(fx), int(fy))
 }

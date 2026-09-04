@@ -63,6 +63,7 @@ func RecordMission(opt RecordOptions) (*Replay, error) {
 	}
 	eng.COMM.Extension = 1.0
 	eng.COMM.Order = acoustics.COMMMastRaise
+	forceCOMMCatchUp(eng)
 
 	title := m.Title.GetText("en")
 	if title == "" {
@@ -85,7 +86,7 @@ func RecordMission(opt RecordOptions) (*Replay, error) {
 	dt := 1.0 / sim.TickRate
 	nextSample := 0.0
 	lastPct := -1
-	inboxPrev := 0
+	inboxPrev := appendInboxDelta(eng, 0, &rep.Comm)
 	reportProgress := func(t float64) {
 		if opt.Progress == nil || opt.MaxSec <= 0 {
 			return
@@ -100,6 +101,7 @@ func RecordMission(opt RecordOptions) (*Replay, error) {
 
 	for eng.Clock.GameTime < opt.MaxSec {
 		eng.Update(dt)
+		forceCOMMCatchUp(eng)
 		inboxPrev = appendInboxDelta(eng, inboxPrev, &rep.Comm)
 		reportProgress(eng.Clock.GameTime)
 		if eng.Clock.GameTime+1e-9 >= nextSample {
@@ -111,6 +113,7 @@ func RecordMission(opt RecordOptions) (*Replay, error) {
 		rep.Frames = append(rep.Frames, snapshotFrame(eng, player))
 	}
 	rep.DurationSec = eng.Clock.GameTime
+	sortCommSnaps(rep.Comm)
 	if opt.Progress != nil {
 		opt.Progress(rep.DurationSec, opt.MaxSec)
 	}

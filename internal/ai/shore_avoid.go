@@ -84,11 +84,8 @@ func courseThreatensShore(b *world.Bathymetry, x, y, headingDeg float64) bool {
 	for d := 200.0; d <= shoreLookAheadYd; d += 200 {
 		px := x + sinH*d
 		py := y + cosH*d
-		if b.IsShoreBlocked(px, py) {
+		if b.IsShoreBlocked(px, py) || !b.OnChart(px, py) {
 			return true
-		}
-		if !b.OnChart(px, py) {
-			continue
 		}
 		if dist := b.DistanceToShoreYd(px, py); dist < minAhead {
 			minAhead = dist
