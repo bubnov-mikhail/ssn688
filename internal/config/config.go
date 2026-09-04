@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 )
 
 // Settings holds user preferences persisted between sessions.
@@ -33,12 +35,59 @@ func DefaultSettings() Settings {
 	}
 }
 
-func SettingsPath() (string, error) {
+var (
+	dataRootMu sync.RWMutex
+	dataRoot   string // Android/iOS files dir from mobile.SetDataRoot; empty on desktop
+)
+
+// SetDataRoot overrides the app data parent directory (mobile: Context.getFilesDir()).
+// Call before Load / SavesDir / ScenariosDir. Pass "" to clear.
+func SetDataRoot(dir string) {
+	dataRootMu.Lock()
+	dataRoot = filepath.Clean(dir)
+	if dataRoot == "." || dataRoot == "" {
+		dataRoot = ""
+	}
+	dataRootMu.Unlock()
+}
+
+// DataRoot returns the override set via SetDataRoot (empty if unset).
+func DataRoot() string {
+	dataRootMu.RLock()
+	defer dataRootMu.RUnlock()
+	return dataRoot
+}
+
+// appDataDir is <configRoot>/ssn688 — settings, saves, scenarios live under it.
+func appDataDir() (string, error) {
+	dataRootMu.RLock()
+	root := dataRoot
+	dataRootMu.RUnlock()
+	if root != "" {
+		return filepath.Join(root, "ssn688"), nil
+	}
+	if platform.Mobile() {
+		// ebitenmobile Activity should call SetDataRoot(getFilesDir()) early.
+		// Until then, keep writes inside a relative sandbox rather than "/".
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(cwd, "ssn688-data"), nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "ssn688", "settings.json"), nil
+	return filepath.Join(dir, "ssn688"), nil
+}
+
+func SettingsPath() (string, error) {
+	dir, err := appDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "settings.json"), nil
 }
 
 func Load() (Settings, error) {
@@ -103,18 +152,28 @@ func Save(s Settings) error {
 }
 
 func SavesDir() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := appDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "ssn688", "saves"), nil
+	return filepath.Join(dir, "saves"), nil
 }
 
-// ScenariosDir is the user folder for imported scenario JSON files.
+// ScenariosDir is the user folder for installed (imported) scenario JSON files.
 func ScenariosDir() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := appDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "ssn688", "scenarios"), nil
+	return filepath.Join(dir, "scenarios"), nil
+}
+
+// ScenarioImportDir is the inbox for mobile scenario drops (USB / share / adb).
+// Desktop import still uses the OS file picker; this folder is created for parity.
+func ScenarioImportDir() (string, error) {
+	dir, err := appDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "import"), nil
 }

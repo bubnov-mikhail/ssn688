@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -16,10 +17,21 @@ import (
 //go:embed fonts/DejaVuSans.ttf
 var uiFontTTF []byte
 
-const (
+// Logical canvas size. Desktop stays at 1600×900; mobile Layout widens ScreenW.
+var (
 	ScreenW = 1600
 	ScreenH = 900
 )
+
+// SetLogicalSize updates the logical canvas and layout-derived panel geometry.
+func SetLogicalSize(w, h int) {
+	layout.SetScreenSize(w, h)
+	if ScreenW == layout.ScreenW && ScreenH == layout.ScreenH {
+		return
+	}
+	ScreenW, ScreenH = layout.ScreenW, layout.ScreenH
+	invalidateMenuSizeCaches()
+}
 
 var (
 	once       sync.Once

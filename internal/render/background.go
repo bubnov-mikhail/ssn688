@@ -20,6 +20,13 @@ var (
 	menuBGFrame     *ebiten.Image
 )
 
+func invalidateMenuSizeCaches() {
+	menuOverlay = nil
+	menuOverlayOnce = sync.Once{}
+	menuBGFrame = nil
+	menuBGFrameOnce = sync.Once{}
+}
+
 type coverSlotKey struct {
 	srcKey string
 	w, h   int

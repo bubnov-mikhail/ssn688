@@ -14,6 +14,7 @@ import (
 	"github.com/bubnov-mikhail/ssn688/internal/audio"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 	"github.com/bubnov-mikhail/ssn688/internal/world"
 )
@@ -21,7 +22,6 @@ import (
 const (
 	spectrumScreenPanelX = 20
 	spectrumScreenPanelY = 50
-	spectrumScreenPanelW = 1260
 	spectrumScreenPanelH = 700
 
 	spectrumTableX           = 40
@@ -35,7 +35,6 @@ const (
 	spectrumColSRC           = 200
 	spectrumColCLASS         = 290
 	spectrumChartX           = 540
-	spectrumChartW           = spectrumScreenPanelX + spectrumScreenPanelW - spectrumChartX - 20
 	spectrumChartLabelInset  = 14
 	spectrumSigPanelH        = 118
 	spectrumGap              = 10
@@ -45,6 +44,12 @@ const (
 	spectrumArrayLabelX = 40
 	spectrumArrayLabelY = 106
 )
+
+func spectrumScreenPanelW() int { return spectrumPanelW() }
+
+func spectrumChartW() int {
+	return spectrumScreenPanelX + spectrumScreenPanelW() - spectrumChartX - 20
+}
 
 func spectrumTableHeight() int {
 	return spectrumTableRow*(spectrumTableVisibleRows+1) + 8
@@ -568,13 +573,13 @@ func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile wo
 	// Gray-plate row above the green Hz ruler; black reference panel below it.
 	a.drawReferenceNav(screen, navX, spectrumRefNavY(), profile, filter, offX, offY)
 	a.drawClassifyButton(screen, filter, offX, offY)
-	a.drawFreqScale(screen, chartX, refY-12, spectrumChartW)
+	a.drawFreqScale(screen, chartX, refY-12, spectrumChartW())
 	if filter == acoustics.ClassifyIndistinct {
-		render.FillRect(screen, chartX, refY, spectrumChartW, spectrumSigPanelH, cwSigPanelBG)
+		render.FillRect(screen, chartX, refY, spectrumChartW(), spectrumSigPanelH, cwSigPanelBG)
 		render.DrawText(screen, a.L(i18n.UIRefUnavailable), chartX+24, refY+spectrumSigPanelH/2, render.ColorDim, true)
 	} else {
 		refPeaks := acoustics.ProfileReferencePeaks(profile)
-		a.drawSharpSignature(screen, chartX, refY, spectrumChartW, spectrumSigPanelH, refPeaks)
+		a.drawSharpSignature(screen, chartX, refY, spectrumChartW(), spectrumSigPanelH, refPeaks)
 	}
 
 	render.DrawText(screen, fmt.Sprintf("%s %.0f°", a.L(i18n.UIContactSignalAt), bearing), chartX+spectrumChartLabelInset, obsY-18, cwSigGreenDim, true)
@@ -591,15 +596,15 @@ func (a *App) drawSpectrumChart(screen *ebiten.Image, bins []float64, profile wo
 	}
 	render.DrawText(screen, filterLbl, chartX+220, obsY-18, filterClr, true)
 	obsPeaks := acoustics.ObservedPeaksFromBins(bins)
-	a.drawFuzzySignature(screen, chartX, obsY, spectrumChartW, spectrumSigPanelH+20, obsPeaks)
-	a.drawFreqScale(screen, chartX, obsY+spectrumSigPanelH+28, spectrumChartW)
+	a.drawFuzzySignature(screen, chartX, obsY, spectrumChartW(), spectrumSigPanelH+20, obsPeaks)
+	a.drawFreqScale(screen, chartX, obsY+spectrumSigPanelH+28, spectrumChartW())
 }
 
 func (a *App) drawSpectrumPanelContent(screen *ebiten.Image, sonar *acoustics.SonarState, bins []float64, profile world.SignatureProfile, bearing float64, filter acoustics.ClassifyFilter, offX, offY int) {
-	render.DrawConsolePanel(screen, spectrumScreenPanelX+offX, spectrumScreenPanelY+offY, spectrumScreenPanelW, spectrumScreenPanelH)
+	render.DrawConsolePanel(screen, spectrumScreenPanelX+offX, spectrumScreenPanelY+offY, spectrumScreenPanelW(), spectrumScreenPanelH)
 	tableH := spectrumTableHeight()
 	render.DrawMonitor(screen, spectrumTableX+offX, spectrumTableY+offY, spectrumTableW, tableH)
-	render.DrawMonitor(screen, spectrumChartX+offX, spectrumTableY+offY, spectrumChartW, tableH)
+	render.DrawMonitor(screen, spectrumChartX+offX, spectrumTableY+offY, spectrumChartW(), tableH)
 	a.drawArraySelector(screen, sonar, spectrumArrayLabelX+offX, spectrumArrayLabelY+offY, a.cachedSpectrumArrayButtons())
 	a.drawSpectrumContactTable(screen, sonar, offX, offY)
 	a.drawSpectrumChart(screen, bins, profile, bearing, filter, offX, offY)
@@ -645,9 +650,11 @@ func (a *App) drawSpectrum(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT bearing  — ID: peri <3000 yd or 80% harmonics × 2 min"
-	if filter == acoustics.ClassifyIndistinct {
-		help = "[B] array  LEFT/RIGHT bearing  — classify locked (no clear harmonics). ID still via peri <3000 yd"
+	if !platform.Mobile() {
+		help := "[B] array  < > cycle profile  CLASSIFY  LEFT/RIGHT bearing  — ID: peri <3000 yd or 80% harmonics × 2 min"
+		if filter == acoustics.ClassifyIndistinct {
+			help = "[B] array  LEFT/RIGHT bearing  — classify locked (no clear harmonics). ID still via peri <3000 yd"
+		}
+		render.DrawText(screen, help, 40, 720, render.ColorDim, true)
 	}
-	render.DrawText(screen, help, 40, 720, render.ColorDim, true)
 }

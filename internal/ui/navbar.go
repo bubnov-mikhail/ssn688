@@ -6,6 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
@@ -96,7 +97,11 @@ func (a *App) updateNavBar() {
 	}
 	if hoverIdx >= 0 && now.Sub(a.navHoverSince) >= navTooltipDelay {
 		it := a.navItems()[hoverIdx]
-		a.navTooltip = it.Title + " — " + it.Tooltip + " (" + it.Hotkey + ")"
+		if platform.Mobile() || it.Hotkey == "" {
+			a.navTooltip = it.Title + " — " + it.Tooltip
+		} else {
+			a.navTooltip = it.Title + " — " + it.Tooltip + " (" + it.Hotkey + ")"
+		}
 	}
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && hoverIdx >= 0 {

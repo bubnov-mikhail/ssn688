@@ -23,7 +23,6 @@ import (
 const (
 	libPanelX = 20
 	libPanelY = 50
-	libPanelW = 1260
 	libPanelH = 700
 
 	libLeftX = 40
@@ -38,12 +37,16 @@ const (
 
 	libRightX = 460
 	libRightY = 118
-	libRightW = 800
 	libRightH = 580
 
 	libPhotoH = 150
 	libConVis = 12
 )
+
+func libRightW() int {
+	// Right content pane stretches with the main console; keep 20px right inset.
+	return libPanelX + libPanelW() - 20 - libRightX
+}
 
 var (
 	libraryRowsOnce  sync.Once
@@ -143,7 +146,7 @@ func (a *App) libraryDetailLines(e *libraryEntry) []detailLine {
 	if e == nil {
 		return nil
 	}
-	maxChars := libRightW/7 - 2
+	maxChars := libRightW()/7 - 2
 	var out []detailLine
 	addSection := func(title string, clr color.Color) {
 		out = append(out, detailLine{Text: title, Color: clr, Section: true})
@@ -217,7 +220,7 @@ func (a *App) updateLibraryInput() {
 		textTop := libRightY + 28 + libPhotoH + 28
 		textH := libRightY + libRightH - textTop
 		vis := max(1, textH/16)
-		if inRect(mx, my, libRightX, textTop, libRightW, textH) {
+		if inRect(mx, my, libRightX, textTop, libRightW(), textH) {
 			_, wheelY := ebiten.Wheel()
 			if math.Abs(wheelY) >= 0.01 {
 				step := int(math.Ceil(math.Abs(wheelY)))
@@ -298,7 +301,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 	rows := libraryRows()
 	catVis := libCatH / libRowH
 
-	render.DrawConsolePanel(screen, libPanelX, libPanelY, libPanelW, libPanelH)
+	render.DrawConsolePanel(screen, libPanelX, libPanelY, libPanelW(), libPanelH)
 	render.DrawScreenTitle(screen, a.L(i18n.UIThreatLibrary), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 
 	// —— Catalog table ——
@@ -371,7 +374,7 @@ func (a *App) drawLibrary(screen *ebiten.Image) {
 
 func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 	e := libraryEntryByID(a.librarySelectedID)
-	render.FillRect(screen, libRightX, libRightY, libRightW, libRightH, render.ColorPanelInset)
+	render.FillRect(screen, libRightX, libRightY, libRightW(), libRightH, render.ColorPanelInset)
 	if e == nil {
 		render.DrawText(screen, a.L(i18n.UISelectPlatform), libRightX+16, libRightY+24, render.ColorDim, true)
 		return
@@ -381,11 +384,11 @@ func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 
 	photoY := libRightY + 32
 	photo := a.libraryPhoto(e.ID)
-	render.FillRect(screen, libRightX+12, photoY, libRightW-24, libPhotoH, color.RGBA{0, 0, 0, 255})
+	render.FillRect(screen, libRightX+12, photoY, libRightW()-24, libPhotoH, color.RGBA{0, 0, 0, 255})
 	if photo != nil {
 		pw, ph := photo.Bounds().Dx(), photo.Bounds().Dy()
 		if pw > 0 && ph > 0 {
-			boxW := float64(libRightW - 24)
+			boxW := float64(libRightW() - 24)
 			boxH := float64(libPhotoH)
 			scale := math.Min(boxW/float64(pw), boxH/float64(ph))
 			op := &ebiten.DrawImageOptions{}
@@ -397,7 +400,7 @@ func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 			screen.DrawImage(photo, op)
 		}
 	} else {
-		render.DrawText(screen, a.L(i18n.UINoImage), libRightX+libRightW/2-40, photoY+libPhotoH/2, render.ColorDim, true)
+		render.DrawText(screen, a.L(i18n.UINoImage), libRightX+libRightW()/2-40, photoY+libPhotoH/2, render.ColorDim, true)
 	}
 
 	textTop := photoY + libPhotoH + 16
@@ -416,7 +419,7 @@ func (a *App) drawLibraryDetail(screen *ebiten.Image) {
 		render.DrawText(screen, ln.Text, libRightX+14, y, clr, true)
 		y += 16
 	}
-	drawContactTableScrollbar(screen, libRightX+libRightW-6, textTop, textH, len(lines), vis, a.libraryDetailScroll)
+	drawContactTableScrollbar(screen, libRightX+libRightW()-6, textTop, textH, len(lines), vis, a.libraryDetailScroll)
 }
 
 // fitTextSmall truncates s with "..." so its small-face width fits maxPx (UTF-8 safe).

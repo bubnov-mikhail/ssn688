@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"github.com/bubnov-mikhail/ssn688/internal/appicon"
 	"github.com/bubnov-mikhail/ssn688/internal/audio"
 	"github.com/bubnov-mikhail/ssn688/internal/config"
+	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 	"github.com/bubnov-mikhail/ssn688/internal/ui"
 	"github.com/bubnov-mikhail/ssn688/internal/version"
@@ -41,6 +44,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
+	if !platform.Mobile() {
+		return render.ScreenW, render.ScreenH
+	}
+	// Landscape logical canvas: fixed design height, width from device aspect.
+	w, h := outsideWidth, outsideHeight
+	if h > w {
+		w, h = h, w
+	}
+	if h < 1 {
+		h = 1
+	}
+	logicalH := layout.BaseScreenH
+	logicalW := int(math.Round(float64(logicalH) * float64(w) / float64(h)))
+	render.SetLogicalSize(logicalW, logicalH)
 	return render.ScreenW, render.ScreenH
 }
 
@@ -101,7 +118,14 @@ func main() {
 
 	ebiten.SetWindowTitle(version.Title)
 	ebiten.SetWindowSize(settings.WindowWidth, settings.WindowHeight)
-	ebiten.SetFullscreen(settings.Fullscreen)
+	if platform.NativeMobile() {
+		ebiten.SetFullscreen(true)
+	} else {
+		ebiten.SetFullscreen(settings.Fullscreen)
+	}
+	if platform.Mobile() {
+		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	}
 	ebiten.SetVsyncEnabled(true)
 	ebiten.SetScreenClearedEveryFrame(true)
 	ebiten.SetScreenFilterEnabled(false)

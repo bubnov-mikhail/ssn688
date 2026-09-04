@@ -1,4 +1,4 @@
-# Build desktop binaries and publish a GitHub Release.
+# Build desktop binaries + Android debug APK and publish a GitHub Release.
 #
 # Triggers:
 #   - Push tag v* (e.g. git tag v1.0.0 && git push origin v1.0.0)
@@ -9,6 +9,7 @@
 #   ssn688-1.0.0-linux-amd64
 #   ssn688-1.0.0-windows-amd64.exe
 #   ssn688-1.0.0-windows-386.exe
+#   ssn688-1.0.0-android-debug.apk
 name: Release
 
 on:
@@ -158,8 +159,53 @@ jobs:
           path: dist/ssn688-${{ matrix.platform }}*
           if-no-files-found: error
 
+  build-android:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform / build-tools / NDK
+        env:
+          NDK_VERSION: "26.3.11579264"
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          ls -la "${ANDROID_HOME}/ndk/${NDK_VERSION}"
+
+      - name: Install ebitenmobile
+        run: go install github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@latest
+
+      - name: Build debug APK
+        run: bash scripts/build_android_debug.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-android
+          path: dist/ssn688-android-debug.apk
+          if-no-files-found: error
+
   release:
-    needs: [version, build]
+    needs: [version, build, build-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -172,12 +218,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # artifacts/bin-<platform>/ssn688-<platform>[.exe]
+          # artifacts/bin-<platform>/ssn688-<platform>[.exe|.zip|.apk]
           for dir in artifacts/bin-*; do
             platform="${dir#artifacts/bin-}"
             src="$(find "$dir" -type f | head -n 1)"
             base="$(basename "$src")"
             # ssn688-macos-arm64 -> ssn688-1.0.0-macos-arm64
+            # ssn688-android-debug.apk -> ssn688-1.0.0-android-debug.apk
             out="dist/${base/ssn688-/ssn688-${VERSION}-}"
             cp "$src" "$out"
             echo "staged $out"

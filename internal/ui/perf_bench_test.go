@@ -72,7 +72,7 @@ func BenchmarkTacticalBathyRaster(b *testing.B) {
 	bathy := a.Engine.Scenario.Bathy
 	mapX := tacticalPanelX + 8
 	mapY := tacticalPanelY + 40
-	mapW := tacticalPanelW - 16
+	mapW := tacticalPanelW() - 16
 	mapH := tacticalPanelH - 52
 	cx, cy := a.tacticalViewCenter()
 	view := tacticalMapView{mapX, mapY, mapW, mapH, cx, cy, a.tactical.zoom}

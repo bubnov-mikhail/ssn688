@@ -12,6 +12,7 @@ import (
 	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
 	"github.com/bubnov-mikhail/ssn688/internal/audio"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 	"github.com/bubnov-mikhail/ssn688/internal/weapons"
 	"github.com/bubnov-mikhail/ssn688/internal/world"
@@ -20,7 +21,6 @@ import (
 const (
 	tacticalPanelX = 20
 	tacticalPanelY = 50
-	tacticalPanelW = 1260
 	tacticalPanelH = 700
 
 	tacticalMapTopPad    = 40
@@ -37,7 +37,7 @@ const (
 
 func tacticalMapRect() (x, y, w, h int) {
 	return tacticalPanelX + 8, tacticalPanelY + tacticalMapTopPad,
-		tacticalPanelW - 16, tacticalPanelH - tacticalMapTopPad - tacticalMapBottomPad
+		tacticalPanelW() - 16, tacticalPanelH - tacticalMapTopPad - tacticalMapBottomPad
 }
 
 var tacticalRulerColor = color.RGBA{255, 255, 255, 230}
@@ -118,6 +118,9 @@ type tacticalState struct {
 	panDragging        bool
 	panLastMX          int
 	panLastMY          int
+	pinchActive        bool
+	pinchPrevDist      float64
+	touchIDs           []ebiten.TouchID
 	smoothedPos        map[string]smoothedContactPos
 	smoothAliveScratch map[string]bool
 	fitPending         bool
@@ -199,6 +202,24 @@ func (a *App) updateTacticalUI() {
 	}
 	rulerHeld := a.tactical.rulerActive && ebiten.IsKeyPressed(ebiten.KeyR)
 
+	if platform.Mobile() {
+		a.updateTacticalMobileGestures(mx, my, inMap, mapX, mapY, mapW, mapH, player, sonar, rulerHeld)
+	} else {
+		a.updateTacticalDesktopGestures(mx, my, inMap, player, sonar, rulerHeld)
+	}
+
+	_, wheelY := ebiten.Wheel()
+	if wheelY != 0 && inMap {
+		a.tacticalZoomAtScreen(mx, my, player, wheelY > 0)
+	}
+
+	if a.tactical.fitPending {
+		a.tacticalFitAll()
+		a.tactical.fitPending = false
+	}
+}
+
+func (a *App) updateTacticalDesktopGestures(mx, my int, inMap bool, player *world.Entity, sonar *acoustics.SonarState, rulerHeld bool) {
 	// Middle mouse (wheel click) — pan. RMB also pans.
 	panHeld := (ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight)) && inMap
 	if panHeld {
@@ -253,39 +274,111 @@ func (a *App) updateTacticalUI() {
 				}
 			}
 		} else if a.tactical.courseArmed {
-			// Click without drag — prefer chart markers, then contacts.
-			if m := a.tacticalMarkerAt(mx, my); m != nil {
-				a.selectedPlotMarkerID = m.ID
-				a.selectedContactID = ""
-				a.Statusf(i18n.StatusMarkerSelected, m.ID)
-			} else if c := a.tacticalContactAt(mx, my); c != nil {
-				a.selectContact(sonar, c)
-				a.Statusf(i18n.StatusContactSelected, contactLongLabel(c))
-			} else {
-				a.selectedPlotMarkerID = ""
-			}
+			a.tacticalSelectAt(mx, my, sonar)
 		}
 		a.tactical.courseArmed = false
 		a.tactical.courseDragging = false
 	}
+}
 
-	_, wheelY := ebiten.Wheel()
-	if wheelY != 0 && inMap {
-		wx, wy := a.tacticalScreenToWorld(mx, my)
-		if wheelY > 0 {
-			a.tactical.zoom = math.Min(tacticalZoomMax, a.tactical.zoom*tacticalZoomStep)
-		} else {
-			a.tactical.zoom = math.Max(tacticalZoomMin, a.tactical.zoom/tacticalZoomStep)
+// updateTacticalMobileGestures: one-finger drag pans the map (no course-by-drag);
+// tap selects; two-finger pinch zooms about the midpoint.
+func (a *App) updateTacticalMobileGestures(mx, my int, inMap bool, mapX, mapY, mapW, mapH int, player *world.Entity, sonar *acoustics.SonarState, rulerHeld bool) {
+	a.tactical.courseDragging = false
+
+	a.tactical.touchIDs = ebiten.AppendTouchIDs(a.tactical.touchIDs[:0])
+	nTouch := len(a.tactical.touchIDs)
+
+	if nTouch >= 2 {
+		a.tactical.courseArmed = false
+		a.tactical.panDragging = false
+		id1, id2 := a.tactical.touchIDs[0], a.tactical.touchIDs[1]
+		x1, y1 := ebiten.TouchPosition(id1)
+		x2, y2 := ebiten.TouchPosition(id2)
+		dist := math.Hypot(float64(x2-x1), float64(y2-y1))
+		midX := (x1 + x2) / 2
+		midY := (y1 + y2) / 2
+		if !a.tactical.pinchActive {
+			a.tactical.pinchActive = true
+			a.tactical.pinchPrevDist = dist
+			return
 		}
-		mapX, mapY, mapW, mapH := tacticalMapRect()
-		a.tactical.panX = wx - player.X - (float64(mx)-float64(mapX+mapW/2))/a.tactical.zoom
-		a.tactical.panY = wy - player.Y + (float64(my)-float64(mapY+mapH/2))/a.tactical.zoom
+		if a.tactical.pinchPrevDist > 1 && dist > 1 {
+			factor := dist / a.tactical.pinchPrevDist
+			oldZoom := a.tactical.zoom
+			newZoom := math.Min(tacticalZoomMax, math.Max(tacticalZoomMin, oldZoom*factor))
+			if newZoom != oldZoom && inRect(midX, midY, mapX, mapY, mapW, mapH) {
+				wx, wy := a.tacticalScreenToWorld(midX, midY)
+				a.tactical.zoom = newZoom
+				a.tactical.panX = wx - player.X - (float64(midX)-float64(mapX+mapW/2))/a.tactical.zoom
+				a.tactical.panY = wy - player.Y + (float64(midY)-float64(mapY+mapH/2))/a.tactical.zoom
+			} else {
+				a.tactical.zoom = newZoom
+			}
+		}
+		a.tactical.pinchPrevDist = dist
+		return
+	}
+	a.tactical.pinchActive = false
+
+	if rulerHeld {
+		return
 	}
 
-	if a.tactical.fitPending {
-		a.tacticalFitAll()
-		a.tactical.fitPending = false
+	// Single finger / synthesized mouse: drag pans; short tap selects.
+	lmb := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && inMap {
+		a.tactical.courseArmed = true
+		a.tactical.panDragging = false
+		a.tactical.coursePressMX, a.tactical.coursePressMY = mx, my
+		a.tactical.panLastMX, a.tactical.panLastMY = mx, my
 	}
+	if a.tactical.courseArmed && lmb {
+		dx := mx - a.tactical.coursePressMX
+		dy := my - a.tactical.coursePressMY
+		if !a.tactical.panDragging && dx*dx+dy*dy >= tacticalCourseDragPx*tacticalCourseDragPx {
+			a.tactical.panDragging = true
+		}
+		if a.tactical.panDragging {
+			pdx := mx - a.tactical.panLastMX
+			pdy := my - a.tactical.panLastMY
+			a.tactical.panX -= float64(pdx) / a.tactical.zoom
+			a.tactical.panY += float64(pdy) / a.tactical.zoom
+			a.tactical.panLastMX, a.tactical.panLastMY = mx, my
+		}
+	}
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && a.tactical.courseArmed {
+		if !a.tactical.panDragging {
+			a.tacticalSelectAt(mx, my, sonar)
+		}
+		a.tactical.courseArmed = false
+		a.tactical.panDragging = false
+	}
+}
+
+func (a *App) tacticalSelectAt(mx, my int, sonar *acoustics.SonarState) {
+	if m := a.tacticalMarkerAt(mx, my); m != nil {
+		a.selectedPlotMarkerID = m.ID
+		a.selectedContactID = ""
+		a.Statusf(i18n.StatusMarkerSelected, m.ID)
+	} else if c := a.tacticalContactAt(mx, my); c != nil {
+		a.selectContact(sonar, c)
+		a.Statusf(i18n.StatusContactSelected, contactLongLabel(c))
+	} else {
+		a.selectedPlotMarkerID = ""
+	}
+}
+
+func (a *App) tacticalZoomAtScreen(mx, my int, player *world.Entity, zoomIn bool) {
+	wx, wy := a.tacticalScreenToWorld(mx, my)
+	if zoomIn {
+		a.tactical.zoom = math.Min(tacticalZoomMax, a.tactical.zoom*tacticalZoomStep)
+	} else {
+		a.tactical.zoom = math.Max(tacticalZoomMin, a.tactical.zoom/tacticalZoomStep)
+	}
+	mapX, mapY, mapW, mapH := tacticalMapRect()
+	a.tactical.panX = wx - player.X - (float64(mx)-float64(mapX+mapW/2))/a.tactical.zoom
+	a.tactical.panY = wy - player.Y + (float64(my)-float64(mapY+mapH/2))/a.tactical.zoom
 }
 
 func (a *App) tacticalContactAt(mx, my int) *acoustics.Contact {
@@ -384,7 +477,7 @@ func (a *App) tacticalButtons() []uiButton {
 	const inset = 8
 	const gap = 6
 	y := tacticalPanelY + inset
-	right := tacticalPanelX + tacticalPanelW - inset
+	right := tacticalPanelX + tacticalPanelW() - inset
 	btns := []uiButton{
 		{ID: "tac_zoom_in", Label: "+", Tooltip: "Zoom in", Y: y, H: 28},
 		{ID: "tac_zoom_out", Label: "-", Tooltip: "Zoom out", Y: y, H: 28},
@@ -602,7 +695,7 @@ func contactDisplaySide(c *acoustics.Contact) world.Side {
 
 func (a *App) drawTactical(screen *ebiten.Image) {
 	a.ensureTactical()
-	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW, tacticalPanelH)
+	render.DrawConsolePanel(screen, tacticalPanelX, tacticalPanelY, tacticalPanelW(), tacticalPanelH)
 	title := a.L(i18n.UITitlePlot)
 	if a.Settings.Debug {
 		title = a.L(i18n.UITitlePlot) + " · DEBUG"
@@ -621,9 +714,11 @@ func (a *App) drawTactical(screen *ebiten.Image) {
 		showChrome:    true,
 		debugOverlay:  a.Settings.Debug,
 	})
-	render.DrawText(screen,
-		"LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom",
-		mapX+4, mapY+mapH+18, render.ColorPlateLabel, true)
+	help := a.L(i18n.UIPlotHelpDesktop)
+	if platform.Mobile() {
+		help = a.L(i18n.UIPlotHelpMobile)
+	}
+	render.DrawText(screen, help, mapX+4, mapY+mapH+18, render.ColorPlateLabel, true)
 
 	if a.uiTooltip != "" {
 		mx, my := ebiten.CursorPosition()

@@ -12,6 +12,7 @@ import (
 	"github.com/bubnov-mikhail/ssn688/internal/acoustics"
 	"github.com/bubnov-mikhail/ssn688/internal/audio"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 	"github.com/bubnov-mikhail/ssn688/internal/weapons"
 	"github.com/bubnov-mikhail/ssn688/internal/world"
@@ -20,7 +21,6 @@ import (
 const (
 	wepsPanelX = 20
 	wepsPanelY = 50
-	wepsPanelW = 1260
 	wepsPanelH = 700
 
 	wepsLeftX = 36
@@ -28,7 +28,6 @@ const (
 
 	wepsMapX = 520
 	wepsMapY = 100
-	wepsMapW = 740
 	wepsMapH = 590
 
 	wepsTubeY0   = 124
@@ -45,6 +44,11 @@ const (
 	wepsTargetsH   = 288
 	wepsTargetsRow = 22
 )
+
+func wepsMapW() int {
+	// Map fills the remainder of the WEPS console to the right inset.
+	return wepsPanelX + wepsPanelW() - 20 - wepsMapX
+}
 
 type wepsCtrlMode int
 
@@ -684,7 +688,7 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	fc := &a.Engine.FireControl
 	sonar := &a.Engine.Sonar
 	gt := a.Engine.Clock.GameTime
-	render.DrawConsolePanel(screen, wepsPanelX, wepsPanelY, wepsPanelW, wepsPanelH)
+	render.DrawConsolePanel(screen, wepsPanelX, wepsPanelY, wepsPanelW(), wepsPanelH)
 	render.DrawScreenTitle(screen, a.L(i18n.UITitleWeps), wepsLeftX, 78)
 	render.DrawText(screen, a.Lf(i18n.UIMagazine, fc.MagazineLeft, fc.HarpoonMagLeft), wepsLeftX, 100, render.ColorPlateLabel, true)
 
@@ -754,11 +758,13 @@ func (a *App) drawFireControl(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	help := "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  [D] depth  [S] speed  [H] seek  [W] cut  [X] S/D"
-	if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
-		help = "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  — BEAM / SRCH / DSTR set seeker profile"
+	if !platform.Mobile() {
+		help := "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  [D] depth  [S] speed  [H] seek  [W] cut  [X] S/D"
+		if mode, _ := a.wepsControlMode(fc); mode == wepsCtrlHarpoonPrep {
+			help = "[1-4] tube  [O/C] door  [ENTER] fire  [G/←→] course  — BEAM / SRCH / DSTR set seeker profile"
+		}
+		render.DrawText(screen, help, wepsLeftX, wepsPanelY+wepsPanelH-16, render.ColorDim, true)
 	}
-	render.DrawText(screen, help, wepsLeftX, wepsPanelY+wepsPanelH-16, render.ColorDim, true)
 }
 
 func (a *App) drawWepsControlPanel(screen *ebiten.Image, fc *weapons.FireControl, mx, my int) {
@@ -1075,7 +1081,7 @@ func (a *App) wepsFitSelectedContact() {
 		return
 	}
 	rng := math.Max(1200, c.EstimatedRangeYd)
-	usable := math.Min(float64(wepsMapW), float64(wepsMapH)) - 80
+	usable := math.Min(float64(wepsMapW()), float64(wepsMapH)) - 80
 	zoom := usable / (rng * 2.35)
 	if zoom < 0.015 {
 		zoom = 0.015
@@ -1087,9 +1093,9 @@ func (a *App) wepsFitSelectedContact() {
 }
 
 func (a *App) ensureWepsMapImg() *ebiten.Image {
-	if a.wepsMapImg == nil || a.wepsMapImg.Bounds().Dx() != wepsMapW || a.wepsMapImg.Bounds().Dy() != wepsMapH {
+	if a.wepsMapImg == nil || a.wepsMapImg.Bounds().Dx() != wepsMapW() || a.wepsMapImg.Bounds().Dy() != wepsMapH {
 		disposeImage(&a.wepsMapImg)
-		a.wepsMapImg = ebiten.NewImage(wepsMapW, wepsMapH)
+		a.wepsMapImg = ebiten.NewImage(wepsMapW(), wepsMapH)
 	}
 	return a.wepsMapImg
 }
@@ -1097,23 +1103,23 @@ func (a *App) ensureWepsMapImg() *ebiten.Image {
 func (a *App) drawWepsMap(screen *ebiten.Image, sonar *acoustics.SonarState, fish *weapons.Torpedo, harp *weapons.HarpoonMissile) {
 	fc := &a.Engine.FireControl
 	render.DrawText(screen, a.L(i18n.UITacticalMap), wepsMapX, 86, render.ColorPlateLabel, true)
-	render.DrawMonitor(screen, wepsMapX, wepsMapY, wepsMapW, wepsMapH)
+	render.DrawMonitor(screen, wepsMapX, wepsMapY, wepsMapW(), wepsMapH)
 	mapBorder := color.RGBA{78, 78, 84, 255}
-	render.FillRect(screen, wepsMapX, wepsMapY, wepsMapW, 1, mapBorder)
-	render.FillRect(screen, wepsMapX, wepsMapY+wepsMapH-1, wepsMapW, 1, mapBorder)
+	render.FillRect(screen, wepsMapX, wepsMapY, wepsMapW(), 1, mapBorder)
+	render.FillRect(screen, wepsMapX, wepsMapY+wepsMapH-1, wepsMapW(), 1, mapBorder)
 	render.FillRect(screen, wepsMapX, wepsMapY, 1, wepsMapH, mapBorder)
-	render.FillRect(screen, wepsMapX+wepsMapW-1, wepsMapY, 1, wepsMapH, mapBorder)
+	render.FillRect(screen, wepsMapX+wepsMapW()-1, wepsMapY, 1, wepsMapH, mapBorder)
 
 	img := a.ensureWepsMapImg()
 	img.Fill(color.RGBA{4, 18, 28, 255})
 
 	player := a.Engine.Scenario.Player
-	px := float64(wepsMapW) / 2
+	px := float64(wepsMapW()) / 2
 	py := float64(wepsMapH) / 2
 	ringLabelClr := color.RGBA{120, 175, 158, 220}
 	for _, rYd := range []float64{1000, 2000, 4000, 8000} {
 		rad := rYd * a.wepsMapZoom
-		if rad > 20 && rad < float64(wepsMapW)/2 {
+		if rad > 20 && rad < float64(wepsMapW())/2 {
 			drawCircle(img, px, py, rad, color.RGBA{100, 155, 140, 175})
 			drawMapRangeRingLabel(img, px, py, rad, rYd, ringLabelClr)
 		}
@@ -1218,7 +1224,7 @@ func wepsMapMarkerInside(sx, sy float64) bool {
 		bottom = 14
 	)
 	return sx >= left && sy >= top &&
-		sx <= float64(wepsMapW)-right &&
+		sx <= float64(wepsMapW())-right &&
 		sy <= float64(wepsMapH)-bottom
 }
 

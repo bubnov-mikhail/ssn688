@@ -34,7 +34,7 @@ func init() {
 func mastPeriscopeViewRectStatic() (x, y, w, h int) {
 	x = mastMainX + 20
 	y = mastPeriY + 68
-	w = mastMainW - 40
+	w = mastMainW() - 40
 	h = (mastMainY + mastMainH) - y - 12
 	if h < 120 {
 		h = 120

@@ -19,15 +19,12 @@ import (
 const (
 	mastPanelX = 20
 	mastPanelY = 50
-	mastPanelW = 1260
 	mastPanelH = 700
 
 	mastMainX = mastPanelX + 16
 	mastMainY = mastPanelY + 66 // below title + sea-state subtitle
-	mastMainW = 820
 	mastMainH = 602
 
-	mastSideX = mastMainX + mastMainW + 16
 	mastSideY = mastMainY
 	mastSideW = 380
 	mastSideH = 602
@@ -40,6 +37,14 @@ const (
 	// SAFE label is drawn at mastIllumY+h+14 — keep peri below that.
 	mastPeriY = mastIllumY + 58
 )
+
+func mastMainW() int {
+	// Desktop baseline main=820 at panelW=1260; extra width goes into the strips.
+	const basePanel, baseMain = 1260, 820
+	return baseMain + (mastPanelW() - basePanel)
+}
+
+func mastSideX() int { return mastMainX + mastMainW() + 16 }
 
 func (a *App) updateMastUI() {
 	if a.Engine == nil || a.Engine.Scenario == nil || a.Engine.Scenario.Player == nil {
@@ -92,7 +97,7 @@ const mastESMRFRowH = 22
 
 func (a *App) mastESMRFTableRect() (x, y, w, h, maxRows int) {
 	tableY := mastSideY + (mastSideH*3)/5
-	x = mastSideX + 8
+	x = mastSideX() + 8
 	y = tableY + 48
 	w = mastSideW - 16
 	maxRows = (mastSideY + mastSideH - 20 - y) / mastESMRFRowH
@@ -156,7 +161,7 @@ func (a *App) localizeWeather(w world.Weather) string {
 
 func (a *App) mastButtons() []uiButton {
 	y := mastCtrlY
-	cx := mastSideX + 14
+	cx := mastSideX() + 14
 	cy := mastSideY + 56
 	py := mastPeriY + 28
 	px := mastMainX + 20
@@ -282,7 +287,7 @@ func (a *App) playMastRaiseDenied(reason string) {
 }
 
 func (a *App) drawMast(screen *ebiten.Image) {
-	render.DrawConsolePanel(screen, mastPanelX, mastPanelY, mastPanelW, mastPanelH)
+	render.DrawConsolePanel(screen, mastPanelX, mastPanelY, mastPanelW(), mastPanelH)
 	render.DrawScreenTitle(screen, a.L(i18n.UITitleMast), mastPanelX+20, mastPanelY+28)
 
 	weather := world.WeatherLight
@@ -311,7 +316,7 @@ func (a *App) drawMastPlate(screen *ebiten.Image, x, y, w, h int, title string) 
 }
 
 func (a *App) drawMastMainPlate(screen *ebiten.Image) {
-	a.drawMastPlate(screen, mastMainX, mastMainY, mastMainW, mastMainH, a.L(i18n.UIESMSuite))
+	a.drawMastPlate(screen, mastMainX, mastMainY, mastMainW(), mastMainH, a.L(i18n.UIESMSuite))
 
 	if a.Engine == nil {
 		return
@@ -341,7 +346,7 @@ func (a *App) drawMastMainPlate(screen *ebiten.Image) {
 
 	// Bearing heat strip (000 center).
 	stripX := mastMainX + 20
-	stripW := mastMainW - 40
+	stripW := mastMainW() - 40
 	a.drawESMBearingStrip(screen, stripX, mastStripY, stripW, mastStripH)
 
 	// Controls (ESM only — COMM lives on the side plate).
@@ -365,7 +370,7 @@ func (a *App) drawMastMainPlate(screen *ebiten.Image) {
 		render.DrawBevelButton(screen, b.X, b.Y, b.W, b.H, b.Label, hover, pressed)
 	}
 
-	a.drawESMIlluminationBar(screen, mastMainX+20, mastIllumY, mastMainW-40, 28, esm.MaxIllumination)
+	a.drawESMIlluminationBar(screen, mastMainX+20, mastIllumY, mastMainW()-40, 28, esm.MaxIllumination)
 	a.drawPeriscopeBlock(screen)
 }
 
@@ -438,7 +443,7 @@ func (a *App) drawPeriscopeBlock(screen *ebiten.Image) {
 func (a *App) mastPeriscopeViewRect() (x, y, w, h int) {
 	x = mastMainX + 20
 	y = mastPeriY + 68
-	w = mastMainW - 40
+	w = mastMainW() - 40
 	h = (mastMainY + mastMainH) - y - 12
 	if h < 120 {
 		h = 120
@@ -611,7 +616,7 @@ func (a *App) drawESMIlluminationBar(screen *ebiten.Image, x, y, w, h int, illum
 
 func (a *App) mastCommMessageRect() (x, y, w, h int) {
 	tableY := mastSideY + (mastSideH*3)/5
-	x = mastSideX + 12
+	x = mastSideX() + 12
 	// Below COMM buttons (y=56, h=32) with a small gap — no TRAFFIC label.
 	y = mastSideY + 56 + 32 + 10
 	w = mastSideW - 24
@@ -645,7 +650,7 @@ func (a *App) mastCommMessageLines() []render.MDLine {
 }
 
 func (a *App) drawMastSidePlate(screen *ebiten.Image) {
-	a.drawMastPlate(screen, mastSideX, mastSideY, mastSideW, mastSideH, a.L(i18n.UICOMContacts))
+	a.drawMastPlate(screen, mastSideX(), mastSideY, mastSideW, mastSideH, a.L(i18n.UICOMContacts))
 
 	if a.Engine == nil {
 		return
@@ -655,7 +660,7 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	gt := a.Engine.Clock.GameTime
 	player := a.Engine.Scenario.Player
 	player.EnsureDamage()
-	wx := mastSideX + 14
+	wx := mastSideX() + 14
 
 	// —— COMM mast header ——
 	status := a.L(i18n.UIStowed)
@@ -726,7 +731,7 @@ func (a *App) drawMastSidePlate(screen *ebiten.Image) {
 	tableY := mastSideY + (mastSideH*3)/5
 	render.DrawText(screen, a.L(i18n.UIRFLog), wx, tableY-28, render.ColorPhosphorDim, true)
 	render.DrawText(screen, a.L(i18n.UIEQIPHint), wx, tableY-12, render.ColorDim, true)
-	render.DrawLine(screen, float64(mastSideX+8), float64(tableY), float64(mastSideX+mastSideW-8), float64(tableY), color.RGBA{78, 78, 84, 255})
+	render.DrawLine(screen, float64(mastSideX()+8), float64(tableY), float64(mastSideX()+mastSideW-8), float64(tableY), color.RGBA{78, 78, 84, 255})
 	render.DrawText(screen, a.L(i18n.UIColID), wx, tableY+18, render.ColorPhosphorDim, true)
 	render.DrawText(screen, a.L(i18n.UIColBRG), wx+36, tableY+18, render.ColorPhosphorDim, true)
 	render.DrawText(screen, a.L(i18n.UIColSRC), wx+72, tableY+18, render.ColorPhosphorDim, true)

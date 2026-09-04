@@ -16,34 +16,7 @@ import (
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
-const (
-	activePanelX            = 20
-	activePanelY            = 50
-	activePanelW            = 900
-	activeSideX             = 940
-	activeSideY             = 50
-	activeSideW             = 340
-	activeControlsX         = 960
-	activeSideLabelY        = 56
-	activeControlsY         = 90
-	activeControlLabelW     = 90
-	activeControlBtnX       = activeControlsX + activeControlLabelW
-	activePingRowY          = activeControlsY + 88
-	activePowerRowY         = activePingRowY + 36
-	activeRangeScaleY       = activePowerRowY + 40
-	activeListY             = 318
-	activeListVisibleRows   = 17
-	activePlotX             = 40
-	activePlotY             = 152
-	activePlotW             = 860
-	activePlotH             = 528
-	activeEchoMarkerFadeSec = acoustics.ActiveFixHoldSec // dissolve time; matches tactical active-fix hold
-	activeFlashCrossMin     = 5.0
-	activeFlashCrossMax     = 11.0
-	activePlotBgR           = 0
-	activePlotBgG           = 2
-	activePlotBgB           = 16
-)
+const activeEchoMarkerFadeSec = acoustics.ActiveFixHoldSec // dissolve time; matches tactical active-fix hold
 
 // activeEchoFlash is a fixed range-bearing snapshot from one active echo return.
 type activeEchoFlash struct {
@@ -59,70 +32,79 @@ type activeEchoFlash struct {
 }
 
 var cachedActiveRangeScale struct {
-	mu   sync.Mutex
-	lang string
-	btns []sonarUIButton
+	mu     sync.Mutex
+	lang   string
+	btnX   int
+	btns   []sonarUIButton
 }
 
 var cachedActivePingInterval struct {
-	mu   sync.Mutex
-	lang string
-	btns []sonarUIButton
+	mu     sync.Mutex
+	lang   string
+	btnX   int
+	btns   []sonarUIButton
 }
 
 var cachedActivePower struct {
-	mu   sync.Mutex
-	lang string
-	btns []sonarUIButton
+	mu     sync.Mutex
+	lang   string
+	btnX   int
+	btns   []sonarUIButton
 }
 
 func (a *App) cachedActivePingIntervalButtons() []sonarUIButton {
 	lang := a.Lang()
+	btnX := activeControlBtnX()
 	cachedActivePingInterval.mu.Lock()
 	defer cachedActivePingInterval.mu.Unlock()
-	if cachedActivePingInterval.lang == lang && cachedActivePingInterval.btns != nil {
+	if cachedActivePingInterval.lang == lang && cachedActivePingInterval.btnX == btnX && cachedActivePingInterval.btns != nil {
 		return cachedActivePingInterval.btns
 	}
-	cachedActivePingInterval.btns = layoutButtonRow(activeControlBtnX, activePingRowY, 28, 4, []buttonSpec{
+	cachedActivePingInterval.btns = layoutButtonRow(btnX, activePingRowY, 28, 4, []buttonSpec{
 		{"active_ping_3", "3", "Auto ping every 3 seconds"},
 		{"active_ping_6", "6", "Auto ping every 6 seconds"},
 		{"active_ping_12", "12", "Auto ping every 12 seconds"},
 		{"active_ping_24", "24", "Auto ping every 24 seconds"},
 	})
 	cachedActivePingInterval.lang = lang
+	cachedActivePingInterval.btnX = btnX
 	return cachedActivePingInterval.btns
 }
 
 func (a *App) cachedActivePowerButtons() []sonarUIButton {
 	lang := a.Lang()
+	btnX := activeControlBtnX()
 	cachedActivePower.mu.Lock()
 	defer cachedActivePower.mu.Unlock()
-	if cachedActivePower.lang == lang && cachedActivePower.btns != nil {
+	if cachedActivePower.lang == lang && cachedActivePower.btnX == btnX && cachedActivePower.btns != nil {
 		return cachedActivePower.btns
 	}
-	cachedActivePower.btns = layoutButtonRow(activeControlBtnX, activePowerRowY, 28, 4, []buttonSpec{
+	cachedActivePower.btns = layoutButtonRow(btnX, activePowerRowY, 28, 4, []buttonSpec{
 		{"active_power_15", "15%", "Transmit power 15%"},
 		{"active_power_25", "25%", "Transmit power 25%"},
 		{"active_power_75", "75%", "Transmit power 75%"},
 		{"active_power_100", "100%", "Transmit power 100%"},
 	})
 	cachedActivePower.lang = lang
+	cachedActivePower.btnX = btnX
 	return cachedActivePower.btns
 }
 
 func (a *App) cachedActiveRangeScaleButtons() []sonarUIButton {
 	lang := a.Lang()
+	btnX := activeControlBtnX()
 	cachedActiveRangeScale.mu.Lock()
 	defer cachedActiveRangeScale.mu.Unlock()
-	if cachedActiveRangeScale.lang == lang && cachedActiveRangeScale.btns != nil {
+	if cachedActiveRangeScale.lang == lang && cachedActiveRangeScale.btnX == btnX && cachedActiveRangeScale.btns != nil {
 		return cachedActiveRangeScale.btns
 	}
-	cachedActiveRangeScale.btns = layoutButtonRow(activeControlBtnX, activeRangeScaleY, 28, 4, []buttonSpec{
+	cachedActiveRangeScale.btns = layoutButtonRow(btnX, activeRangeScaleY, 28, 4, []buttonSpec{
 		{"active_range_2k", "2k", "Range scale 2 kyd"},
 		{"active_range_6k", "6k", "Range scale 6 kyd"},
 		{"active_range_12k", "12k", "Range scale 12 kyd"},
 	})
 	cachedActiveRangeScale.lang = lang
+	cachedActiveRangeScale.btnX = btnX
 	return cachedActiveRangeScale.btns
 }
 
@@ -222,7 +204,7 @@ func (a *App) activeControlButtons(sonar *acoustics.SonarState) []sonarUIButton 
 		{"active_toggle", toggleLabel, "Enable or disable active sonar transmit mode"},
 		{"active_ping", a.L(i18n.UIPingNow), "Fire one immediate pulse (works in standby)"},
 	}
-	a.sonarBtnScratch = layoutButtonRowInto(a.sonarBtnScratch[:0], activeControlsX, activeControlsY+10, 34, 6, specs)
+	a.sonarBtnScratch = layoutButtonRowInto(a.sonarBtnScratch[:0], activeControlsX(), activeControlsY+10, 34, 6, specs)
 	btns := append(a.sonarBtnScratch, a.cachedActivePingIntervalButtons()...)
 	btns = append(btns, a.cachedActivePowerButtons()...)
 	return append(btns, a.cachedActiveRangeScaleButtons()...)
@@ -274,7 +256,7 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 	mx, my := ebiten.CursorPosition()
 	a.updateSonarTooltips(buttons, mx, my)
 	listW := activeSideW - 40
-	scrollContactTableWheel(mx, my, activeControlsX, activeListY+passiveListRow, listW, activeListVisibleRows*passiveListRow, len(sonar.Contacts), activeListVisibleRows, &a.contactTableScroll.active)
+	scrollContactTableWheel(mx, my, activeControlsX(), activeListY+passiveListRow, listW, activeListVisibleRows*passiveListRow, len(sonar.Contacts), activeListVisibleRows, &a.contactTableScroll.active)
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		for _, b := range buttons {
@@ -299,7 +281,7 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 		start, end := contactTableWindow(len(sonar.Contacts), a.contactTableScroll.active, activeListVisibleRows)
 		y := activeListY + passiveListRow
 		for i := start; i < end; i++ {
-			if mx >= activeControlsX && mx < activeControlsX+listW && my >= y && my < y+passiveListRow {
+			if mx >= activeControlsX() && mx < activeControlsX()+listW && my >= y && my < y+passiveListRow {
 				a.selectContact(sonar, &sonar.Contacts[i])
 				return
 			}
@@ -318,7 +300,7 @@ func (a *App) updateActiveScreen(sonar *acoustics.SonarState) {
 
 func (a *App) activePlotClick(sonar *acoustics.SonarState, mx, my int) bool {
 	plotX, plotY := activePlotX, activePlotY
-	if !inRect(mx, my, plotX, plotY, activePlotW, activePlotH) {
+	if !inRect(mx, my, plotX, plotY, activePlotW(), activePlotH) {
 		return false
 	}
 	lx, ly := mx-plotX, my-plotY
@@ -330,7 +312,7 @@ func (a *App) activePlotClick(sonar *acoustics.SonarState, mx, my int) bool {
 		if !activeEchoFlashVisible(f, gameTime) {
 			continue
 		}
-		px, py := a.activeFlashPlotPos(f, activePlotW, activePlotH, a.activeRangeMaxYd())
+		px, py := a.activeFlashPlotPos(f, activePlotW(), activePlotH, a.activeRangeMaxYd())
 		dx := float64(lx - px)
 		dy := float64(ly - py)
 		r := activeFlashCrossHalfLen(f.SNR) + 4
@@ -463,10 +445,10 @@ func (a *App) activeSonarButtonAction(id string, sonar *acoustics.SonarState) {
 
 func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarState) {
 	const rowBtnH = 28
-	render.DrawText(screen, a.L(i18n.UIActiveTX), activeControlsX, activeSideLabelY+12, render.ColorPlateLabel, true)
-	render.DrawText(screen, a.L(i18n.UIAutoPing), activeControlsX, render.SmallLabelBaseline(activePingRowY, rowBtnH), render.ColorPhosphorDim, true)
-	render.DrawText(screen, a.L(i18n.UIPower), activeControlsX, render.SmallLabelBaseline(activePowerRowY, rowBtnH), render.ColorPhosphorDim, true)
-	render.DrawText(screen, a.L(i18n.UIRange), activeControlsX, render.SmallLabelBaseline(activeRangeScaleY, rowBtnH), render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIActiveTX), activeControlsX(), activeSideLabelY+12, render.ColorPlateLabel, true)
+	render.DrawText(screen, a.L(i18n.UIAutoPing), activeControlsX(), render.SmallLabelBaseline(activePingRowY, rowBtnH), render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIPower), activeControlsX(), render.SmallLabelBaseline(activePowerRowY, rowBtnH), render.ColorPhosphorDim, true)
+	render.DrawText(screen, a.L(i18n.UIRange), activeControlsX(), render.SmallLabelBaseline(activeRangeScaleY, rowBtnH), render.ColorPhosphorDim, true)
 
 	mx, my := ebiten.CursorPosition()
 	buttons := a.activeControlButtons(sonar)
@@ -490,7 +472,7 @@ func (a *App) drawActiveControls(screen *ebiten.Image, sonar *acoustics.SonarSta
 }
 
 func (a *App) drawActiveContactTable(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	x, y0, w := activeControlsX, activeListY, activeSideW-40
+	x, y0, w := activeControlsX(), activeListY, activeSideW-40
 	mx, my := ebiten.CursorPosition()
 	render.FillRect(screen, x, y0, w, activeContactTableHeight(), render.ColorPanelInset)
 	render.DrawText(screen, a.L(i18n.UIContactCol), x+8, y0+16, render.ColorPhosphorDim, true)
@@ -546,7 +528,7 @@ func (a *App) activeEchoReachYd(sonar *acoustics.SonarState) float64 {
 }
 
 func (a *App) ensureActivePlotImage() {
-	w, h := activePlotW, activePlotH
+	w, h := activePlotW(), activePlotH
 	if a.activePlotImg != nil && a.activePlotImg.Bounds().Dx() == w {
 		return
 	}
@@ -559,7 +541,7 @@ func (a *App) ensureActivePlotImage() {
 }
 
 func (a *App) ensureActivePlotGrid(maxR float64) {
-	w, h := activePlotW, activePlotH
+	w, h := activePlotW(), activePlotH
 	n := w * h * 4
 	if a.activePlotGridPix != nil && len(a.activePlotGridPix) == n && a.activePlotGridScaleYd == maxR {
 		return
@@ -715,7 +697,7 @@ func (a *App) rebuildActivePlotRaster() {
 
 func (a *App) drawActiveEchoFlashes(screen *ebiten.Image, maxR float64) {
 	plotX, plotY := activePlotX, activePlotY
-	w, h := activePlotW, activePlotH
+	w, h := activePlotW(), activePlotH
 	for i := len(a.activeEchoFlashes) - 1; i >= 0; i-- {
 		f := a.activeEchoFlashes[i]
 		if f.Strength <= 0 {
@@ -736,7 +718,7 @@ func (a *App) drawActiveRangeDisplay(screen *ebiten.Image, sonar *acoustics.Sona
 	}
 	render.DrawImageAt(screen, a.activePlotImg, activePlotX, activePlotY)
 
-	x, y, w, h := activePlotX, activePlotY, activePlotW, activePlotH
+	x, y, w, h := activePlotX, activePlotY, activePlotW(), activePlotH
 	a.drawActiveEchoFlashes(screen, maxR)
 	a.drawActiveBearingRuler(screen, x, y, w, h)
 	render.DrawText(screen, a.L(i18n.UIOwn), x+w/2-14, y+h+14, render.ColorPhosphorDim, true)

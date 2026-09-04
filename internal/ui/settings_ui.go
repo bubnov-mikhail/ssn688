@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/bubnov-mikhail/ssn688/internal/config"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
@@ -364,6 +365,9 @@ func (a *App) drawSettings(screen *ebiten.Image) {
 	}
 
 	hint := a.L(i18n.UISettingsHint)
+	if platform.Mobile() {
+		hint = a.L(i18n.UISettingsHintMobile)
+	}
 	hintW := render.LabelWidth(hint)
 	if hintW < 100 {
 		hintW = len([]rune(hint)) * 7

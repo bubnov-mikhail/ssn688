@@ -12,7 +12,10 @@ var (
 	UILanguage      = T("LANGUAGE", "ЯЗЫК")
 	UIDebugPlot     = T("DEBUG PLOT", "ОТЛАДКА PLOT")
 	UISaveAndBack   = T("SAVE & BACK", "СОХРАНИТЬ")
-	UISettingsHint  = T("CLICK CONTROLS TO ADJUST  ·  ESC OR SAVE & BACK", "КЛИК ДЛЯ ИЗМЕНЕНИЯ  ·  ESC ИЛИ СОХРАНИТЬ")
+	UISettingsHint       = T("CLICK CONTROLS TO ADJUST  ·  ESC OR SAVE & BACK", "КЛИК ДЛЯ ИЗМЕНЕНИЯ  ·  ESC ИЛИ СОХРАНИТЬ")
+	UISettingsHintMobile = T("TAP CONTROLS TO ADJUST  ·  SAVE & BACK", "НАЖМИТЕ ДЛЯ ИЗМЕНЕНИЯ  ·  СОХРАНИТЬ")
+	UIPlotHelpDesktop    = T("LMB: select   LMB drag: course   Hold R: ruler   M: marker   Del: delete marker   MMB/RMB: pan   wheel: zoom", "ЛКМ: выбор   ЛКМ drag: курс   Hold R: линейка   M: маркер   Del: удалить   СКМ/ПКМ: pan   колесо: zoom")
+	UIPlotHelpMobile     = T("Tap: select   drag: pan   pinch: zoom", "Тап: выбор   перетаскивание: сдвиг карты   щипок: zoom")
 	UIOff           = T("OFF", "ВЫКЛ")
 	UIOn            = T("ON", "ВКЛ")
 

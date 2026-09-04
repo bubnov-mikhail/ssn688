@@ -14,7 +14,6 @@ import (
 const (
 	dcPanelX = 20
 	dcPanelY = 50
-	dcPanelW = 1260
 	dcPanelH = 700
 	dcRowH   = 32
 )
@@ -69,7 +68,7 @@ func (a *App) damageButtons() []uiButton {
 			ID:      fmt.Sprintf("dc_repair_%d", sys),
 			Label:   label,
 			Tooltip: tip,
-			X:       dcPanelX + dcPanelW - 160,
+			X:       dcPanelX + dcPanelW() - 160,
 			Y:       y,
 			W:       120,
 			H:       28,
@@ -101,17 +100,17 @@ func (a *App) drawDamage(screen *ebiten.Image) {
 	d := &player.Damage
 	lang := a.Lang()
 
-	render.DrawConsolePanel(screen, dcPanelX, dcPanelY, dcPanelW, dcPanelH)
+	render.DrawConsolePanel(screen, dcPanelX, dcPanelY, dcPanelW(), dcPanelH)
 	render.DrawScreenTitle(screen, a.L(i18n.UITitleDamage), dcPanelX+20, dcPanelY+28)
 	render.DrawText(screen, a.L(i18n.UIDamageHint), dcPanelX+280, dcPanelY+26, render.ColorPlateLabel, true)
 
 	headers := []string{a.L(i18n.UISystem), a.L(i18n.UIStatusCol), a.L(i18n.UIEfficiency), ""}
-	xs := []int{dcPanelX + 40, dcPanelX + 280, dcPanelX + 480, dcPanelX + dcPanelW - 160}
+	xs := []int{dcPanelX + 40, dcPanelX + 280, dcPanelX + 480, dcPanelX + dcPanelW() - 160}
 	hy := dcPanelY + 60
 	for i, h := range headers {
 		render.DrawText(screen, h, xs[i], hy, render.ColorPhosphorDim, true)
 	}
-	render.DrawLine(screen, float64(dcPanelX+30), float64(hy+8), float64(dcPanelX+dcPanelW-30), float64(hy+8), render.ColorBevelLight)
+	render.DrawLine(screen, float64(dcPanelX+30), float64(hy+8), float64(dcPanelX+dcPanelW()-30), float64(hy+8), render.ColorBevelLight)
 
 	tableY := dcPanelY + 90
 	row := 0

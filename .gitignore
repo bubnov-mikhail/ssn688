@@ -1,9 +1,9 @@
 .venv-tts/
 .tts_tmp/
-ssn688
-ssn688.exe
-ssn688-player
-ssn688-player.exe
+/ssn688
+/ssn688.exe
+/ssn688-player
+/ssn688-player.exe
 dist/
 .DS_Store
 *.test
@@ -17,3 +17,11 @@ scenarios_generated/theater_bathy/
 scenarios_generated/sim_replays/
 # 3D source meshes live under ~/ssn688/tools/vendor/ (not in-repo).
 tools/vendor/
+# Android build outputs (rebuild via scripts/build_android_debug.sh).
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/ssn688lib/build/
+mobile/android/ssn688lib/*.aar
+mobile/android/ssn688lib/*.jar
+*.apk

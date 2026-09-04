@@ -18,17 +18,9 @@ const (
 	waterfallMaxRows   = layout.WaterfallMaxRows
 	waterfallSampleSec = layout.WaterfallSampleSec
 	waterfallRowH      = layout.WaterfallRowH
-	waterfallPanelX    = layout.WaterfallPanelX
-	waterfallPanelY    = layout.WaterfallPanelY
-	waterfallPanelW    = layout.WaterfallPanelW
-	waterfallPanelH    = layout.WaterfallPanelH
 	waterfallLabelW    = layout.WaterfallLabelW
 	waterfallHeaderH   = layout.WaterfallHeaderH
 	waterfallAxisH     = layout.WaterfallAxisH
-	waterfallPlotX     = layout.WaterfallPlotX
-	waterfallPlotY     = layout.WaterfallPlotY
-	waterfallPlotW     = layout.WaterfallPlotW
-	waterfallPlotH     = layout.WaterfallPlotH
 )
 
 func waterfallMonitorRGBA() (r, g, b, a byte) {
@@ -222,7 +214,7 @@ func (a *App) scrollWaterfallPix(pix []byte, w, h int) {
 }
 
 func (a *App) ensureWaterfallImage() {
-	w, h := waterfallPlotW, waterfallPlotH
+	w, h := layout.WaterfallPlotW, layout.WaterfallPlotH
 	if a.waterfallImg == nil || a.waterfallImg.Bounds().Dx() != w || a.waterfallImg.Bounds().Dy() != h {
 		a.disposeWaterfallImages()
 		a.waterfallImg = ebiten.NewImage(w, h)
@@ -307,7 +299,7 @@ func (a *App) paintWaterfallRow(pix []byte, w, py int, row *acoustics.BearingWat
 
 func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
 	a.ensureWaterfallImage()
-	w, h := waterfallPlotW, waterfallPlotH
+	w, h := layout.WaterfallPlotW, layout.WaterfallPlotH
 	pix := a.waterfallPix
 	wf := a.bearingWaterfalls.ForArray(sonar.PassiveArray)
 	rng := a.waterfallRNG()
@@ -335,15 +327,13 @@ func (a *App) rebuildWaterfallImage(sonar *acoustics.SonarState) {
 }
 
 func (a *App) drawBearingWaterfall(screen *ebiten.Image, sonar *acoustics.SonarState) {
-	const (
-		x = waterfallPanelX
-		y = waterfallPanelY
-		h = waterfallPanelH
-	)
-	plotX := waterfallPlotX
-	plotY := waterfallPlotY
-	plotW := waterfallPlotW
-	plotH := waterfallPlotH
+	x := layout.WaterfallPanelX
+	y := layout.WaterfallPanelY
+	h := layout.WaterfallPanelH
+	plotX := layout.WaterfallPlotX
+	plotY := layout.WaterfallPlotY
+	plotW := layout.WaterfallPlotW
+	plotH := layout.WaterfallPlotH
 
 	if a.waterfallPendingScroll || a.waterfallFullRebuild || a.waterfallImg == nil || a.waterfallArray != sonar.PassiveArray {
 		a.rebuildWaterfallImage(sonar)

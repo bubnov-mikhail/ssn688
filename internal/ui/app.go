@@ -18,6 +18,7 @@ import (
 	"github.com/bubnov-mikhail/ssn688/internal/config"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
 	"github.com/bubnov-mikhail/ssn688/internal/layout"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 	"github.com/bubnov-mikhail/ssn688/internal/sim"
 	"github.com/bubnov-mikhail/ssn688/internal/weapons"
@@ -920,15 +921,17 @@ func (a *App) drawPassive(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	render.DrawText(screen, "[P] passive  [B] array  [N] listen band  [U/Y/H] towed  click contact -> spectrum", layout.PassiveHintLabelX, layout.PassiveHintLabelY+12, render.ColorPlateLabel, true)
+	if !platform.Mobile() {
+		render.DrawText(screen, "[P] passive  [B] array  [N] listen band  [U/Y/H] towed  click contact -> spectrum", layout.PassiveHintLabelX, layout.PassiveHintLabelY+12, render.ColorPlateLabel, true)
+	}
 }
 
 func (a *App) drawActive(screen *ebiten.Image) {
 	sonar := &a.Engine.Sonar
 	player := a.Engine.Scenario.Player
-	render.DrawConsolePanel(screen, activePanelX, activePanelY, activePanelW, 700)
-	render.DrawConsolePanel(screen, activeSideX, activeSideY, activeSideW, 700)
-	render.DrawMonitor(screen, activePlotX, activePlotY, activePlotW, activePlotH)
+	render.DrawConsolePanel(screen, activePanelX, activePanelY, activePanelW(), 700)
+	render.DrawConsolePanel(screen, activeSideX(), activeSideY, activeSideW, 700)
+	render.DrawMonitor(screen, activePlotX, activePlotY, activePlotW(), activePlotH)
 	render.DrawScreenTitle(screen, a.L(i18n.UITitleActive), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 	status := a.L(i18n.UIStandby)
 	statusClr := render.ColorPlateLabel
@@ -956,7 +959,9 @@ func (a *App) drawActive(screen *ebiten.Image) {
 	if a.uiTooltip != "" {
 		render.DrawTooltip(screen, mx, my, a.uiTooltip)
 	}
-	render.DrawText(screen, "[A] toggle  [F] ping  click plot / table → select contact", 40, 720, render.ColorDim, true)
+	if !platform.Mobile() {
+		render.DrawText(screen, "[A] toggle  [F] ping  click plot / table → select contact", 40, 720, render.ColorDim, true)
+	}
 }
 
 func isWeaponImpactEvent(ev string) bool {

@@ -68,6 +68,7 @@ func towedControlButtons(x, y int, lang string) []sonarUIButton {
 var cachedSonarUIButtons struct {
 	mu       sync.Mutex
 	lang     string
+	sideX    int
 	passive  []sonarUIButton
 	towed    []sonarUIButton
 	spectrum []sonarUIButton
@@ -76,9 +77,10 @@ var cachedSonarUIButtons struct {
 
 func (a *App) ensureSonarUIButtons() {
 	lang := a.Lang()
+	sideX := layout.PassiveSidePanelX
 	cachedSonarUIButtons.mu.Lock()
 	defer cachedSonarUIButtons.mu.Unlock()
-	if cachedSonarUIButtons.lang == lang && cachedSonarUIButtons.passive != nil {
+	if cachedSonarUIButtons.lang == lang && cachedSonarUIButtons.sideX == sideX && cachedSonarUIButtons.passive != nil {
 		return
 	}
 	L := func(t i18n.TranslatedText) string { return t.GetText(lang) }
@@ -90,6 +92,7 @@ func (a *App) ensureSonarUIButtons() {
 		{"band_hf", L(i18n.UITorpBand), L(i18n.UITipTorpBand)},
 	})
 	cachedSonarUIButtons.lang = lang
+	cachedSonarUIButtons.sideX = sideX
 }
 
 func (a *App) cachedPassiveArrayButtons() []sonarUIButton {

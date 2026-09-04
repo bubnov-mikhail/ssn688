@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/bubnov-mikhail/ssn688/internal/i18n"
+	"github.com/bubnov-mikhail/ssn688/internal/platform"
 	"github.com/bubnov-mikhail/ssn688/internal/render"
 )
 
@@ -148,6 +149,9 @@ func (a *App) drawLoad(screen *ebiten.Image) {
 	}
 
 	hint := "CLICK A SAVE, THEN LOAD  ·  ESC BACK"
+	if platform.Mobile() {
+		hint = "TAP A SAVE, THEN LOAD"
+	}
 	hintW := len(hint) * 7
 	render.DrawText(screen, hint, (render.ScreenW-hintW)/2, 780, render.ColorPhosphorDim, true)
 }

@@ -31,23 +31,21 @@ func (b uiButton) contains(mx, my int) bool {
 const (
 	helmPanelX = 20
 	helmPanelY = 50
-	helmPanelW = 1260
 	helmPanelH = 700
 
 	helmStationY   = 118
 	helmStationH   = 510
 	helmStationGap = 16
 
-	helmSpeedX  = 40
-	helmSpeedW  = 280
-	helmCourseX = helmSpeedX + helmSpeedW + helmStationGap // 336
-	helmCourseW = 520
-	helmDepthX  = helmCourseX + helmCourseW + helmStationGap // 872
-	helmDepthW  = 1260 - helmDepthX                          // 388
+	helmSpeedX = 40
+
+	// Base station widths at FullMainPanelW=1260 (inner content 1220).
+	helmSpeedWBase  = 280
+	helmCourseWBase = 520
+	helmInnerBase   = 1220
 
 	helmRailX = 40
 	helmRailY = 644
-	helmRailW = 1220
 	helmRailH = 86
 
 	depthGaugeW      = 90
@@ -60,13 +58,35 @@ const (
 	depthSurfaceFt   = 0.0
 	depthPeriscopeFt = depthMinOrder // ~60 ft — periscope depth
 
-	compassCX = float64(helmCourseX + helmCourseW/2) // 596
-	compassCY = float64(helmStationY + 220)          // 338
-	compassR  = 132.0
-
 	eotBtnH   = 34
 	eotBtnGap = 4
 )
+
+func helmSpeedW() int {
+	inner := helmPanelW() - 40
+	return helmSpeedWBase * inner / helmInnerBase
+}
+
+func helmCourseW() int {
+	inner := helmPanelW() - 40
+	return helmCourseWBase * inner / helmInnerBase
+}
+
+func helmCourseX() int { return helmSpeedX + helmSpeedW() + helmStationGap }
+
+func helmDepthX() int { return helmCourseX() + helmCourseW() + helmStationGap }
+
+func helmDepthW() int {
+	inner := helmPanelW() - 40
+	return inner - helmSpeedW() - helmCourseW() - 2*helmStationGap
+}
+
+func helmRailW() int { return helmPanelW() - 40 }
+
+func helmCompassCX() float64 { return float64(helmCourseX() + helmCourseW()/2) }
+func helmCompassCY() float64 { return float64(helmStationY + 220) }
+
+const compassR = 132.0
 
 // depthGaugeX / depthBtn* are centered inside the DEPTH station.
 var (
@@ -165,26 +185,28 @@ func (a *App) nudgeOrderedSpeed(player *world.Entity, delta float64) {
 
 func layoutDepthStation(btnW int) {
 	contentW := depthMarkPad + depthGaugeW + depthGaugeGap + btnW
-	pad := (helmDepthW - contentW) / 2
+	pad := (helmDepthW() - contentW) / 2
 	if pad < 10 {
 		pad = 10
 	}
-	depthGaugeX = helmDepthX + pad + depthMarkPad
+	depthGaugeX = helmDepthX() + pad + depthMarkPad
 	depthBtnX = depthGaugeX + depthGaugeW + depthGaugeGap
 	depthBtnW = btnW
 }
 
 var cachedManeuverButtons struct {
-	mu   sync.Mutex
-	lang string
-	btns []uiButton
+	mu      sync.Mutex
+	lang    string
+	panelW  int
+	btns    []uiButton
 }
 
 func (a *App) maneuverButtons() []uiButton {
 	lang := a.Lang()
+	pw := helmPanelW()
 	cachedManeuverButtons.mu.Lock()
 	defer cachedManeuverButtons.mu.Unlock()
-	if cachedManeuverButtons.lang == lang && cachedManeuverButtons.btns != nil {
+	if cachedManeuverButtons.lang == lang && cachedManeuverButtons.panelW == pw && cachedManeuverButtons.btns != nil {
 		return cachedManeuverButtons.btns
 	}
 
@@ -196,14 +218,14 @@ func (a *App) maneuverButtons() []uiButton {
 	}
 	layoutDepthStation(depColW)
 
-	eotW := helmSpeedW - 48
+	eotW := helmSpeedW() - 48
 	for _, b := range eotBells {
 		label, _ := a.eotLabelTip(b.ID)
 		if w := render.ButtonWidth(label, 12); w+8 > eotW {
 			eotW = w + 8
 		}
 	}
-	eotX := helmSpeedX + (helmSpeedW-eotW)/2
+	eotX := helmSpeedX + (helmSpeedW()-eotW)/2
 	eotTotalH := len(eotBells)*eotBtnH + (len(eotBells)-1)*eotBtnGap
 	eotTop := helmStationY + 56
 	if eotTop+eotTotalH > helmStationY+helmStationH-36 {
@@ -211,7 +233,7 @@ func (a *App) maneuverButtons() []uiButton {
 	}
 
 	hdgBtnH := 40
-	hdgY := int(compassCY+compassR) + 36
+	hdgY := int(helmCompassCY()+compassR) + 36
 
 	depTopH, depMidH, depBotH := 44, 30, 44
 	depShallowY := depthTop
@@ -224,7 +246,7 @@ func (a *App) maneuverButtons() []uiButton {
 	}
 
 	btW := render.ButtonWidth(a.L(i18n.UIBTCast), 12)
-	btX := helmRailX + helmRailW - btW - 20
+	btX := helmRailX + helmRailW() - btW - 20
 	btY := helmRailY + (helmRailH-36)/2
 
 	buttons := make([]uiButton, 0, len(eotBells)+10)
@@ -264,7 +286,7 @@ func (a *App) maneuverButtons() []uiButton {
 		}
 	}
 	hdgTotal += 6 * (len(hdgIDs) - 1)
-	x := helmCourseX + (helmCourseW-hdgTotal)/2
+	x := helmCourseX() + (helmCourseW()-hdgTotal)/2
 	for i := range buttons {
 		switch buttons[i].ID {
 		case "hdg_port10", "hdg_port", "hdg_stbd", "hdg_stbd10":
@@ -277,12 +299,13 @@ func (a *App) maneuverButtons() []uiButton {
 	}
 	cachedManeuverButtons.btns = buttons
 	cachedManeuverButtons.lang = lang
+	cachedManeuverButtons.panelW = pw
 	return cachedManeuverButtons.btns
 }
 
 func compassHeadingAt(mx, my int) (float64, bool) {
-	dx := float64(mx) - compassCX
-	dy := compassCY - float64(my)
+	dx := float64(mx) - helmCompassCX()
+	dy := helmCompassCY() - float64(my)
 	dist := math.Hypot(dx, dy)
 	if dist < 24 || dist > compassR+8 {
 		return 0, false
@@ -564,31 +587,31 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 	gt := a.Engine.Clock.GameTime
 	_ = a.maneuverButtons() // ensure depth layout vars are initialized
 
-	render.DrawConsolePanel(screen, helmPanelX, helmPanelY, helmPanelW, helmPanelH)
+	render.DrawConsolePanel(screen, helmPanelX, helmPanelY, helmPanelW(), helmPanelH)
 	render.DrawScreenTitle(screen, a.L(i18n.UITitleHelm), layout.PassiveTitleLabelX, layout.PassiveTitleLabelY+20)
 
-	render.DrawMonitor(screen, helmSpeedX, helmStationY, helmSpeedW, helmStationH)
-	render.DrawMonitor(screen, helmCourseX, helmStationY, helmCourseW, helmStationH)
-	render.DrawMonitor(screen, helmDepthX, helmStationY, helmDepthW, helmStationH)
-	render.DrawMonitor(screen, helmRailX, helmRailY, helmRailW, helmRailH)
+	render.DrawMonitor(screen, helmSpeedX, helmStationY, helmSpeedW(), helmStationH)
+	render.DrawMonitor(screen, helmCourseX(), helmStationY, helmCourseW(), helmStationH)
+	render.DrawMonitor(screen, helmDepthX(), helmStationY, helmDepthW(), helmStationH)
+	render.DrawMonitor(screen, helmRailX, helmRailY, helmRailW(), helmRailH)
 
 	actLbl := a.L(i18n.UIAct)
 	ordLbl := a.L(i18n.UIOrd)
 	astLbl := a.L(i18n.UIAST)
-	drawHelmStationHeader(screen, helmSpeedX, helmStationY, helmSpeedW, a.L(i18n.UISpeed), a.L(i18n.UIEngineOrder))
-	drawHelmStationHeader(screen, helmCourseX, helmStationY, helmCourseW, a.L(i18n.UICourse), a.L(i18n.UIClickCompass))
-	render.DrawText(screen, fmt.Sprintf("%s %.0f°", actLbl, p.HeadingDeg), helmCourseX+16, helmStationY+56, render.ColorPhosphor, true)
-	render.DrawText(screen, fmt.Sprintf("%s %.0f°", ordLbl, p.OrderedHead), helmCourseX+16, helmStationY+74, render.ColorAmber, true)
-	drawHelmStationHeader(screen, helmDepthX, helmStationY, helmDepthW, a.L(i18n.UIDepth), a.L(i18n.UIClickScale))
+	drawHelmStationHeader(screen, helmSpeedX, helmStationY, helmSpeedW(), a.L(i18n.UISpeed), a.L(i18n.UIEngineOrder))
+	drawHelmStationHeader(screen, helmCourseX(), helmStationY, helmCourseW(), a.L(i18n.UICourse), a.L(i18n.UIClickCompass))
+	render.DrawText(screen, fmt.Sprintf("%s %.0f°", actLbl, p.HeadingDeg), helmCourseX()+16, helmStationY+56, render.ColorPhosphor, true)
+	render.DrawText(screen, fmt.Sprintf("%s %.0f°", ordLbl, p.OrderedHead), helmCourseX()+16, helmStationY+74, render.ColorAmber, true)
+	drawHelmStationHeader(screen, helmDepthX(), helmStationY, helmDepthW(), a.L(i18n.UIDepth), a.L(i18n.UIClickScale))
 
 	mx, my := ebiten.CursorPosition()
 
 	// --- COURSE gyro ---
-	drawCompassRose(screen, compassCX, compassCY, compassR, p.HeadingDeg, p.OrderedHead)
+	drawCompassRose(screen, helmCompassCX(), helmCompassCY(), compassR, p.HeadingDeg, p.OrderedHead)
 	if hdg, ok := compassHeadingAt(mx, my); ok {
 		rad := hdg * math.Pi / 180
-		ix := compassCX + math.Sin(rad)*(compassR-6)
-		iy := compassCY - math.Cos(rad)*(compassR-6)
+		ix := helmCompassCX() + math.Sin(rad)*(compassR-6)
+		iy := helmCompassCY() - math.Cos(rad)*(compassR-6)
 		render.FillRect(screen, int(ix)-4, int(iy)-4, 8, 8, render.ColorHighlight)
 	}
 
@@ -681,7 +704,7 @@ func (a *App) drawManeuver(screen *ebiten.Image) {
 
 func (a *App) drawBTProgress(screen *ebiten.Image, env acoustics.Environment, gt float64) {
 	btW := render.ButtonWidth(a.L(i18n.UIBTCast), 12)
-	btX := helmRailX + helmRailW - btW - 20
+	btX := helmRailX + helmRailW() - btW - 20
 	const (
 		barW = 160
 		barH = 22
